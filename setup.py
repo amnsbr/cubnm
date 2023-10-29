@@ -18,7 +18,7 @@ target = "GPU"
 
 os.environ["CC"] = "g++"
 os.environ["CXX"] = "g++"
-gpu_enabled = False
+gpu_enabled = True
 
 if gpu_enabled:
     bnm_ext = Extension(
@@ -30,7 +30,7 @@ if gpu_enabled:
             "-m64",
             "-fopenmp",
         ],
-        libraries=["m", "gomp", "bnm"],
+        libraries=["m", "gomp", "bnm", "cudart"],
         extra_objects=[
             "/data/project/ei_development/tools/gsl_build_shared/lib/libgsl.a",
             "/data/project/ei_development/tools/gsl_build_shared/lib/libgslcblas.a",
@@ -40,9 +40,9 @@ if gpu_enabled:
             '/data/project/ei_development/tools/gsl_build_shared/include', 
             '/data/project/ei_development/tools/libks/include',
             '/usr/lib/cuda/include',
-            # '/usr/include/cuda'
+            '/usr/include/cuda'
             ],
-        library_dirs = [".", '/usr/lib/cuda/lib64']
+        library_dirs = [".", '/usr/lib/cuda']
     )
 else:
     bnm_ext = Extension(
