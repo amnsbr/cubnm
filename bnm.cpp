@@ -7,21 +7,21 @@ https://github.com/murraylab/hbnm & https://github.com/decolab/cb-neuromod
 Author: Amin Saberi, Feb 2023
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <string.h>
-#include <math.h>
-#include <sys/stat.h>
-#include <iostream>
-#include <cmath>
-#include <string>
-#include <cstdlib>
-#include <random>
-#include <omp.h>
-#include <chrono>
-#include "fic.cpp"
-#include "constants.h"
+// #include <stdio.h>
+// #include <stdlib.h>
+// #include <time.h>
+// #include <string.h>
+// #include <math.h>
+// #include <sys/stat.h>
+// #include <iostream>
+// #include <cmath>
+// #include <string>
+// #include <cstdlib>
+// #include <random>
+// #include <omp.h>
+// #include <chrono>
+// #include "fic.hpp"
+// #include "constants.hpp"
 #include "check_fit.cpp"
 
 double bnm(int nodes, u_real * SC, gsl_matrix * SC_gsl,

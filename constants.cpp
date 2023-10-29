@@ -1,23 +1,7 @@
-#ifndef CONSTANTS_H
-#define CONSTANTS_H
-#include "helpers.cpp"
-
-// Using floats vs doubles in the simulations, pass -D USE_FLOATS=1 to compiler to use floats
-// Note that this does not affect FIC, CMAES and GOF calculations (always using doubles)
-// as well as the noise array (always generated as floats, but then casted to u_real)
-#ifdef USE_FLOATS
-    typedef float u_real;
-    #define EXP expf
-    #define POW powf
-    #define CUDA_MAX fmaxf
-    #define CUDA_MIN fminf
-#else
-    typedef double u_real;
-    #define EXP exp
-    #define POW pow
-    #define CUDA_MAX max
-    #define CUDA_MIN min
-#endif
+#ifndef CONSTANTS_CPP
+#define CONSTANTS_CPP
+#include "helpers.hpp"
+#include "constants.hpp"
 
 /*
 Global model and integration parameters

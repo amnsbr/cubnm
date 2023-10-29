@@ -1,7 +1,7 @@
-#ifndef HELPERS
-#define HELPERS
+#ifndef HELPERS_CPP
+#define HELPERS_CPP
 
-float get_env_or_default(std::string key, double value_default = 0.0) {
+float get_env_or_default(std::string key, double value_default) {
     const char* value = std::getenv(key.c_str());
     if (value != nullptr) {
         return atof(value);
@@ -10,7 +10,7 @@ float get_env_or_default(std::string key, double value_default = 0.0) {
     }
 }
 
-int get_env_or_default(std::string key, int value_default = 0) {
+int get_env_or_default(std::string key, int value_default) {
     const char* value = std::getenv(key.c_str());
     if (value != nullptr) {
         return atoi(value);

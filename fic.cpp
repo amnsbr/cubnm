@@ -7,21 +7,23 @@ Translated from Python code in https://github.com/murraylab/hbnm
 
 Author: Amin Saberi, Feb 2023
 */
-#include <iostream>
-#include <fstream>
-#include <cmath>
-#include <cstdlib>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <gsl/gsl_matrix_double.h>
-#include <gsl/gsl_vector_double.h>
-#include <gsl/gsl_blas.h>
-#include <gsl/gsl_math.h>
-#include <gsl/gsl_errno.h>
-#include <gsl/gsl_roots.h>
-#include <vector>
-#include <memory>
-#include "constants.h"
+#ifndef FIC_CPP
+#define FIC_CPP
+// #include <iostream>
+// #include <fstream>
+// #include <cmath>
+// #include <cstdlib>
+// #include <sys/stat.h>
+// #include <stdio.h>
+// #include <gsl/gsl_matrix_double.h>
+// #include <gsl/gsl_vector_double.h>
+// #include <gsl/gsl_blas.h>
+// #include <gsl/gsl_math.h>
+// #include <gsl/gsl_errno.h>
+// #include <gsl/gsl_roots.h>
+// #include <vector>
+// #include <memory>
+// #include "constants.hpp"
 
 // helper functions
 void repeat(gsl_vector ** dest, double a, int size) {
@@ -373,3 +375,4 @@ void run_fic(float * J_i, std::string sc_path, int n_regions, double G, double w
         J_i[i] = (float)gsl_vector_get(w_IE, i);
     }
 }
+#endif
