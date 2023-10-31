@@ -1,5 +1,6 @@
 from distutils.core import setup, Extension
 import os
+import numpy as np
 
 """
 Pre-requisites:
@@ -40,7 +41,8 @@ if gpu_enabled:
             '/data/project/ei_development/tools/gsl_build_shared/include', 
             '/data/project/ei_development/tools/libks/include',
             '/usr/lib/cuda/include',
-            '/usr/include/cuda'
+            '/usr/include/cuda',
+            np.get_include(),
             ],
         library_dirs = [".", '/usr/lib/cuda']
     )

@@ -70,9 +70,10 @@ void checkLast(const char* const file, const int line)
     }
 }
 
+bool gpu_initialized = false;
+
 struct ModelConstants* d_mc;
 struct ModelConfigs* d_conf;
-
 int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts;
 bool adjust_fic;
 cudaDeviceProp prop;
@@ -589,19 +590,17 @@ cudaDeviceProp get_device_prop(bool verbose = true) {
                 << ", pciDeviceID: " << prop.pciDeviceID << ", tccDriver: " << prop.tccDriver  << std::endl;
         }
     } else {
-        std::cout << "No CUDA devices found" << std::endl;
+        std::cout << "No CUDA devices was found\n" << std::endl;
         exit(1);
     }
     return prop;
 }
 
 void run_simulations_gpu(
-    double * corr, u_real * fic_penalties,
+    u_real ** BOLD_ex_out, u_real ** fc_trils_out, u_real ** fcd_trils_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list,
-    u_real * SC, gsl_matrix * SC_gsl, int nodes, bool calculate_fic_penalty,
-    int time_steps, int BOLD_TR, int _max_fic_trials, bool sim_only,
-    gsl_vector * emp_FC_tril, gsl_vector * emp_FCD_tril,
-    int window_size, bool save_output, bool extended_output, std::string sims_out_prefix,
+    u_real * SC, gsl_matrix * SC_gsl, int nodes,
+    int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free,
     struct ModelConfigs conf
 )
@@ -652,6 +651,7 @@ void run_simulations_gpu(
     dim3 threadsPerBlock(nodes);
     // (third argument is extern shared memory size for S_i_1_E)
     // provide NULL for extended output variables and FIC variables
+    bool extended_output = true;
     bnm<<<numBlocks,threadsPerBlock,nodes*sizeof(u_real)>>>(
         BOLD_ex, 
         S_ratio, I_ratio, r_ratio,
@@ -745,122 +745,19 @@ void run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     #endif
 
-    // // GOF calculation (on CPU)
-    // if (!(sim_only)) {
-    //     u_real fc_corr, fcd_ks, fc_diff;
-    //     for(int IndPar = 0; IndPar < N_SIMS; IndPar++) {
-    //         fc_corr = gsl_stats_correlation(
-    //             emp_FC_tril->data, 1,
-    //             d_fc_trils[IndPar], 1,
-    //             n_pairs
-    //         );
-    //         gsl_vector_memcpy(emp_FCD_tril_copy, emp_FCD_tril);
-    //         fcd_ks = ks_stat(
-    //             emp_FCD_tril_copy->data, 
-    //             d_fcd_trils[IndPar],
-    //             emp_FCD_tril_copy->size, 
-    //             n_window_pairs, 
-    //             NULL);
-    //         corr[IndPar] = fcd_ks - fc_corr;
-    //         if (conf.use_fc_diff) {
-    //             // get means of simulated and empirical fc
-    //             fc_diff = abs(
-    //                 gsl_stats_mean(emp_FC_tril->data, 1, n_pairs) -
-    //                 gsl_stats_mean(d_fc_trils[IndPar], 1, n_pairs)
-    //             );
-    //             corr[IndPar] += 1 + fc_diff; // 1 is added to match Zhang et al.
-    //         }
-    //         // FIC penalty calculation
-    //         if (calculate_fic_penalty) {
-    //             // calculate FIC penalty for GPU (on CPU it is already calculated in bnm)
-    //             u_real fic_penalty = 0;
-    //             u_real diff_r_E;
-    //             for (int j=0; j<nodes; j++) {
-    //                 diff_r_E = abs(r_E[IndPar][j] - 3);
-    //                 if (diff_r_E > 1) {
-    //                     fic_penalty += 1 - (EXP(-0.05 * diff_r_E));
-    //                 }
-    //             }
-    //             fic_penalty *= conf.fic_penalty_scale; // scale by BNM_CMAES_FIC_PENALTY_SCALE 
-    //             fic_penalty /= nodes; // average across nodes
-    //             if ((conf.fic_reject_failed) & (FIC_failed[IndPar])) {
-    //                 fic_penalty += 1;
-    //             }
-    //             fic_penalties[IndPar] = fic_penalty;
-    //         }
-    //     }
-    // }
-    // // Saving output
-    // if (save_output) {
-    //     FILE *BOLDout, *S_ratio_out, *I_ratio_out, *r_ratio_out, 
-    //         *S_E_out, *I_E_out, *r_E_out, *S_I_out, *I_I_out, *r_I_out, 
-    //         *w_IE_out_file;
-    //     if (N_SIMS == 1) {
-    //         // e.g. best CMAES simulation
-    //         BOLDout = fopen((sims_out_prefix + "bold.txt").c_str(), "w");
-    //         S_ratio_out = fopen((sims_out_prefix + "S_ratio.txt").c_str(), "w");
-    //         I_ratio_out = fopen((sims_out_prefix + "I_ratio.txt").c_str(), "w");
-    //         r_ratio_out = fopen((sims_out_prefix + "r_ratio.txt").c_str(), "w");
-    //         S_E_out = fopen((sims_out_prefix + "S_E.txt").c_str(), "w");
-    //         I_E_out = fopen((sims_out_prefix + "I_E.txt").c_str(), "w");
-    //         r_E_out = fopen((sims_out_prefix + "r_E.txt").c_str(), "w");
-    //         S_I_out = fopen((sims_out_prefix + "S_I.txt").c_str(), "w");
-    //         I_I_out = fopen((sims_out_prefix + "I_I.txt").c_str(), "w");
-    //         r_I_out = fopen((sims_out_prefix + "r_I.txt").c_str(), "w");
-    //         w_IE_out_file;
-    //         if (do_fic) {
-    //             w_IE_out_file = fopen((sims_out_prefix + "w_IE.txt").c_str(), "w");
-    //             if (adjust_fic) {
-    //                 FILE * FIC_failed_out = fopen((sims_out_prefix + "fic_failed.txt").c_str(), "w");
-    //                 fprintf(FIC_failed_out, "%d", FIC_failed[0]);
-    //                 fclose(FIC_failed_out);
-    //                 FILE * fic_n_trials_out = fopen((sims_out_prefix + "fic_ntrials.txt").c_str(), "w");
-    //                 fprintf(fic_n_trials_out, "%d of max %d", fic_n_trials[0], _max_fic_trials);
-    //                 fclose(fic_n_trials_out);
-    //             }
-    //         }
-    //         for (int i=0; i<output_ts; i++) {
-    //             for (int j=0; j<nodes; j++) {
-    //                 fprintf(BOLDout, "%.7f ",BOLD_ex[0][i*nodes+j]);
-    //             }
-    //             fprintf(BOLDout, "\n");
-    //         }
-    //         for (int j=0; j<nodes; j++) {
-    //             fprintf(S_E_out, "%.7f ",S_E[0][j]);
-    //             fprintf(I_E_out, "%.7f ",I_E[0][j]);
-    //             fprintf(r_E_out, "%.7f ",r_E[0][j]);
-    //             fprintf(S_I_out, "%.7f ",S_I[0][j]);
-    //             fprintf(I_I_out, "%.7f ",I_I[0][j]);
-    //             fprintf(r_I_out, "%.7f ",r_I[0][j]);
-    //             fprintf(S_ratio_out, "%.7f ",S_ratio[0][j]);
-    //             fprintf(I_ratio_out, "%.7f ",I_ratio[0][j]);
-    //             fprintf(r_ratio_out, "%.7f ",r_ratio[0][j]);
-    //             if (do_fic) {
-    //                 fprintf(w_IE_out_file, "%.7f ", w_IE_fic[0][j]);
-    //             }
-    //         }   
-    //     } else {
-    //         printf("Saving multiple simulations output not implemented\n");
-    //         exit(1);
-    //     }
-    //     fclose(BOLDout);
-    //     fclose(S_E_out);
-    //     fclose(S_I_out);
-    //     fclose(r_E_out);
-    //     fclose(r_I_out);
-    //     fclose(I_E_out);
-    //     fclose(I_I_out);
-    //     if (do_fic) {
-    //         fclose(w_IE_out_file);
-    //     }
-    // }
+    // copy the output to _out variables
+    printf("BOLD GPU: %f\n", BOLD_ex[0][500]);
+    for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
+        memcpy(BOLD_ex_out[sim_idx], BOLD_ex[sim_idx], sizeof(u_real) * nodes * output_ts);
+    }
+    printf("BOLD CPU: %f\n", BOLD_ex_out[0][500]);
+
 }
 
 void init_gpu(int N_SIMS, int nodes, bool do_fic, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        gsl_vector * emp_FC_tril, gsl_vector * emp_FCD_tril,
         struct ModelConstants mc, struct ModelConfigs conf
-        ) 
+        )
     {
     // check CUDA device avaliability and properties
     prop = get_device_prop();
@@ -928,10 +825,10 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, int rand_seed,
         rh_idx = nodes / 2; // assumes symmetric number of parcels and L->R order
         n_pairs -= pow(rh_idx, 2); // exc the middle square
     }
-    if (n_pairs!=emp_FC_tril->size) {
-        printf("Empirical and simulated FC size do not match\n");
-        exit(1);
-    }
+    // if (n_pairs!=emp_FC_tril->size) { // TODO: do this check on Python side
+    //     printf("Empirical and simulated FC size do not match\n");
+    //     exit(1);
+    // }
     // create a mapping between pair_idx and i and j
     int curr_idx = 0;
     CUDA_CHECK_RETURN(cudaMallocManaged(&pairs_i, sizeof(int) * n_pairs));
@@ -1074,5 +971,6 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, int rand_seed,
         #endif
     }
 
-    emp_FCD_tril_copy = gsl_vector_alloc(emp_FCD_tril->size); // for fcd_ks
+    // emp_FCD_tril_copy = gsl_vector_alloc(emp_FCD_tril->size); // for fcd_ks
+    gpu_initialized = true;
 }
