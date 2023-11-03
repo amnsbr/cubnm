@@ -597,11 +597,11 @@ cudaDeviceProp get_device_prop(bool verbose = true) {
 }
 
 void run_simulations_gpu(
-    u_real ** BOLD_ex_out, u_real ** fc_trils_out, u_real ** fcd_trils_out,
+    double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list,
     u_real * SC, gsl_matrix * SC_gsl, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
-    int N_SIMS, bool do_fic, bool only_wIE_free,
+    int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
     struct ModelConfigs conf
 )
 // TODO: clean the order of args
@@ -651,7 +651,7 @@ void run_simulations_gpu(
     dim3 threadsPerBlock(nodes);
     // (third argument is extern shared memory size for S_i_1_E)
     // provide NULL for extended output variables and FIC variables
-    bool extended_output = true;
+    bool _extended_output = (extended_output | do_fic);
     bnm<<<numBlocks,threadsPerBlock,nodes*sizeof(u_real)>>>(
         BOLD_ex, 
         S_ratio, I_ratio, r_ratio,
@@ -662,7 +662,7 @@ void run_simulations_gpu(
         N_SIMS, nodes, BOLD_TR, time_steps, 
         noise, do_fic, w_IE_fic, 
         adjust_fic, _max_fic_trials, FIC_failed, fic_n_trials,
-        extended_output,
+        _extended_output,
         corr_len, mean_bold, ssd_bold, 
         d_mc, d_conf, true); // true refers to regional_params
     CUDA_CHECK_LAST_ERROR();
@@ -745,16 +745,19 @@ void run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     #endif
 
-    // copy the output to _out variables
-    printf("BOLD GPU: %f\n", BOLD_ex[0][500]);
+    // copy the output from managed memory to _out arrays (which can be numpy arrays)
+    size_t bold_size = nodes * output_ts;
     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
-        memcpy(BOLD_ex_out[sim_idx], BOLD_ex[sim_idx], sizeof(u_real) * nodes * output_ts);
+        printf("BOLD C %d: idx 500 %f\n", sim_idx, BOLD_ex[sim_idx][500]);
+        memcpy(BOLD_ex_out, BOLD_ex[sim_idx], sizeof(u_real) * bold_size);
+        BOLD_ex_out+=bold_size;
+        // memcpy(&fc_trils_out[sim_idx*n_pairs], fc_trils[sim_idx], sizeof(u_real) * n_pairs);
+        // memcpy(&fcd_trils_out[sim_idx*n_window_pairs], fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
     }
-    printf("BOLD CPU: %f\n", BOLD_ex_out[0][500]);
 
 }
 
-void init_gpu(int N_SIMS, int nodes, bool do_fic, int rand_seed,
+void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
         struct ModelConstants mc, struct ModelConfigs conf
         )
@@ -784,11 +787,12 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, int rand_seed,
     // assessing FIC success. With default max_fic_trials_cmaes = 0
     // no adjustment is done but FIC success is assessed
     adjust_fic = do_fic & conf.numerical_fic;
+    bool _extended_output = (extended_output | do_fic);
     CUDA_CHECK_RETURN(cudaMallocManaged(&FIC_failed, sizeof(bool) * N_SIMS));
     CUDA_CHECK_RETURN(cudaMallocManaged(&fic_n_trials, sizeof(int) * N_SIMS));
     CUDA_CHECK_RETURN(cudaMallocManaged(&fic_n_trials, sizeof(int) * N_SIMS));
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic, sizeof(u_real*) * N_SIMS));
-    if (do_fic) { // we only need r_E but currently bnm writes all or none of the extended output
+    if (_extended_output) {
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_ratio, sizeof(u_real*) * N_SIMS));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_ratio, sizeof(u_real*) * N_SIMS));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_ratio, sizeof(u_real*) * N_SIMS));
@@ -942,7 +946,7 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, int rand_seed,
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fc_trils[sim_idx], sizeof(double) * n_pairs));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fcd_trils[sim_idx], sizeof(double) * n_window_pairs));
         #endif
-        if (do_fic) {
+        if (_extended_output) {
             // allocate a chunk of w_IE_fic to current simulation and copy w_IE array to it
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic[sim_idx], sizeof(u_real) * nodes));
             // also need to allocate memory for all internal variables (but only r_E is used)
