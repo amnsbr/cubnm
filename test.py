@@ -10,11 +10,13 @@ def test(N_SIMS=2):
     window_step = 2
     rand_seed = 410
     extended_output = True
+    velocity = 0.1
 
     np.random.seed(0)
 
-    SC = np.loadtxt('/data/project/ei_development/tools/pybnm/sample_input/SC.txt').flatten()
+    SC = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt').flatten()
     # SC = np.random.randn(nodes*nodes)
+    SC_dist = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt').flatten()
     G_list = np.array([0.5]*N_SIMS)
     w_EE_list = np.repeat(0.21, nodes*N_SIMS)
     w_EI_list = np.repeat(0.15, nodes*N_SIMS)
@@ -24,9 +26,9 @@ def test(N_SIMS=2):
     # do_fic = False
 
     sim_bolds, sim_fc_trils, sim_fcd_trils = bnm.run_simulations(
-        SC, G_list, w_EE_list, w_EI_list, w_IE_list,
+        SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list,
         do_fic, extended_output, N_SIMS, nodes, time_steps, BOLD_TR,
-        window_size, window_step, rand_seed
+        window_size, window_step, rand_seed, velocity
     )
 
     for sim_idx in range(N_SIMS):

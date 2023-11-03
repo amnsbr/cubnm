@@ -1,5 +1,5 @@
 # all in one
-cd /data/project/ei_development/tools/pybnm
+cd /data/project/ei_development/tools/cuBNM
 nvcc -c -rdc=true --compiler-options '-fPIC' -o bnm_tmp.o bnm.cu -I/data/project/ei_development/tools/gsl_build/include \
 -I/data/project/ei_development/tools/libks/include
 nvcc -dlink --compiler-options '-fPIC' -o bnm.o bnm_tmp.o \

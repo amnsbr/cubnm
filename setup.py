@@ -24,7 +24,7 @@ gpu_enabled = True
 if gpu_enabled:
     bnm_ext = Extension(
         'bnm',
-        ['run_CMAES.cpp'],
+        ['run_simulations.cpp'],
         language='c++',
         extra_compile_args=[
             "-O3",

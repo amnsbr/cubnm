@@ -74,15 +74,15 @@ bool gpu_initialized = false;
 
 __constant__ struct ModelConstants d_mc;
 __constant__ struct ModelConfigs d_conf;
-int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts;
-bool adjust_fic;
+int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
+bool adjust_fic, has_delay;
 cudaDeviceProp prop;
 bool *FIC_failed;
 u_real **S_ratio, **I_ratio, **r_ratio, **S_E, **I_E, **r_E, **S_I, **I_I, **r_I,
     **BOLD_ex, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
     **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise, **w_IE_fic,
-    *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list;
-int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
+    *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list, **S_i_E_hist;
+int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j, *delay;
 #ifdef USE_FLOATS
 double **d_fc_trils, **d_fcd_trils;
 #else
@@ -98,6 +98,7 @@ __global__ void bnm(
     u_real **S_E, u_real **I_E, u_real **r_E, u_real **S_I, u_real **I_I, 
     u_real **r_I, int n_vols_remove,
     u_real *SC, u_real *G_list, u_real *w_EE_list, u_real *w_EI_list, u_real *w_IE_list,
+    u_real **S_i_E_hist, int *delay, int max_delay,
     int N_SIMS, int nodes, int BOLD_TR, int time_steps, 
     u_real *noise, bool do_fic, u_real **w_IE_fic,
     bool adjust_fic, int max_fic_trials, bool *FIC_failed, int *fic_n_trials,
@@ -120,6 +121,7 @@ __global__ void bnm(
 
     int j = b.thread_rank(); // region index
     if (j >= nodes) return;
+
     // set initial values and sync all threads
     S_i_1_E[j] = 0.001;
     S_i_E = 0.001;
@@ -172,6 +174,21 @@ __global__ void bnm(
         I_I[sim_idx][j] = 0;
         r_I[sim_idx][j] = 0;
     }
+    // determine if there is delay
+    bool has_delay = (max_delay > 0);
+    // if there is delay use a circular buffer (S_i_E_hist)
+    // and keep track of current buffer index (will be the same
+    // in all nodes at each time point). Start from the end and
+    // go backwards. 
+    // Note that S_i_E_hist is pseudo-2d
+    int buff_idx, k_buff_idx;
+    if (has_delay) {
+        // initialize S_i_E_hist in every time point at initial value
+        for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
+            S_i_E_hist[sim_idx][buff_idx*nodes+j] = 0.001;
+        }
+        buff_idx = max_delay-1;
+    }
 
     // initializations for FIC adjustment
     u_real mean_I_E, delta, I_E_ba_diff;
@@ -201,17 +218,30 @@ __global__ void bnm(
     int BOLD_len_i = 0;
     ts_bold = 0;
     while (ts_bold <= time_steps) {
-        for (int_i = 0; int_i < 10; int_i++) {
+        if (has_delay) {
+            // calculate global input (will be fixed through 10 steps of the millisecond)
             // wait for other nodes
-            // note that a sync call is needed before using
-            // and updating S_i_1_E, otherwise the current
-            // thread might access S_E of other nodes at wrong
-            // times (t or t-2 instead of t-1)
             cg::sync(b);
             tmp_globalinput = 0;
             for (k=0; k<nodes; k++) {
-                // calculate global input
-                tmp_globalinput += SC[j*nodes+k] * S_i_1_E[k];
+                // calculate correct index of the other region in the buffer based on j-k delay
+                k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
+                tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
+            }
+        }
+        for (int_i = 0; int_i < 10; int_i++) {
+            if (!has_delay) {
+                // wait for other nodes
+                // note that a sync call is needed before using
+                // and updating S_i_1_E, otherwise the current
+                // thread might access S_E of other nodes at wrong
+                // times (t or t-2 instead of t-1)
+                cg::sync(b);
+                tmp_globalinput = 0;
+                for (k=0; k<nodes; k++) {
+                    // calculate global input
+                    tmp_globalinput += SC[j*nodes+k] * S_i_1_E[k];
+                }
             }
             // equations
             tmp_I_E = d_mc.w_E__I_0 + w_EE * S_i_E + tmp_globalinput * G * d_mc.J_NMDA - w_IE*S_i_I;
@@ -236,11 +266,23 @@ __global__ void bnm(
             // clip S to 0-1
             S_i_E = CUDA_MAX(0.0, CUDA_MIN(1.0, S_i_E));
             S_i_I = CUDA_MAX(0.0, CUDA_MIN(1.0, S_i_I));
-            // wait for other regions
-            // see note above on why this is needed before updating S_i_1_E
-            cg::sync(b);
-            S_i_1_E[j] = S_i_E;
+            if (!has_delay) {
+                // wait for other regions
+                // see note above on why this is needed before updating S_i_1_E
+                cg::sync(b);
+                S_i_1_E[j] = S_i_E;
+            }
         }
+
+        if (has_delay) {
+            // go 1 ms backward in the buffer and save most recent S_i_E
+            // wait for all regions to have correct (same) buff_idx
+            // and updated S_i_E_hist
+            cg::sync(b);
+            buff_idx = (buff_idx + max_delay - 1) % max_delay;
+            S_i_E_hist[sim_idx][buff_idx*nodes+j] = S_i_E;
+        }
+
         // Compute BOLD for that time-step (subsampled to 1 ms)
         bw_x_ex  = bw_x_ex  +  d_mc.model_dt * (S_i_E - d_mc.kappa * bw_x_ex - d_mc.y * (bw_f_ex - 1.0));
         tmp_f    = bw_f_ex  +  d_mc.model_dt * bw_x_ex;
@@ -311,6 +353,14 @@ __global__ void bnm(
                         bw_nu_ex = 1.0;
                         bw_q_ex = 1.0;
                         mean_I_E = 0;
+                        if (has_delay) {
+                            // reset buffer
+                            // initialize S_i_E_hist in every time point at initial value
+                            for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
+                                S_i_E_hist[sim_idx][buff_idx*nodes+j] = 0.001;
+                            }
+                            buff_idx = max_delay-1;
+                        }
                     } else {
                         // continue the simulation but
                         // declare FIC failed
@@ -598,8 +648,8 @@ cudaDeviceProp get_device_prop(bool verbose = true) {
 void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list,
-    u_real * SC, gsl_matrix * SC_gsl, int nodes,
-    int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
+    u_real * SC, gsl_matrix * SC_gsl, 
+    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
     struct ModelConfigs conf
 )
@@ -664,6 +714,7 @@ void run_simulations_gpu(
         S_I, I_I, r_I,
         n_vols_remove,
         d_SC, d_G_list, d_w_EE_list, d_w_EI_list, d_w_IE_list,
+        S_i_E_hist, delay, max_delay,
         N_SIMS, nodes, BOLD_TR, time_steps, 
         noise, do_fic, w_IE_fic, 
         adjust_fic, _max_fic_trials, FIC_failed, fic_n_trials,
@@ -767,7 +818,8 @@ void run_simulations_gpu(
 
 void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf
+        struct ModelConstants mc, struct ModelConfigs conf,
+        u_real * SC_dist, double velocity
         )
     {
     // check CUDA device avaliability and properties
@@ -787,6 +839,41 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     CUDA_CHECK_RETURN(cudaMalloc(&d_w_EE_list, sizeof(u_real) * N_SIMS*nodes));
     CUDA_CHECK_RETURN(cudaMalloc(&d_w_EI_list, sizeof(u_real) * N_SIMS*nodes));
     CUDA_CHECK_RETURN(cudaMalloc(&d_w_IE_list, sizeof(u_real) * N_SIMS*nodes));
+
+    // delay calculations if SC_dist and velocity are provided
+    // TODO: set up velocity as a free parameter variable across simulations
+    // in that case velocity used here must be the minimum bound of the range
+    // so that S_i_E_hist has the correct dimensions for the slowest simulation
+    // also must specify a separate `delay` matrix for each simulation
+    // within run_simulations_gpu
+    // also consider allocating and destroying S_i_E_hist within run_simulations_gpu
+    // as different calls (from Python) to it might include different ranges of velocities
+    max_delay = 0; // msec
+    float max_length;
+    float curr_length, curr_delay;
+    if ((SC_dist!=NULL) & (velocity!=-1)) {
+        CUDA_CHECK_RETURN(cudaMallocManaged(&delay, sizeof(int) * nodes * nodes));
+        for (int i = 0; i < nodes; i++) {
+            for (int j = 0; j < nodes; j++) {
+                curr_length = SC_dist[i*nodes+j];
+                if (i > j) {
+                    curr_delay = (int)(((curr_length/velocity))+0.5); // msec [not 0.1msec]
+                    delay[i*nodes + j] = curr_delay;
+                    delay[j*nodes + i] = curr_delay;
+                    if (curr_delay > max_delay) {
+                        max_delay = curr_delay;
+                        max_length = curr_length;
+                    }
+                }
+            }
+        }
+    }
+    printf("Max delay: %d\n", max_delay);
+    has_delay = (max_delay > 0);
+
+    if (has_delay) {
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist, sizeof(u_real*) * N_SIMS)); 
+    }
 
     // FIC adjustment init
     // adjust_fic is set to true by default but only for
@@ -946,6 +1033,10 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&windows_mean_fc[sim_idx], sizeof(u_real) * n_windows));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&windows_ssd_fc[sim_idx], sizeof(u_real) * n_windows));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs));
+        // for S_i_E history
+        if (has_delay) {
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist[sim_idx], sizeof(u_real) * nodes * max_delay));
+        }
         #ifdef USE_FLOATS
         // allocate memory for double copies of fc and fcd
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fc_trils[sim_idx], sizeof(double) * n_pairs));

@@ -85,6 +85,7 @@ struct ModelConfigs {
     bool use_fc_ks;
     bool use_fc_diff;
     bool exc_interhemispheric;
+    bool drop_edges;
 
     // CMAES config
     bool sim_verbose;

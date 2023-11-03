@@ -37,12 +37,13 @@
 #include "helpers.cpp"
 #include "constants.cpp"
 #include "fic.cpp"
-#include "bnm.cpp"
+// #include "bnm.cpp"
 
 // declare gpu functions which will be provided by bnm.cu compiled library
 extern void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf
+        struct ModelConstants mc, struct ModelConfigs conf,
+        u_real * SC_dist, double velocity
         );
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
@@ -56,12 +57,14 @@ extern bool gpu_initialized;
 extern int n_pairs, n_window_pairs, output_ts; // will be defined by init_gpu
 
 static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
-    PyArrayObject *SC, *G_list, *w_EE_list, *w_EI_list, *w_IE_list;
+    PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list;
     bool do_fic, extended_output;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
+    double velocity;
 
-    if (!PyArg_ParseTuple(args, "O!O!O!O!O!iiiiiiiii", 
-            &PyArray_Type, &SC, 
+    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!iiiiiiiiid", 
+            &PyArray_Type, &SC,
+            &PyArray_Type, &SC_dist,
             &PyArray_Type, &G_list,
             &PyArray_Type, &w_EE_list,
             &PyArray_Type, &w_EI_list,
@@ -74,12 +77,14 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
             &BOLD_TR,
             &window_size,
             &window_step,
-            &rand_seed
+            &rand_seed,
+            &velocity
             ))
         return NULL;
 
     if (
         SC->nd != 1 || SC->descr->type_num != PyArray_DOUBLE ||
+        SC_dist->nd != 1 || SC_dist->descr->type_num != PyArray_DOUBLE ||
         G_list->nd != 1 || G_list->descr->type_num != PyArray_DOUBLE ||
         w_EE_list->nd != 1 || w_EE_list->descr->type_num != PyArray_DOUBLE ||
         w_EE_list->nd != 1 || w_EE_list->descr->type_num != PyArray_DOUBLE ||
@@ -89,8 +94,8 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         return NULL;
     }
 
-    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d\n", 
-        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output);
+    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d velocity %d\n", 
+        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, velocity);
 
     // TODO: these should be determined by the user
     bool only_wIE_free = false;
@@ -122,7 +127,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         start = std::chrono::high_resolution_clock::now();
         init_gpu(N_SIMS, nodes,
             do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-            mc, conf);
+            mc, conf, (double*)PyArray_DATA(SC_dist), velocity);
         end = std::chrono::high_resolution_clock::now();
         elapsed_seconds = end - start;
         printf("took %lf s\n", elapsed_seconds.count());
