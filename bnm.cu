@@ -757,8 +757,10 @@ void run_simulations_gpu(
         // printf("wEE %f\n", d_w_EE_list[sim_idx*nodes+0]);
         memcpy(BOLD_ex_out, BOLD_ex[sim_idx], sizeof(u_real) * bold_size);
         BOLD_ex_out+=bold_size;
-        // memcpy(&fc_trils_out[sim_idx*n_pairs], fc_trils[sim_idx], sizeof(u_real) * n_pairs);
-        // memcpy(&fcd_trils_out[sim_idx*n_window_pairs], fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
+        memcpy(fc_trils_out, fc_trils[sim_idx], sizeof(u_real) * n_pairs);
+        fc_trils_out+=n_pairs;
+        memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
+        fcd_trils_out+=n_window_pairs;
     }
 
 }
