@@ -863,10 +863,9 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
 
     // FCD preparation
     // calculate number of windows and window start/end indices
-    bool drop_edges = true;
     std::vector<int> _window_starts, _window_ends;
     int first_center, last_center, window_center, window_start, window_end;
-    if (drop_edges) {
+    if (conf.drop_edges) {
         first_center = window_size / 2;
         last_center = corr_len - 1 - (window_size / 2);
     } else {

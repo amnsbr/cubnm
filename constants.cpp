@@ -81,6 +81,7 @@ void init_conf(struct ModelConfigs* conf) {
     conf->use_fc_ks = get_env_or_default("BNM_USE_FC_KS", 0);
     conf->use_fc_diff = get_env_or_default("BNM_USE_FC_DIFF", 1);
     conf->exc_interhemispheric = get_env_or_default("BNM_EXC_INTERHEM", 1); // exclude interhemispheric connections from FC(D) calculation and fitting
+    conf->drop_edges = get_env_or_default("BNM_DROP_EDGES", 1); // drop the edges of the signal in dFC calculation
     // CMAES config
     conf->sim_verbose = get_env_or_default("BNM_CMAES_SIM_VERBOSE", 0);
     conf->sigma = get_env_or_default("BNM_CMAES_SIGMA", 0.5); // is updated during CMAES, should not be const
