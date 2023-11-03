@@ -641,6 +641,11 @@ void run_simulations_gpu(
                 for (int j=0; j<nodes; j++) {
                     w_IE_fic[IndPar][j] = (u_real)gsl_vector_get(curr_w_IE, j);
                 }
+                if (_unstable) {
+                    printf("In simulation #%d FIC solution is unstable. There might be problems with the SC. Exiting...\n", IndPar);
+                    exit(1);
+                    //TODO: instead of exiting skip the unstable simulation
+                }
             }
         }
     }
