@@ -218,19 +218,20 @@ __global__ void bnm(
     int BOLD_len_i = 0;
     ts_bold = 0;
     while (ts_bold <= time_steps) {
-        if (has_delay) {
-            // calculate global input (will be fixed through 10 steps of the millisecond)
-            // wait for other nodes
-            cg::sync(b);
-            tmp_globalinput = 0;
-            for (k=0; k<nodes; k++) {
-                // calculate correct index of the other region in the buffer based on j-k delay
-                k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
-                tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
-            }
-        }
-        for (int_i = 0; int_i < 10; int_i++) {
-            if (!has_delay) {
+        if (d_conf.sync_msec) {
+            // calculate global input every 1 ms
+            // (will be fixed through 10 steps of the millisecond)
+            // TODO: consider using directives or separate kernels
+            // to avoid unnecessary repetitive if clauses
+            if (has_delay) {
+                cg::sync(b);
+                tmp_globalinput = 0;
+                for (k=0; k<nodes; k++) {
+                    // calculate correct index of the other region in the buffer based on j-k delay
+                    k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
+                    tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
+                }
+            } else {
                 // wait for other nodes
                 // note that a sync call is needed before using
                 // and updating S_i_1_E, otherwise the current
@@ -241,6 +242,26 @@ __global__ void bnm(
                 for (k=0; k<nodes; k++) {
                     // calculate global input
                     tmp_globalinput += SC[j*nodes+k] * S_i_1_E[k];
+                }            
+            }
+        }
+        for (int_i = 0; int_i < 10; int_i++) {
+            if (!d_conf.sync_msec) {
+                // calculate global input every 0.1 ms
+                if (has_delay) {
+                    cg::sync(b);
+                    tmp_globalinput = 0;
+                    for (k=0; k<nodes; k++) {
+                        // calculate correct index of the other region in the buffer based on j-k delay
+                        k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
+                        tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
+                    }
+                } else {
+                    cg::sync(b);
+                    tmp_globalinput = 0;
+                    for (k=0; k<nodes; k++) {
+                        tmp_globalinput += SC[j*nodes+k] * S_i_1_E[k];
+                    }            
                 }
             }
             // equations
@@ -266,21 +287,38 @@ __global__ void bnm(
             // clip S to 0-1
             S_i_E = CUDA_MAX(0.0, CUDA_MIN(1.0, S_i_E));
             S_i_I = CUDA_MAX(0.0, CUDA_MIN(1.0, S_i_I));
-            if (!has_delay) {
+            if (!d_conf.sync_msec) {
+                if (has_delay) {
+                    // go 0.1 ms backward in the buffer and save most recent S_i_E
+                    // wait for all regions to have correct (same) buff_idx
+                    // and updated S_i_E_hist
+                    cg::sync(b);
+                    buff_idx = (buff_idx + max_delay - 1) % max_delay;
+                    S_i_E_hist[sim_idx][buff_idx*nodes+j] = S_i_E;
+                } else  {
+                    // wait for other regions
+                    // see note above on why this is needed before updating S_i_1_E
+                    cg::sync(b);
+                    S_i_1_E[j] = S_i_E;
+                }
+            }
+        }
+
+
+        if (d_conf.sync_msec) {
+            if (has_delay) {
+                // go 1 ms backward in the buffer and save most recent S_i_E
+                // wait for all regions to have correct (same) buff_idx
+                // and updated S_i_E_hist
+                cg::sync(b);
+                buff_idx = (buff_idx + max_delay - 1) % max_delay;
+                S_i_E_hist[sim_idx][buff_idx*nodes+j] = S_i_E;
+            } else  {
                 // wait for other regions
                 // see note above on why this is needed before updating S_i_1_E
                 cg::sync(b);
                 S_i_1_E[j] = S_i_E;
             }
-        }
-
-        if (has_delay) {
-            // go 1 ms backward in the buffer and save most recent S_i_E
-            // wait for all regions to have correct (same) buff_idx
-            // and updated S_i_E_hist
-            cg::sync(b);
-            buff_idx = (buff_idx + max_delay - 1) % max_delay;
-            S_i_E_hist[sim_idx][buff_idx*nodes+j] = S_i_E;
         }
 
         // Compute BOLD for that time-step (subsampled to 1 ms)
@@ -848,16 +886,19 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     // within run_simulations_gpu
     // also consider allocating and destroying S_i_E_hist within run_simulations_gpu
     // as different calls (from Python) to it might include different ranges of velocities
-    max_delay = 0; // msec
+    max_delay = 0; // msec ir 0.1 msec depending on conf.sync_msec
     float max_length;
     float curr_length, curr_delay;
     if ((SC_dist!=NULL) & (velocity!=-1)) {
+        if (!conf.sync_msec) {
+            velocity /= 10;
+        }
         CUDA_CHECK_RETURN(cudaMallocManaged(&delay, sizeof(int) * nodes * nodes));
         for (int i = 0; i < nodes; i++) {
             for (int j = 0; j < nodes; j++) {
                 curr_length = SC_dist[i*nodes+j];
                 if (i > j) {
-                    curr_delay = (int)(((curr_length/velocity))+0.5); // msec [not 0.1msec]
+                    curr_delay = (int)(((curr_length/velocity))+0.5);
                     delay[i*nodes + j] = curr_delay;
                     delay[j*nodes + i] = curr_delay;
                     if (curr_delay > max_delay) {
@@ -868,7 +909,13 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
             }
         }
     }
-    printf("Max delay: %d\n", max_delay);
+    std::string velocity_unit = "m/s";
+    std::string delay_unit = "msec";
+    if (!conf.sync_msec) {
+        velocity_unit = "m/0.1s";
+        delay_unit = "0.1msec";
+    }
+    printf("Max distance %f (mm) with a minimum velocity of %f (%s) => Max delay: %d (%s)\n", max_length, velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
     has_delay = (max_delay > 0);
 
     if (has_delay) {
@@ -1060,6 +1107,7 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
 
     // pre-calculate normally-distributed noise on CPU
     int noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
+    printf("Precalculating %d noise elements...\n", noise_size);
     std::mt19937 rand_gen(rand_seed);
     std::normal_distribution<float> normal_dist(0, 1);
     CUDA_CHECK_RETURN(cudaMallocManaged(&noise, sizeof(u_real) * noise_size));

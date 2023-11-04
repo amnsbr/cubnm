@@ -1,16 +1,26 @@
 import numpy as np
 import bnm 
+import os
 
 def test(N_SIMS=2):
     # run identical simulations and check if BOLD is the same
     nodes = 100
-    time_steps = 60000
-    BOLD_TR = 1000
+    # time_steps = 60000
+    time_steps = 450000
+    # BOLD_TR = 1000
+    BOLD_TR = 3000
     window_size = 10
     window_step = 2
     rand_seed = 410
     extended_output = True
-    velocity = 0.1
+    velocity = 1
+    has_delay = (velocity != -1)
+    if has_delay:
+        # with delay it is recommended to do
+        # the syncing of nodes every 1 msec instead
+        # of every 0.1 msec. Otherwise it'll be very slow
+        os.environ['BNM_SYNC_MSEC'] = '1'
+        # TODO: add a function to do bnm.set_conf('sync_msec', True)
 
     np.random.seed(0)
 
