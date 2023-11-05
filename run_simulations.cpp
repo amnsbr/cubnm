@@ -47,7 +47,7 @@ extern void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, i
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
-    u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, int nodes,
+    u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
     struct ModelConfigs conf
@@ -57,11 +57,11 @@ extern int n_pairs, n_window_pairs, output_ts; // will be defined by init_gpu
 
 static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
     PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list, *v_list;
-    bool do_fic, extended_output;
+    bool do_fic, extended_output, do_delay;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
     double velocity;
 
-    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiiii", 
             &PyArray_Type, &SC,
             &PyArray_Type, &SC_dist,
             &PyArray_Type, &G_list,
@@ -71,6 +71,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
             &PyArray_Type, &v_list,
             &do_fic,
             &extended_output,
+            &do_delay,
             &N_SIMS,
             &nodes,
             &time_steps,
@@ -94,8 +95,8 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         return NULL;
     }
         
-    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d\n", 
-        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output);
+    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d do_delay %d\n", 
+        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, do_delay);
 
     // TODO: these should be determined by the user
     bool only_wIE_free = false;
@@ -152,7 +153,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
         (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
         (double*)PyArray_DATA(v_list),
-        (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), nodes,
+        (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
         time_steps, BOLD_TR, _max_fic_trials,
         window_size, N_SIMS, do_fic, only_wIE_free, extended_output, conf
     );

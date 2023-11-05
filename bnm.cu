@@ -686,7 +686,7 @@ cudaDeviceProp get_device_prop(bool verbose = true) {
 void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
-    u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist,
+    u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
     int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
     struct ModelConfigs conf
@@ -711,7 +711,11 @@ void run_simulations_gpu(
     float min_velocity = 1e10; // only used for printing info
     float max_length;
     float curr_length, curr_delay, curr_velocity;
-    if (SC_dist!=NULL) {
+    if (do_delay) {
+    // note that do_delay is user asking for delay to be considered, has_delay indicates
+    // if user has asked for delay AND there would be any delay between nodes given
+    // velocity and distance matrix
+    // TODO: make it less complicated
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay, sizeof(int*) * N_SIMS));
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay[sim_idx], sizeof(int) * nodes * nodes));
@@ -912,7 +916,7 @@ void run_simulations_gpu(
     // Note: no need to clear memory of the other variables
     // as we'll want to reuse them in the next calls to run_simulations_gpu
     // within current session
-    if (SC_dist!=NULL) {
+    if (do_delay) {
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaFree(delay[sim_idx]));
         }
