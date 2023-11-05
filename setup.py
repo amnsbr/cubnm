@@ -1,4 +1,4 @@
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 import os
 import numpy as np
 
@@ -47,5 +47,6 @@ if gpu_enabled:
 else:
     raise NotImplementedError("The package currently does not support CPU simulations")
 
-setup(name = 'cuBNM', version = '1.0',  \
-   ext_modules = [bnm_ext])
+setup(name = 'cuBNM', version = '1.0',
+    packages=find_packages(),
+    ext_modules = [bnm_ext])

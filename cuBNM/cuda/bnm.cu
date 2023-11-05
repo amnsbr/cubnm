@@ -902,8 +902,6 @@ void run_simulations_gpu(
     // copy the output from managed memory to _out arrays (which can be numpy arrays)
     size_t bold_size = nodes * output_ts;
     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
-        printf("BOLD C %d: idx 500 %f\n", sim_idx, BOLD_ex[sim_idx][500]);
-        // printf("wEE %f\n", d_w_EE_list[sim_idx*nodes+0]);
         memcpy(BOLD_ex_out, BOLD_ex[sim_idx], sizeof(u_real) * bold_size);
         BOLD_ex_out+=bold_size;
         memcpy(fc_trils_out, fc_trils[sim_idx], sizeof(u_real) * n_pairs);
