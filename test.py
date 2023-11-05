@@ -13,14 +13,6 @@ def test(N_SIMS=2):
     window_step = 2
     rand_seed = 410
     extended_output = True
-    velocity = 1
-    has_delay = (velocity != -1)
-    if has_delay:
-        # with delay it is recommended to do
-        # the syncing of nodes every 1 msec instead
-        # of every 0.1 msec. Otherwise it'll be very slow
-        os.environ['BNM_SYNC_MSEC'] = '1'
-        # TODO: add a function to do bnm.set_conf('sync_msec', True)
 
     np.random.seed(0)
 
@@ -34,11 +26,20 @@ def test(N_SIMS=2):
     do_fic = True
     # w_IE_list = np.repeat(1.0, nodes*N_SIMS)
     # do_fic = False
+    v_list = np.linspace(0.5, 4, N_SIMS)
+    # v_list = np.repeat(-1.0, N_SIMS)
+    has_delay = not(-1 in v_list)
+    if has_delay:
+        # with delay it is recommended to do
+        # the syncing of nodes every 1 msec instead
+        # of every 0.1 msec. Otherwise it'll be very slow
+        os.environ['BNM_SYNC_MSEC'] = '1'
+        # TODO: add a function to do bnm.set_conf('sync_msec', True)
 
     sim_bolds, sim_fc_trils, sim_fcd_trils = bnm.run_simulations(
-        SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list,
+        SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
         do_fic, extended_output, N_SIMS, nodes, time_steps, BOLD_TR,
-        window_size, window_step, rand_seed, velocity
+        window_size, window_step, rand_seed
     )
 
     for sim_idx in range(N_SIMS):

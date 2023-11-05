@@ -47,8 +47,8 @@ extern void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, i
         );
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
-    u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list,
-    u_real * SC, gsl_matrix * SC_gsl, int nodes,
+    u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
+    u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
     struct ModelConfigs conf
@@ -57,18 +57,19 @@ extern bool gpu_initialized;
 extern int n_pairs, n_window_pairs, output_ts; // will be defined by init_gpu
 
 static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
-    PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list;
+    PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list, *v_list;
     bool do_fic, extended_output;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
     double velocity;
 
-    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!iiiiiiiiid", 
+    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiii", 
             &PyArray_Type, &SC,
             &PyArray_Type, &SC_dist,
             &PyArray_Type, &G_list,
             &PyArray_Type, &w_EE_list,
             &PyArray_Type, &w_EI_list,
             &PyArray_Type, &w_IE_list,
+            &PyArray_Type, &v_list,
             &do_fic,
             &extended_output,
             &N_SIMS,
@@ -77,8 +78,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
             &BOLD_TR,
             &window_size,
             &window_step,
-            &rand_seed,
-            &velocity
+            &rand_seed
             ))
         return NULL;
 
@@ -88,14 +88,20 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         G_list->nd != 1 || G_list->descr->type_num != PyArray_DOUBLE ||
         w_EE_list->nd != 1 || w_EE_list->descr->type_num != PyArray_DOUBLE ||
         w_EE_list->nd != 1 || w_EE_list->descr->type_num != PyArray_DOUBLE ||
-        w_IE_list->nd != 1 || w_IE_list->descr->type_num != PyArray_DOUBLE
+        w_IE_list->nd != 1 || w_IE_list->descr->type_num != PyArray_DOUBLE ||
+        v_list->nd != 1 || v_list->descr->type_num != PyArray_DOUBLE
     ) {
         PyErr_SetString(PyExc_ValueError, "arrays must be one-dimensional and of type float");
         return NULL;
     }
-
-    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d velocity %d\n", 
-        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, velocity);
+    
+    // calculate minimum velocity
+    double * p_v_list = (double *)(PyArray_DATA(v_list));
+    std::vector<double> v_v_list(p_v_list, p_v_list + N_SIMS);
+    double min_velocity = *(std::min_element(v_v_list.begin(), v_v_list.end()));
+    
+    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d min_velocity %d\n", 
+        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, min_velocity);
 
     // TODO: these should be determined by the user
     bool only_wIE_free = false;
@@ -127,7 +133,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         start = std::chrono::high_resolution_clock::now();
         init_gpu(N_SIMS, nodes,
             do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-            mc, conf, (double*)PyArray_DATA(SC_dist), velocity);
+            mc, conf, (double*)PyArray_DATA(SC_dist), min_velocity);
         end = std::chrono::high_resolution_clock::now();
         elapsed_seconds = end - start;
         printf("took %lf s\n", elapsed_seconds.count());
@@ -151,7 +157,8 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         (double*)PyArray_DATA(py_fcd_trils_out), 
         (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
         (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
-        (double*)PyArray_DATA(SC), SC_gsl, nodes,
+        (double*)PyArray_DATA(v_list),
+        (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), nodes,
         time_steps, BOLD_TR, _max_fic_trials,
         window_size, N_SIMS, do_fic, only_wIE_free, extended_output, conf
     );
