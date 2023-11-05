@@ -170,12 +170,12 @@ static PyMethodDef methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-static struct PyModuleDef bnmModule = {
-    PyModuleDef_HEAD_INIT, "bnm", // name of the module
-    "bnm", -1, methods
+static struct PyModuleDef coreModule = {
+    PyModuleDef_HEAD_INIT, "core", // name of the module
+    "core", -1, methods
 };
 
-PyMODINIT_FUNC PyInit_bnm(void) {
+PyMODINIT_FUNC PyInit_core(void) {
     import_array();
-    return PyModule_Create(&bnmModule);
+    return PyModule_Create(&coreModule);
 }

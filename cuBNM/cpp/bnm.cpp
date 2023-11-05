@@ -7,30 +7,133 @@ https://github.com/murraylab/hbnm & https://github.com/decolab/cb-neuromod
 Author: Amin Saberi, Feb 2023
 */
 
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <time.h>
-// #include <string.h>
-// #include <math.h>
-// #include <sys/stat.h>
-// #include <iostream>
-// #include <cmath>
-// #include <string>
-// #include <cstdlib>
-// #include <random>
-// #include <omp.h>
-// #include <chrono>
-// #include "fic.hpp"
-// #include "constants.hpp"
-#include "check_fit.cpp"
+gsl_vector * fc_tril(gsl_matrix * bold, bool exc_interhemispheric) {
+    /*
+     Given empirical/simulated bold (n_vols x n_regions) returns
+     the lower triangle of the FC
+    */
+    int n_regions = bold->size2;
+    int n_vols = bold->size1;
+    int n_pairs = ((n_regions) * (n_regions - 1)) / 2;
+    int rh_idx;
+    if (exc_interhemispheric) {
+        assert((bold->size2 % 2) == 0);
+        rh_idx = bold->size2 / 2; // assumes symmetric number of parcels and L->R order
+        n_pairs -= pow(rh_idx, 2); // exc the middle square
+    }
+    int i, j;
+    double corr;
+    gsl_vector * FC_tril = gsl_vector_alloc(n_pairs);
+    int curr_idx = 0;
+    for (i = 0; i<(bold->size2); i++) {
+        for (j = 0; j<(bold->size2); j++) {
+            if (i > j) {
+                if (exc_interhemispheric) {
+                    // skip if each node belongs to a different hemisphere
+                    if ((i < rh_idx) ^ (j < rh_idx)) {
+                        continue;
+                    }
+                }
+                gsl_vector_view ts_i = gsl_matrix_column(bold, i);
+                gsl_vector_view ts_j = gsl_matrix_column(bold, j);
+                corr = gsl_stats_correlation(
+                    ts_i.vector.data, ts_i.vector.stride,
+                    ts_j.vector.data, ts_j.vector.stride,
+                    (bold->size1)
+                );
+                if (std::isnan(corr)) {
+                    return NULL;
+                }
+                gsl_vector_set(FC_tril, curr_idx, corr);
+                curr_idx ++;
+            }
+        }
+    }
+    return FC_tril;
+}
+
+gsl_vector * fcd_tril(gsl_matrix * bold, const int step, const int window_size, bool drop_edges, bool exc_interhemispheric) {
+    /*
+     Calculates the functional connectivity dynamics matrix (lower triangle)
+     given BOLD, step and window size. Note that the actual window size is +1 higher.
+     The FCD matrix shows similarity of FC patterns between the windows.
+    */
+    gsl_vector * FCD_tril;
+    int n_vols = bold->size1;
+    int n_regions = bold->size2;
+    int n_pairs = ((n_regions) * (n_regions - 1)) / 2;
+    if (exc_interhemispheric) {
+        assert((bold->size2 % 2) == 0);
+        int rh_idx = bold->size2 / 2; // assumes symmetric number of parcels and L->R order
+        n_pairs -= pow(rh_idx, 2); // exc the middle square
+    }
+    int first_center, last_center, window_center, window_start, window_end;
+    if (drop_edges) {
+        first_center = window_size / 2;
+        last_center = n_vols - 1 - (window_size / 2);
+    } else {
+        first_center = 0;
+        last_center = n_vols - 1;
+    }
+
+    // too lazy to calculate the exact number of windows, but this should be the maximum bound (not sure though)
+    gsl_matrix * window_FC_trils = gsl_matrix_alloc(n_pairs, ((n_vols + window_size) / step));
+    // gsl_matrix_set_all(window_FC_trils, -1.5);
+    // calculate the FC of each window
+    int n_windows = 0;
+    window_center = first_center;
+    while (window_center <= last_center) {
+        window_start = window_center - (window_size/2);
+        if (window_start < 0)
+            window_start = 0;
+        window_end = window_center + (window_size/2);
+        if (window_end >= n_vols)
+            window_end = n_vols-1;
+        gsl_matrix_view bold_window =  gsl_matrix_submatrix(bold, window_start, 0, window_end-window_start+1, n_regions);
+        gsl_vector * window_FC_tril = fc_tril(&bold_window.matrix, exc_interhemispheric);
+        if (window_FC_tril==NULL) {
+            return NULL;
+        }
+        gsl_matrix_set_col(window_FC_trils, n_windows, window_FC_tril);
+        window_center += step;
+        n_windows ++;
+    }
+    if (n_windows < 10) {
+        std::cout << "Warning: Too few FC windows: " << n_windows << "\n";
+    }
+    // calculate the FCD matrix (lower triangle)
+    int window_i, window_j;
+    double corr;
+    int n_window_pairs = ((n_windows) * (n_windows - 1)) / 2;
+    FCD_tril = gsl_vector_alloc(n_window_pairs);
+    int curr_idx = 0;
+    for (window_i=0; window_i<n_windows; window_i++) {
+        for (window_j=0; window_j<n_windows; window_j++) {
+            if (window_i > window_j) {
+                gsl_vector_view FC_i = gsl_matrix_column(window_FC_trils, window_i);
+                gsl_vector_view FC_j = gsl_matrix_column(window_FC_trils, window_j);
+                // gsl_vector_fprintf(stdout, &FC_i.vector, "%f");
+                corr = gsl_stats_correlation(
+                    FC_i.vector.data, FC_i.vector.stride,
+                    FC_j.vector.data, FC_j.vector.stride,
+                    n_pairs
+                );
+                if (std::isnan(corr)) {
+                    return NULL;
+                }
+                gsl_vector_set(FCD_tril, curr_idx, corr);
+                curr_idx ++;
+            }
+        }
+    }
+    return FCD_tril;
+}
 
 double bnm(int nodes, u_real * SC, gsl_matrix * SC_gsl,
         u_real G, u_real * w_EE,  u_real * w_EI, u_real * w_IE, 
-        u_real * fic_penalty, bool calculate_fic_penalty,
         int time_steps, int BOLD_TR, int rand_seed, int _max_fic_trials,
-        gsl_vector * emp_FC_tril, gsl_vector * emp_FCD_tril, bool sim_only, 
-        bool no_fcd, int step_TR, int window_TR, 
-        std::string out_prefix, bool verbose, bool save_output, bool extended_output) {
+        int window_step, int window_size, 
+        bool verbose, bool extended_output) {
 
     time_t start = time(NULL);
 
@@ -347,67 +450,17 @@ double bnm(int nodes, u_real * SC, gsl_matrix * SC_gsl,
         }
     }
 
-    for (int i=0; i<output_ts; i++) {
+    // copy bold[n_vols_remove:,:] to a GSL matrix for
+    // FC and FCD calculation
+    for (int i=n_vols_remove; i<output_ts; i++) {
         for (j=0; j<nodes; j++) {
-            if (save_output) {
-                fprintf(BOLDout, "%.7f ",BOLD_ex[i*nodes+j]);
-                if (extended_output) {
-                    fprintf(S_E_out, "%.7f ",S_E_ex[i*nodes+j]);
-                    fprintf(S_I_out, "%.7f ",S_I_ex[i*nodes+j]);
-                    fprintf(r_E_out, "%.7f ",r_E_ex[i*nodes+j]);
-                    fprintf(r_I_out, "%.7f ",r_I_ex[i*nodes+j]);
-                    fprintf(I_E_out, "%.7f ",I_E_ex[i*nodes+j]);
-                    fprintf(I_I_out, "%.7f ",I_I_ex[i*nodes+j]);
-                }
+            gsl_matrix_set(bold, i-n_vols_remove, j, BOLD_ex[i*nodes+j]);
+        }
+    }
 
-            }
-            if ((i >= n_vols_remove) & !(sim_only)) {
-                gsl_matrix_set(bold, i-n_vols_remove, j, BOLD_ex[i*nodes+j]);
-                if (calculate_fic_penalty) {
-                    mean_r_E[j] += r_E_ex[i*nodes+j];
-                }
-            }
-        }
-        if (save_output) {
-            fprintf(BOLDout, "\n");
-            if (extended_output) {
-                fprintf(S_E_out, "\n");
-                fprintf(S_I_out, "\n");
-                fprintf(r_E_out, "\n");
-                fprintf(r_I_out, "\n");
-                fprintf(I_E_out, "\n");
-                fprintf(I_I_out, "\n");
-            }
-        }
-    }
-    if (save_output) {
-        fclose(BOLDout);
-        if (extended_output) {
-            fclose(S_E_out);
-            fclose(S_I_out);
-            fclose(r_E_out);
-            fclose(r_I_out);
-            fclose(I_E_out);
-            fclose(I_I_out);
-        }
-    }
-    // calculate FIC penalty
-    if (calculate_fic_penalty) {
-        *fic_penalty = 0;
-        u_real diff_r_E;
-        for (int j=0; j<nodes; j++) {
-            mean_r_E[j] /= (BOLD_len_i - n_vols_remove);
-            diff_r_E = abs(mean_r_E[j] - 3);
-            if (diff_r_E > 1) {
-                *fic_penalty += 1 - (EXP(-0.05 * diff_r_E));
-            }
-        }
-        *fic_penalty *= fic_penalty_scale; // scale by BNM_CMAES_FIC_PENALTY_SCALE 
-        *fic_penalty /= nodes; // average across nodes
-        if ((fic_reject_failed) & (fic_failed)) {
-            *fic_penalty += 1;
-        }
-    }
+    // Calculate FC and FCD
+    gsl_vector * sim_FC_tril = fc_tril(bold, conf.exc_interhemispheric);
+    gsl_vector * sim_FCD_tril = fcd_tril(bold, window_step, window_size, conf.drop_edges, conf.exc_interhemispheric);
 
     // Free memory
     free(delta); free(mean_I_E); free(S_i_1_E);
@@ -419,28 +472,14 @@ double bnm(int nodes, u_real * SC, gsl_matrix * SC_gsl,
     free(bw_q_ex); free(bw_nu_ex); free(bw_f_ex); free(bw_x_ex); 
     free(_w_IE); free(_w_EI); free(_w_EE); 
     free(S_i_I); free(S_i_E); free(BOLD_ex); 
-    
-
-
-    if (verbose) printf("Simulation finished. Execution took %.2f s\n", (float)(time(NULL) - start));
-
-    if (sim_only) {
-        return MAX_COST;
-    } else {
-        double cost = check_fit_bold(bold, step_TR, window_TR, true, emp_FC_tril, emp_FCD_tril, no_fcd, verbose, exc_interhemispheric);
-        gsl_matrix_free(bold);
-        return cost;
-    }
 }
 
-void run_simulations(
-    double * corr, u_real * fic_penalties,
+void run_simulations_cpu(
+    double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list,
-    u_real * SC, gsl_matrix * SC_gsl, int nodes, int N_SIMS, bool calculate_fic_penalty,
+    u_real * SC, gsl_matrix * SC_gsl, int nodes, int N_SIMS,
     int time_steps, int BOLD_TR, int rand_seed, int _max_fic_trials,
-    gsl_vector * emp_FC_tril, gsl_vector * emp_FCD_tril, bool sim_only, 
-    bool no_fcd, int window_step, int window_size, 
-    std::string sims_out_prefix, bool sim_verbose, bool save_output, bool extended_output
+    int window_step, int window_size, bool sim_verbose, bool extended_output
 )
 {
     #pragma omp parallel
@@ -455,14 +494,13 @@ void run_simulations(
         ::printf("Thread %d (of %d) is executing particle %d [%s]\n", omp_get_thread_num(), omp_get_num_threads(), IndPar, time_str);
         // run the simulation, calcualte FC and FCD and gof
         // (all in bnm function)
-        corr[IndPar] = bnm(nodes, SC, SC_gsl,
+        bnm(nodes, SC, SC_gsl,
             G_list[IndPar], 
             w_EE_list+(IndPar*nodes), // the starting index of the w_EE_list slice of current particle
             w_EI_list+(IndPar*nodes),
             w_IE_list+(IndPar*nodes),
-            fic_penalties+IndPar, calculate_fic_penalty,
             time_steps, BOLD_TR, rand_seed, _max_fic_trials,
-            emp_FC_tril, emp_FCD_tril, sim_only, no_fcd, window_step, window_size,
-            sims_out_prefix, sim_verbose, save_output, extended_output);
+            window_step, window_size,
+            sim_verbose, extended_output);
     }
 }
