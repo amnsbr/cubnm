@@ -60,11 +60,11 @@ extern int n_pairs, n_window_pairs, output_ts; // will be defined by init_gpu
 
 static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
     PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list, *v_list;
-    bool do_fic, extended_output, do_delay;
+    bool do_fic, extended_output, do_delay, force_reinit;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
     double velocity;
 
-    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiiiii", 
             &PyArray_Type, &SC,
             &PyArray_Type, &SC_dist,
             &PyArray_Type, &G_list,
@@ -75,6 +75,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
             &do_fic,
             &extended_output,
             &do_delay,
+            &force_reinit,
             &N_SIMS,
             &nodes,
             &time_steps,
@@ -126,7 +127,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
 
     // Initialize GPU if it's not already done in current session
     // it does memory allocation and noise precalculation among other things
-    if (!(gpu_initialized)) {
+    if ((!gpu_initialized) | (force_reinit)) {
         printf("GPU initialization...");
         start = std::chrono::high_resolution_clock::now();
         init_gpu(N_SIMS, nodes,

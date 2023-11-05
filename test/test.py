@@ -15,6 +15,7 @@ def run_sims(N_SIMS=2, v=0.5):
     window_step = 2
     rand_seed = 410
     extended_output = True
+    force_reinit = False
 
     np.random.seed(0)
 
@@ -46,7 +47,7 @@ def run_sims(N_SIMS=2, v=0.5):
     # make sure all the input arrays are of type float/double
     sim_bolds, sim_fc_trils, sim_fcd_trils = run_simulations(
         SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
-        do_fic, extended_output, do_delay, N_SIMS, nodes, time_steps, BOLD_TR,
+        do_fic, extended_output, do_delay, force_reinit, N_SIMS, nodes, time_steps, BOLD_TR,
         window_size, window_step, rand_seed
     )
 

@@ -57,6 +57,10 @@ class SimGroup:
         else:
             self.out_dir = out_dir
         os.makedirs(out_dir, exist_ok=True)
+        # keep track of whether current group of simulations have
+        # been run once, this will be used to determine force_reinit
+        # on .run calls
+        self.has_run = False
 
     def run(self):
         # TODO: add assertions to make sure all the data is complete
@@ -68,10 +72,11 @@ class SimGroup:
             self.param_lists['wEI'].flatten(), 
             self.param_lists['wIE'].flatten(), 
             self.param_lists['v'],
-            self.do_fic, self.extended_output, self.do_delay, self.N, 
-            self.nodes, self.time_steps, self.TR,
+            self.do_fic, self.extended_output, self.do_delay, not self.has_run, 
+            self.N, self.nodes, self.time_steps, self.TR,
             self.window_size, self.window_step, self.rand_seed
         )
+        self.has_run = True
         ext_out = {}
         if self.extended_output:
             sim_bold, sim_fc_trils, sim_fcd_trils, \
