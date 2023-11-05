@@ -7,7 +7,7 @@ from cuBNM.core import run_simulations
 
 
 class SimGroup:
-    def __init__(self, N, duration, TR, sc_path, sc_dist_path=None, maps_path=None, out_dir='same',
+    def __init__(self, duration, TR, sc_path, sc_dist_path=None, out_dir='same',
             do_fic=True, extended_output=True, window_size=10, window_step=2, rand_seed=410,
             exc_interhemispheric=True):
         """
@@ -15,8 +15,6 @@ class SimGroup:
 
         Parameters
         ---------
-        N: (int)
-            number of parallel simulations
         duration: (float)
             simulation duration (in seconds)
         TR: (float)
@@ -27,8 +25,6 @@ class SimGroup:
             path to structural connectome distances
             if provided v (velocity) will be a free parameter and there
             will be delay in inter-regional connections
-        maps_path: (str)
-            path to heterogeneity maps
         out_dir: (str)
             if 'same' will create a directory named based on sc_path
         do_fic: (bool)
@@ -45,12 +41,10 @@ class SimGroup:
         exc_interhemispheric: (bool)
             excluded interhemispheric connections from sim FC and FCD calculations
         """
-        self.N = N
         self.time_steps = int(duration * 1000) # in msec
         self.TR = int(TR * 1000) # in msec
         self.sc_path = sc_path
         self.sc_dist_path = sc_dist_path
-        self.maps_path = maps_path
         self.sc = np.loadtxt(self.sc_path)
         self.do_fic = do_fic
         self.extended_output = (extended_output | do_fic)  # extended output is needed for FIC penalty calculations
@@ -70,19 +64,10 @@ class SimGroup:
             self.sc_dist = np.zeros_like(self.sc, dtype=float)
             self.do_delay = False
         os.environ['BNM_SYNC_MSEC'] = str(int(self.do_delay))
-        # determine heterogeneity and load the maps
-        if self.maps_path:
-            self.maps = np.loadtxt(self.maps_path)
-            self.is_heterogeneous = True
-        else:
-            self.maps = None
-            self.is_heterogeneous = False
+        # TODO: get other model configs (see constants.hpp) from user and
+        # change BNM_ env variables accordingly
         # initialze w_IE_list as all 0s if do_fic
         self.param_lists = dict([(k, None) for k in ['G', 'wEE', 'wEI', 'wIE', 'v']])
-        if self.do_fic:
-            self.param_lists['wIE'] = np.zeros((self.N,self.nodes), dtype=float)
-        if not self.do_delay:
-            self.param_lists['v'] = np.zeros(self.N, dtype=float)
         # determine and create output directory
         if out_dir == 'same':
             self.out_dir = self.sc_path.replace('.txt', '')
@@ -95,6 +80,20 @@ class SimGroup:
         self.has_run = False
         # keep track of the iterations for iterative algorithms
         self.it = 0
+
+    @property
+    def N(self):
+        return self._N
+
+    @N.setter
+    def N(self, N):
+        self._N = N
+        # TODO: maybe it's more appropriate to the following elewhere
+        if self.do_fic:
+            self.param_lists['wIE'] = np.zeros((self._N,self.nodes), dtype=float)
+        if not self.do_delay:
+            self.param_lists['v'] = np.zeros(self._N, dtype=float)
+
 
     def run(self):
         """

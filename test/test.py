@@ -3,6 +3,9 @@ import cuBNM
 from cuBNM.core import run_simulations
 from cuBNM import optimize, sim
 import os
+from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
+from pymoo.optimize import minimize
+from pymoo.termination.default import DefaultSingleObjectiveTermination
 
 def run_sims(N_SIMS=2, v=0.5):
     # run identical simulations and check if BOLD is the same
@@ -109,6 +112,69 @@ def run_grid_delay():
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     return gs, scores
 
+def test_problem():
+    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    problem = optimize.RWWProblem(
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+        },
+        emp_fc_tril = emp_fc_tril,
+        emp_fcd_tril = emp_fcd_tril,
+        duration = 60,
+        TR = 1,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
+    )
+    # assume that optimizer is using 10 particles
+    problem.sim_group.N = 10
+    # synthesize example X with dims (particles, free_params)
+    X = np.vstack([np.linspace(1.0, 3.0, 10), np.linspace(0.05, 0.5, 10)]).T
+    # synthesize out dictionary
+    out = {'F': None, 'G': None}
+    problem._evaluate(X, out)
+    return problem, out
+
+def test_cmaes_simple():
+    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    problem = optimize.RWWProblem(
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+        },
+        emp_fc_tril = emp_fc_tril,
+        emp_fcd_tril = emp_fcd_tril,
+        duration = 60,
+        TR = 1,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
+    )
+    # set lambda to 10
+    problem.sim_group.N = 10
+    algorithm = CMAES(
+        maxiter=1, # these are cma kwargs which are not considered by pymoo!
+        popsize=10, 
+    )
+
+    termination = DefaultSingleObjectiveTermination(
+        ftol=1e-3, # these are also ignored by `minimize`
+        n_max_gen=1,
+        n_max_evals=10
+    )
+    res = minimize(problem,
+                algorithm,
+                termination,
+                seed=1,
+                verbose=True,
+                save_history=True
+                )
+
+    return problem, algorithm, termination, res
+
 if __name__ == '__main__':
-    gs, scores = run_grid()
     # run_sims(2)
+    # gs, scores = run_grid()
+    # problem, out = test_problem()
+    problem, algorithm, termination, res = test_cmaes_simple()
