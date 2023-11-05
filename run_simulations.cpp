@@ -42,8 +42,7 @@
 // declare gpu functions which will be provided by bnm.cu compiled library
 extern void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf,
-        u_real * SC_dist, double velocity
+        struct ModelConstants mc, struct ModelConfigs conf
         );
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
@@ -94,14 +93,9 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         PyErr_SetString(PyExc_ValueError, "arrays must be one-dimensional and of type float");
         return NULL;
     }
-    
-    // calculate minimum velocity
-    double * p_v_list = (double *)(PyArray_DATA(v_list));
-    std::vector<double> v_v_list(p_v_list, p_v_list + N_SIMS);
-    double min_velocity = *(std::min_element(v_v_list.begin(), v_v_list.end()));
-    
-    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d min_velocity %d\n", 
-        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, min_velocity);
+        
+    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d\n", 
+        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output);
 
     // TODO: these should be determined by the user
     bool only_wIE_free = false;
@@ -133,7 +127,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         start = std::chrono::high_resolution_clock::now();
         init_gpu(N_SIMS, nodes,
             do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-            mc, conf, (double*)PyArray_DATA(SC_dist), min_velocity);
+            mc, conf);
         end = std::chrono::high_resolution_clock::now();
         elapsed_seconds = end - start;
         printf("took %lf s\n", elapsed_seconds.count());

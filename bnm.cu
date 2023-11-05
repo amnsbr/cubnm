@@ -81,8 +81,8 @@ bool *FIC_failed;
 u_real **S_ratio, **I_ratio, **r_ratio, **S_E, **I_E, **r_E, **S_I, **I_I, **r_I,
     **BOLD_ex, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
     **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise, **w_IE_fic,
-    *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list, **S_i_E_hist;
-int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j, **delay;
+    *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list;
+int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
 #ifdef USE_FLOATS
 double **d_fc_trils, **d_fcd_trils;
 #else
@@ -700,13 +700,27 @@ void run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaMemcpy(d_w_EI_list, w_EI_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
     CUDA_CHECK_RETURN(cudaMemcpy(d_w_IE_list, w_IE_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
 
-    // delay calculations if needed
-    if (has_delay) {
-        float curr_length, curr_delay, curr_velocity;
-        for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
+    // if indicated, calculate delay matrix of each simulation and allocate
+    // memory to S_i_E_hist according to the max_delay among the current simulations
+    // Note: unlike many other variables delay and S_i_E_hist are not global variables
+    // and are not initialized in init_gpu, in order to allow variable ranges of velocities
+    // in each run_simulations_gpu call within a session
+    u_real **S_i_E_hist;
+    int **delay;
+    max_delay = 0; // msec or 0.1 msec depending on conf.sync_msec; this is a global variable that will be used in the kernel
+    float min_velocity = 1e10; // only used for printing info
+    float max_length;
+    float curr_length, curr_delay, curr_velocity;
+    if (SC_dist!=NULL) {
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay, sizeof(int*) * N_SIMS));
+        for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay[sim_idx], sizeof(int) * nodes * nodes));
             curr_velocity = v_list[sim_idx];
             if (!conf.sync_msec) {
                 curr_velocity /= 10;
+            }
+            if (curr_velocity < min_velocity) {
+                min_velocity = curr_velocity;
             }
             for (int i = 0; i < nodes; i++) {
                 for (int j = 0; j < nodes; j++) {
@@ -715,9 +729,30 @@ void run_simulations_gpu(
                         curr_delay = (int)(((curr_length/curr_velocity))+0.5);
                         delay[sim_idx][i*nodes + j] = curr_delay;
                         delay[sim_idx][j*nodes + i] = curr_delay;
+                        if (curr_delay > max_delay) {
+                            max_delay = curr_delay;
+                            max_length = curr_length;
+                        }
                     }
                 }
             }
+        }
+    }
+    has_delay = (max_delay > 0); // this is a global variable that will be used in the kernel
+    if (has_delay) {
+        std::string velocity_unit = "m/s";
+        std::string delay_unit = "msec";
+        if (!conf.sync_msec) {
+            velocity_unit = "m/0.1s";
+            delay_unit = "0.1msec";
+        }
+        printf("Max distance %f (mm) with a minimum velocity of %f (%s) => Max delay: %d (%s)\n", max_length, min_velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
+
+        // allocate memory to S_i_E_hist for N_SIMS * (nodes * max_delay)
+        // TODO: make it possible to have variable max_delay per each simulation
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist, sizeof(u_real*) * N_SIMS)); 
+        for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist[sim_idx], sizeof(u_real) * nodes * max_delay));
         }
     }
 
@@ -764,7 +799,7 @@ void run_simulations_gpu(
     dim3 threadsPerBlock(nodes);
     // (third argument is extern shared memory size for S_i_1_E)
     // provide NULL for extended output variables and FIC variables
-    bool _extended_output = (extended_output | do_fic);
+    bool _extended_output = (extended_output | do_fic); // extended output is needed if requested by user or FIC is done
     bool regional_params = true;
     bnm<<<numBlocks,threadsPerBlock,nodes*sizeof(u_real)>>>(
         BOLD_ex, 
@@ -873,12 +908,28 @@ void run_simulations_gpu(
         fcd_trils_out+=n_window_pairs;
     }
 
+    // free delay and S_i_E_hist memories if allocated
+    // Note: no need to clear memory of the other variables
+    // as we'll want to reuse them in the next calls to run_simulations_gpu
+    // within current session
+    if (SC_dist!=NULL) {
+        for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaFree(delay[sim_idx]));
+        }
+        CUDA_CHECK_RETURN(cudaFree(delay));
+    }
+    if (has_delay) {
+        for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaFree(S_i_E_hist[sim_idx]));
+        }
+        CUDA_CHECK_RETURN(cudaFree(S_i_E_hist));
+    }
+
 }
 
 void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf,
-        u_real * SC_dist, double velocity
+        struct ModelConstants mc, struct ModelConfigs conf
         )
     {
     // check CUDA device avaliability and properties
@@ -898,49 +949,6 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     CUDA_CHECK_RETURN(cudaMalloc(&d_w_EE_list, sizeof(u_real) * N_SIMS*nodes));
     CUDA_CHECK_RETURN(cudaMalloc(&d_w_EI_list, sizeof(u_real) * N_SIMS*nodes));
     CUDA_CHECK_RETURN(cudaMalloc(&d_w_IE_list, sizeof(u_real) * N_SIMS*nodes));
-
-    // delay calculations if SC_dist and velocity are provided
-    // TODO: set up velocity as a free parameter variable across simulations
-    // in that case velocity used here must be the minimum bound of the range
-    // so that S_i_E_hist has the correct dimensions for the slowest simulation
-    // also must specify a separate `delay` matrix for each simulation
-    // within run_simulations_gpu
-    // also consider allocating and destroying S_i_E_hist within run_simulations_gpu
-    // as different calls (from Python) to it might include different ranges of velocities
-    max_delay = 0; // msec ir 0.1 msec depending on conf.sync_msec
-    float max_length;
-    float curr_length, curr_delay;
-    if ((SC_dist!=NULL) & (velocity!=-1)) {
-        if (!conf.sync_msec) {
-            velocity /= 10;
-        }
-        for (int i = 0; i < nodes; i++) {
-            for (int j = 0; j < nodes; j++) {
-                curr_length = SC_dist[i*nodes+j];
-                if (i > j) {
-                    curr_delay = (int)(((curr_length/velocity))+0.5);
-
-                    if (curr_delay > max_delay) {
-                        max_delay = curr_delay;
-                        max_length = curr_length;
-                    }
-                }
-            }
-        }
-    }
-    std::string velocity_unit = "m/s";
-    std::string delay_unit = "msec";
-    if (!conf.sync_msec) {
-        velocity_unit = "m/0.1s";
-        delay_unit = "0.1msec";
-    }
-    printf("Max distance %f (mm) with a minimum velocity of %f (%s) => Max delay: %d (%s)\n", max_length, velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
-    has_delay = (max_delay > 0);
-
-    if (has_delay) {
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay, sizeof(int*) * N_SIMS)); 
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist, sizeof(u_real*) * N_SIMS)); 
-    }
 
     // FIC adjustment init
     // adjust_fic is set to true by default but only for
@@ -1100,11 +1108,6 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&windows_mean_fc[sim_idx], sizeof(u_real) * n_windows));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&windows_ssd_fc[sim_idx], sizeof(u_real) * n_windows));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs));
-        // for S_i_E history
-        if (has_delay) {
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay[sim_idx], sizeof(int) * nodes * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist[sim_idx], sizeof(u_real) * nodes * max_delay));
-        }
         #ifdef USE_FLOATS
         // allocate memory for double copies of fc and fcd
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fc_trils[sim_idx], sizeof(double) * n_pairs));
