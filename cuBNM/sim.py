@@ -7,21 +7,53 @@ from cuBNM.core import run_simulations
 
 
 class SimGroup:
-    """
-    Group of simulations that will be executed in parallel
-    """
     def __init__(self, N, duration, TR, sc_path, sc_dist_path=None, maps_path=None, out_dir='same',
             do_fic=True, extended_output=True, window_size=10, window_step=2, rand_seed=410,
             exc_interhemispheric=True):
+        """
+        Group of simulations that will be executed in parallel
+
+        Parameters
+        ---------
+        N: (int)
+            number of parallel simulations
+        duration: (float)
+            simulation duration (in seconds)
+        TR: (float)
+            BOLD TR and sampling rate of extended output (in seconds)
+        sc_path: (str)
+            path to structural connectome strengths (as an unlabled .txt)
+        sc_dist_path: (str)
+            path to structural connectome distances
+            if provided v (velocity) will be a free parameter and there
+            will be delay in inter-regional connections
+        maps_path: (str)
+            path to heterogeneity maps
+        out_dir: (str)
+            if 'same' will create a directory named based on sc_path
+        do_fic: (bool)
+            do analytical-numerical Feedback Inhibition Control
+            if provided wIE parameters will be ignored
+        extended_output: (bool)
+            return mean internal model variables to self.ext_out
+        window_size: (int)
+            dynamic FC window size (in TR)
+        window_step: (int)
+            dynamic FC window step (in TR)
+        rand_seed: (int)
+            seed used for the noise simulation
+        exc_interhemispheric: (bool)
+            excluded interhemispheric connections from sim FC and FCD calculations
+        """
         self.N = N
-        self.time_steps = duration * 1000 # in msec
-        self.TR = TR * 1000 # in msec
+        self.time_steps = int(duration * 1000) # in msec
+        self.TR = int(TR * 1000) # in msec
         self.sc_path = sc_path
         self.sc_dist_path = sc_dist_path
         self.maps_path = maps_path
         self.sc = np.loadtxt(self.sc_path)
         self.do_fic = do_fic
-        self.extended_output = extended_output
+        self.extended_output = (extended_output | do_fic)  # extended output is needed for FIC penalty calculations
         self.window_size = window_size
         self.window_step = window_step
         self.rand_seed = rand_seed
@@ -61,8 +93,13 @@ class SimGroup:
         # been run once, this will be used to determine force_reinit
         # on .run calls
         self.has_run = False
+        # keep track of the iterations for iterative algorithms
+        self.it = 0
 
     def run(self):
+        """
+        Run the simulations in parallel on GPU
+        """
         # TODO: add assertions to make sure all the data is complete
         out = run_simulations(
             self.sc.flatten(), 
@@ -76,7 +113,12 @@ class SimGroup:
             self.N, self.nodes, self.time_steps, self.TR,
             self.window_size, self.window_step, self.rand_seed
         )
+        # avoid reinitializing GPU in the next runs
+        # of the same group
         self.has_run = True
+        self.it += 1
+        # assign the output to object properties
+        # and reshape them to (N_SIMS, ...)
         ext_out = {}
         if self.extended_output:
             sim_bold, sim_fc_trils, sim_fcd_trils, \
@@ -107,6 +149,7 @@ class SimGroup:
             1D array of empirical FCD lower triangle
         fic_penalty_scale: (float)
         """
+        #TODO: add the option to provide empirical BOLD as input
         columns = ['fc_corr', 'fc_diff', 'fcd_ks', 'gof']
         if self.do_fic:
             columns.append('fic_penalty')
@@ -125,3 +168,34 @@ class SimGroup:
                 else:
                     scores.loc[idx, 'fic_penalty'] = 0
         return scores
+
+    def save(self, save_as='npz'):
+        """
+        Save current simulation outputs to disk
+
+        Parameters
+        ---------
+        save_as: (str)
+            - npz: all the output of all sims will be written to a npz file
+            - txt: outputs of simulations will be written to separate files,
+                recommended when N = 1 (e.g. rerunning the best simulation) 
+        """
+        sims_dir = os.path.join(self.out_dir, 'sims')
+        os.makedirs(sims_dir, exist_ok=True)
+        if save_as == 'npz':
+            out_data = dict(
+                sim_bold = self.sim_bold,
+                sim_fc_trils = self.sim_fc_trils,
+                sim_fcd_trils = self.sim_fcd_trils
+            )
+            out_data.update(self.param_lists)
+            if self.extended_output:
+                out_data.update(self.ext_out)
+            # TODO: use more informative filenames
+            np.savez_compressed(
+                os.path.join(sims_dir, f'it{self.it}.npz'),
+                **out_data
+            )
+        elif save_as == 'txt':
+            raise NotImplementedError
+

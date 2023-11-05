@@ -70,6 +70,7 @@ def run_grid():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
+    gs.sim_group.save()
     return gs, scores
 
 def run_grid_no_fic():
