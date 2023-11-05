@@ -685,6 +685,9 @@ cudaDeviceProp get_device_prop(bool verbose = true) {
 
 void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+    double * S_E_out, double * S_I_out, double * S_ratio_out,
+    double * r_E_out, double * r_I_out, double * r_ratio_out,
+    double * I_E_out, double * I_I_out, double * I_ratio_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
     int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
@@ -908,6 +911,26 @@ void run_simulations_gpu(
         fc_trils_out+=n_pairs;
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
+        if (extended_output) {
+            memcpy(S_E_out, S_E[sim_idx], sizeof(u_real) * nodes);
+            S_E_out+=nodes;
+            memcpy(S_I_out, S_I[sim_idx], sizeof(u_real) * nodes);
+            S_I_out+=nodes;
+            memcpy(S_ratio_out, S_ratio[sim_idx], sizeof(u_real) * nodes);
+            S_ratio_out+=nodes;
+            memcpy(r_E_out, r_E[sim_idx], sizeof(u_real) * nodes);
+            r_E_out+=nodes;
+            memcpy(r_I_out, r_I[sim_idx], sizeof(u_real) * nodes);
+            r_I_out+=nodes;
+            memcpy(r_ratio_out, r_ratio[sim_idx], sizeof(u_real) * nodes);
+            r_ratio_out+=nodes;
+            memcpy(I_E_out, I_E[sim_idx], sizeof(u_real) * nodes);
+            I_E_out+=nodes;
+            memcpy(I_I_out, I_I[sim_idx], sizeof(u_real) * nodes);
+            I_I_out+=nodes;
+            memcpy(I_ratio_out, I_ratio[sim_idx], sizeof(u_real) * nodes);
+            I_ratio_out+=nodes;
+        }
     }
 
     // free delay and S_i_E_hist memories if allocated

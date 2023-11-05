@@ -46,6 +46,9 @@ extern void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, i
         );
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+    double * S_E_out, double * S_I_out, double * S_ratio_out,
+    double * r_E_out, double * r_I_out, double * r_ratio_out,
+    double * I_E_out, double * I_I_out, double * I_ratio_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
@@ -140,16 +143,29 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
     npy_intp bold_dims[2] = {N_SIMS, output_ts*nodes};
     npy_intp fc_trils_dims[2] = {N_SIMS, n_pairs};
     npy_intp fcd_trils_dims[2] = {N_SIMS, n_window_pairs};
+    npy_intp ext_var_dims[2] = {N_SIMS, nodes};
     PyObject* py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
     PyObject* py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
     PyObject* py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
+    PyObject* py_S_E_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_S_I_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_S_ratio_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_r_E_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_r_I_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_r_ratio_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_I_E_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_I_I_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    PyObject* py_I_ratio_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
 
     printf("Running %d simulations...\n", N_SIMS);
     start = std::chrono::high_resolution_clock::now();
     // TODO: cast the arrays to float if u_real is float
     run_simulations_gpu(
         (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
-        (double*)PyArray_DATA(py_fcd_trils_out), 
+        (double*)PyArray_DATA(py_fcd_trils_out),
+        (double*)PyArray_DATA(py_S_E_out), (double*)PyArray_DATA(py_S_I_out), (double*)PyArray_DATA(py_S_ratio_out),
+        (double*)PyArray_DATA(py_r_E_out), (double*)PyArray_DATA(py_r_I_out), (double*)PyArray_DATA(py_r_ratio_out),
+        (double*)PyArray_DATA(py_I_E_out), (double*)PyArray_DATA(py_I_I_out), (double*)PyArray_DATA(py_I_ratio_out),
         (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
         (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
         (double*)PyArray_DATA(v_list),
@@ -161,7 +177,14 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
     elapsed_seconds = end - start;
     printf("took %lf s\n", elapsed_seconds.count());
 
-    return Py_BuildValue("OOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out);
+    if (extended_output) {
+        return Py_BuildValue("OOOOOOOOOOOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out,
+            py_S_E_out, py_S_I_out, py_S_ratio_out, py_r_E_out, py_r_I_out, py_r_ratio_out,
+            py_I_E_out, py_I_I_out, py_I_ratio_out
+        );
+    } else {
+        return Py_BuildValue("OOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out);
+    }
 }
 
 

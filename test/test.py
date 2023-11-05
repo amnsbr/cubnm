@@ -108,5 +108,5 @@ def run_grid_delay():
     return gs, scores
 
 if __name__ == '__main__':
-    gs, scores = run_grid_delay()
+    gs, scores = run_grid()
     # run_sims(2)
