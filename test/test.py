@@ -6,6 +6,9 @@ import os
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.optimize import minimize
 from pymoo.termination.default import DefaultSingleObjectiveTermination
+from pymoo.core.termination import Termination
+from pymoo.termination import get_termination
+import cma
 
 def run_sims(N_SIMS=2, v=0.5):
     # run identical simulations and check if BOLD is the same
@@ -151,18 +154,15 @@ def test_cmaes_simple():
         TR = 1,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
     )
-    # set lambda to 10
-    problem.sim_group.N = 10
+    # bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
     algorithm = CMAES(
-        maxiter=1, # these are cma kwargs which are not considered by pymoo!
-        popsize=10, 
+        x0=np.array([0.5, 0.5]), # initial guess in the middle; note that X is 0-1 normalized
+        sigma=0.5,
+        maxiter=1,
+        popsize=20, 
+        eval_initial_x=False,
     )
-
-    termination = DefaultSingleObjectiveTermination(
-        ftol=1e-3, # these are also ignored by `minimize`
-        n_max_gen=1,
-        n_max_evals=10
-    )
+    termination = get_termination('n_iter', 3)
     res = minimize(problem,
                 algorithm,
                 termination,

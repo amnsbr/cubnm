@@ -42,7 +42,7 @@
 // declare gpu functions which will be provided by bnm.cu compiled library
 extern void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf
+        struct ModelConstants mc, struct ModelConfigs conf, bool verbose
         );
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
@@ -132,7 +132,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         start = std::chrono::high_resolution_clock::now();
         init_gpu(N_SIMS, nodes,
             do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-            mc, conf);
+            mc, conf, (!gpu_initialized));
         end = std::chrono::high_resolution_clock::now();
         elapsed_seconds = end - start;
         printf("took %lf s\n", elapsed_seconds.count());

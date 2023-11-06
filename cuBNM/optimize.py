@@ -66,13 +66,15 @@ class RWWProblem(Problem):
         self.emp_fc_tril = emp_fc_tril
         self.emp_fcd_tril = emp_fcd_tril
         self.free_params = []
-        self.lower_bounds = []
-        self.upper_bounds = []
+        self.lb = []
+        self.ub = []
         for param, v in params.items():
             if isinstance(v, tuple):
                 self.free_params.append(param)
-                self.lower_bounds.append(v[0])
-                self.upper_bounds.append(v[1])
+                self.lb.append(v[0])
+                self.ub.append(v[1])
+        self.lb = np.array(self.lb)
+        self.ub = np.array(self.ub)
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
         self.maps_path = maps_path
         self.is_heterogeneous = False
@@ -83,21 +85,24 @@ class RWWProblem(Problem):
             n_var=len(self.free_params), 
             n_obj=1, 
             n_ieq_constr=0, # TODO: consider using this for enforcing FIC success
-            xl=np.array(self.lower_bounds), 
-            xu=np.array(self.upper_bounds)
+            xl=np.zeros(len(self.free_params), dtype=float), 
+            xu=np.ones(len(self.free_params), dtype=float)
         )
 
     def _set_sim_params(self, X):
         global_params = ['G','v']
         local_params = ['wEE', 'wEI', 'wIE']
+        # transform X from [0, 1] range to the actual
+        # parameter range
+        Xt = (X * (self.ub - self.lb)) + self.lb
         if self.is_heterogeneous:
             raise NotImplementedError("Heterogeneous models are not implemented yet")
         else:
             for i, param in enumerate(self.free_params):
                 if param in global_params:
-                    self.sim_group.param_lists[param] = X[:, i]
+                    self.sim_group.param_lists[param] = Xt[:, i]
                 else:
-                    self.sim_group.param_lists[param] = np.repeat(X[:, i], self.sim_group.nodes)
+                    self.sim_group.param_lists[param] = np.repeat(Xt[:, i], self.sim_group.nodes)
             for param in self.fixed_params:
                 if param in global_params:
                     self.sim_group.param_lists[param] = np.repeat(self.params[param], self.sim_group.N)
@@ -105,6 +110,10 @@ class RWWProblem(Problem):
                     self.sim_group.param_lists[param] = np.tile(self.params[param], (self.sim_group.N, self.sim_group.nodes))
 
     def _evaluate(self, X, out, *args, **kwargs):
+        # set N to current iteration population size
+        # which might be variable, e.g. from evaluating
+        # CMAES initial guess to its next iterations
+        self.sim_group.N = X.shape[0]
         self._set_sim_params(X)
         self.sim_group.run()
         scores = self.sim_group.score(self.emp_fc_tril, self.emp_fcd_tril)
@@ -112,4 +121,5 @@ class RWWProblem(Problem):
             out["F"] = (scores.loc[:, 'fic_penalty']-scores.loc[:, 'gof']).values
         else:
             out["F"] = -scores.loc[:, 'gof'].values
+        # out["F"] = X.sum(axis=1)
         # out["G"] = ... # TODO: consider using this for enforcing FIC success

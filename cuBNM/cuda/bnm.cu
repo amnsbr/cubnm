@@ -75,6 +75,7 @@ bool gpu_initialized = false;
 __constant__ struct ModelConstants d_mc;
 __constant__ struct ModelConfigs d_conf;
 int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
+int last_noise_size = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
 bool adjust_fic, has_delay;
 cudaDeviceProp prop;
 bool *FIC_failed;
@@ -954,11 +955,11 @@ void run_simulations_gpu(
 
 void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf
+        struct ModelConstants mc, struct ModelConfigs conf, bool verbose
         )
     {
     // check CUDA device avaliability and properties
-    prop = get_device_prop();
+    prop = get_device_prop(verbose);
 
     // copy constants and configs from CPU
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_mc, &mc, sizeof(ModelConstants)));
@@ -1156,16 +1157,21 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
 
     // pre-calculate normally-distributed noise on CPU
     int noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
-    printf("Precalculating %d noise elements...\n", noise_size);
-    std::mt19937 rand_gen(rand_seed);
-    std::normal_distribution<float> normal_dist(0, 1);
-    CUDA_CHECK_RETURN(cudaMallocManaged(&noise, sizeof(u_real) * noise_size));
-    for (int i = 0; i < noise_size; i++) {
-        #ifdef USE_FLOATS
-        noise[i] = normal_dist(rand_gen);
-        #else
-        noise[i] = (double)normal_dist(rand_gen);
-        #endif
+    if (noise_size != last_noise_size) {
+        printf("Precalculating %d noise elements...\n", noise_size);
+        last_noise_size = noise_size;
+        std::mt19937 rand_gen(rand_seed);
+        std::normal_distribution<float> normal_dist(0, 1);
+        CUDA_CHECK_RETURN(cudaMallocManaged(&noise, sizeof(u_real) * noise_size));
+        for (int i = 0; i < noise_size; i++) {
+            #ifdef USE_FLOATS
+            noise[i] = normal_dist(rand_gen);
+            #else
+            noise[i] = (double)normal_dist(rand_gen);
+            #endif
+        }
+    } else {
+        printf("Noise already precalculated\n");
     }
 
     // emp_FCD_tril_copy = gsl_vector_alloc(emp_FCD_tril->size); // for fcd_ks

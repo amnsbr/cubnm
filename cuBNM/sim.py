@@ -74,10 +74,9 @@ class SimGroup:
         else:
             self.out_dir = out_dir
         os.makedirs(out_dir, exist_ok=True)
-        # keep track of whether current group of simulations have
-        # been run once, this will be used to determine force_reinit
-        # on .run calls
-        self.has_run = False
+        # keep track of the last N run to determine if force_reinit
+        # is needed (when last_N is different from current N)
+        self.last_N = 0
         # keep track of the iterations for iterative algorithms
         self.it = 0
 
@@ -100,6 +99,7 @@ class SimGroup:
         Run the simulations in parallel on GPU
         """
         # TODO: add assertions to make sure all the data is complete
+        force_reinit = (self.N != self.last_N)
         out = run_simulations(
             self.sc.flatten(), 
             self.sc_dist.flatten(), 
@@ -108,13 +108,13 @@ class SimGroup:
             self.param_lists['wEI'].flatten(), 
             self.param_lists['wIE'].flatten(), 
             self.param_lists['v'],
-            self.do_fic, self.extended_output, self.do_delay, not self.has_run, 
+            self.do_fic, self.extended_output, self.do_delay, force_reinit, 
             self.N, self.nodes, self.time_steps, self.TR,
             self.window_size, self.window_step, self.rand_seed
         )
         # avoid reinitializing GPU in the next runs
         # of the same group
-        self.has_run = True
+        self.last_N = self.N
         self.it += 1
         # assign the output to object properties
         # and reshape them to (N_SIMS, ...)
