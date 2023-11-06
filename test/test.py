@@ -259,10 +259,32 @@ def test_bayes_optimizer():
     bo.optimize()
     return bo
 
+def test_bayes_optimizer_het():
+    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    problem = optimize.RWWProblem(
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+        },
+        emp_fc_tril = emp_fc_tril,
+        emp_fcd_tril = emp_fcd_tril,
+        het_params = ['wEE', 'wEI'],
+        maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
+        duration = 60,
+        TR = 1,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
+    )
+    bo = optimize.BayesOptimizer(popsize=10, n_iter=1)
+    bo.setup_problem(problem, seed=1)
+    bo.optimize()
+    return bo
+
 
 if __name__ == '__main__':
     # run_sims(2)
     # gs, scores = run_grid()
     # problem, out = test_problem()
     # cmaes = test_cmaes_optimizer()
-    bo = test_bayes_optimizer()
+    bo = test_bayes_optimizer_het()

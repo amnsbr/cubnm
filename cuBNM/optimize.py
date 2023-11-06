@@ -57,7 +57,10 @@ class GridSearch():
         
 
 class RWWProblem(Problem):
-    def __init__(self, params, emp_fc_tril, emp_fcd_tril, maps_path=None, **kwargs):
+    global_params = ['G','v']
+    local_params = ['wEE', 'wEI', 'wIE']
+    def __init__(self, params, emp_fc_tril, emp_fcd_tril, het_params=[], maps_path=None,
+            reject_negative=False, **kwargs):
         """
         The "Problem" of reduced Wong-Wang model optimal parameters fitted
         to the provided empirical FC and FCDs
@@ -65,14 +68,28 @@ class RWWProblem(Problem):
         params: (dict)
             a dictionary with G, wEE and wEI (+- wIE, v) keys of
             floats (fixed values) or tuples (min, max)
+        emp_fc_tril, emp_fcd_tril: (np.ndarrray) (n_pairs,)
+            target empirical FC and FCD
+        het_params: (list of str)
+            which local parameters of 'wEE', 'wEI' and 'wIE' should be regionally variable
+            wIE must not be used when do_fic is true
         maps_path: (str)
             path to heterogeneity maps. If provided one free parameter
             per map-localparam combination will be added
+            it is expected to have (n_maps, nodes) dimension (for historical reasons)
+        reject_negative: (bool)
+            rejects particles with negative (or actually < 0.001) local parameters
+            after applying heterogeneity. If False, instead of rejecting shifts the parameter map to
+            have a min of 0.001
         """
-        self.sim_group = sim.SimGroup(**kwargs)
         self.params = params
         self.emp_fc_tril = emp_fc_tril
         self.emp_fcd_tril = emp_fcd_tril
+        self.het_params = kwargs.pop('het_params', het_params)
+        self.maps_path = kwargs.pop('maps_path', maps_path)
+        self.sim_group = sim.SimGroup(**kwargs)
+        if (self.sim_group.do_fic) & ('wIE' in self.het_params):
+            raise ValueError("wIE should not be specified as a heterogeneous parameter when FIC is done")
         self.free_params = []
         self.lb = []
         self.ub = []
@@ -81,21 +98,46 @@ class RWWProblem(Problem):
                 self.free_params.append(param)
                 self.lb.append(v[0])
                 self.ub.append(v[1])
-        self.lb = np.array(self.lb)
-        self.ub = np.array(self.ub)
-        self.ndim = len(self.free_params)
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
-        self.maps_path = maps_path
+        self.reject_negative = reject_negative
         self.is_heterogeneous = False
         if self.maps_path is not None:
             self.is_heterogeneous = True
-            raise NotImplementedError("Heterogeneous models are not implemented yet")
+            self.maps = np.loadtxt(self.maps_path)
+            scale_max_minmax = kwargs.pop('scale_max_minmax', 1)
+            assert self.maps.shape[1] == self.sim_group.nodes, f"Maps second dimension {self.maps.shape[1]} != nodes {self.sim_group.nodes}"
+            for param in self.het_params:
+                for map_idx in range(self.maps.shape[0]):
+                    # identify the scaler range
+                    map_max = self.maps[map_idx, :].max()
+                    map_min = self.maps[map_idx, :].min()
+                    if ((map_min == 0) & (map_max == 1)):
+                        # map is min-max normalized
+                        scale_min = 0
+                        scale_max = scale_max_minmax # defined in constants
+                    else:
+                        # e.g. z-scored
+                        scale_min = -1 / map_max
+                        scale_min = np.ceil(scale_min / 0.01) * 0.01 # round up
+                        scale_max = -1 / map_min
+                        scale_max = np.floor(scale_max / 0.01) * 0.01 # round down 
+                    # add the scaler as a free parameter
+                    scaler_name = f"{param}scale{map_idx}"
+                    self.free_params.append(scaler_name)
+                    self.lb.append(scale_min)
+                    self.ub.append(scale_max)
+        # convert bounds to arrays
+        self.lb = np.array(self.lb)
+        self.ub = np.array(self.ub)
+        # determine ndim of the problem
+        self.ndim = len(self.free_params)
+        # initialize pymoo Problem
         super().__init__(
-            n_var=len(self.free_params), 
+            n_var=self.ndim, 
             n_obj=1, 
             n_ieq_constr=0, # TODO: consider using this for enforcing FIC success
-            xl=np.zeros(len(self.free_params), dtype=float), 
-            xu=np.ones(len(self.free_params), dtype=float)
+            xl=np.zeros(self.ndim, dtype=float), 
+            xu=np.ones(self.ndim, dtype=float)
         )
 
     def _get_Xt(self, X):
@@ -105,24 +147,44 @@ class RWWProblem(Problem):
         return (X * (self.ub - self.lb)) + self.lb
 
     def _set_sim_params(self, X):
-        global_params = ['G','v']
-        local_params = ['wEE', 'wEI', 'wIE']
         # transform X from [0, 1] range to the actual
-        # parameter range
-        Xt = self._get_Xt(X)
+        # parameter range and label them
+        Xt = pd.DataFrame(self._get_Xt(X), columns=self.free_params, dtype=float)
+        print(Xt)
+        # set fixed parameter lists
+        # these are not going to vary across iterations
+        # but must be specified here as in elsewhere N is unknown
+        for param in self.fixed_params:
+            if param in self.global_params:
+                self.sim_group.param_lists[param] = np.repeat(self.params[param], self.sim_group.N)
+            else:
+                self.sim_group.param_lists[param] = np.tile(self.params[param], (self.sim_group.N, self.sim_group.nodes))
+        # first determine the global parameters and bias terms
+        for param in self.free_params:
+            if param in self.global_params:
+                self.sim_group.param_lists[param] = Xt.loc[:, param].values
+            elif param in self.local_params:
+                self.sim_group.param_lists[param] = np.tile(Xt.loc[:, param].values[:, np.newaxis], self.sim_group.nodes)
+        # then multiply the local parameters by their map-based scalers
         if self.is_heterogeneous:
-            raise NotImplementedError("Heterogeneous models are not implemented yet")
-        else:
-            for i, param in enumerate(self.free_params):
-                if param in global_params:
-                    self.sim_group.param_lists[param] = Xt[:, i]
-                else:
-                    self.sim_group.param_lists[param] = np.repeat(Xt[:, i], self.sim_group.nodes)
-            for param in self.fixed_params:
-                if param in global_params:
-                    self.sim_group.param_lists[param] = np.repeat(self.params[param], self.sim_group.N)
-                else:
-                    self.sim_group.param_lists[param] = np.tile(self.params[param], (self.sim_group.N, self.sim_group.nodes))
+            for param in self.het_params:
+                for sim_idx in range(Xt.shape[0]):
+                    # not doing this vectorized for better code readability
+                    # determine scaler map of current simulation-param
+                    param_scalers = np.ones(self.sim_group.nodes)
+                    for map_idx in range(self.maps.shape[0]):
+                        scaler_name = f"{param}scale{map_idx}"
+                        param_scalers += self.maps[map_idx, :] * Xt.iloc[sim_idx].loc[scaler_name]
+                    # multiply it by the bias which is already put in param_lists
+                    self.sim_group.param_lists[param][sim_idx, :] *= param_scalers
+                    # fix/reject negatives
+                    if (self.sim_group.param_lists[param][sim_idx, :].min() < 0.001):
+                        print("Found negative local parameter...Shifting min to 0.001")
+                        if self.reject_negative:
+                            # TODO
+                            raise NotImplementedError("Rejecting particles due to negative local parameter is not implemented")
+                        else:
+                            self.sim_group.param_lists[param][sim_idx, :] -= self.sim_group.param_lists[param][sim_idx, :].min() - 0.001
 
     def _evaluate(self, X, out, *args, **kwargs):
         # set N to current iteration population size

@@ -100,13 +100,18 @@ class SimGroup:
         """
         # TODO: add assertions to make sure all the data is complete
         force_reinit = (self.N != self.last_N)
+        # set wIE to its flattened copy and pass this
+        # array to run_simulations so that in the case
+        # of do_fic it is overwritten with the actual wIE
+        # used in the simulations
+        self.param_lists['wIE'] = self.param_lists['wIE'].flatten()
         out = run_simulations(
             self.sc.flatten(), 
             self.sc_dist.flatten(), 
             self.param_lists['G'], 
             self.param_lists['wEE'].flatten(), 
             self.param_lists['wEI'].flatten(), 
-            self.param_lists['wIE'].flatten(), 
+            self.param_lists['wIE'], 
             self.param_lists['v'],
             self.do_fic, self.extended_output, self.do_delay, force_reinit, 
             self.N, self.nodes, self.time_steps, self.TR,
@@ -133,6 +138,7 @@ class SimGroup:
         self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)
         self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
         self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)
+        self.param_lists['wIE'] = self.param_lists['wIE'].reshape(self.N, -1)
 
     def score(self, emp_fc_tril, emp_fcd_tril, fic_penalty_scale=2):
         """

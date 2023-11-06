@@ -795,7 +795,7 @@ void run_simulations_gpu(
                 }
                 if (_unstable) {
                     printf("In simulation #%d FIC solution is unstable. There might be problems with the SC. Exiting...\n", IndPar);
-                    exit(1);
+                    // exit(1);
                     //TODO: instead of exiting skip the unstable simulation
                 }
             }
@@ -931,6 +931,10 @@ void run_simulations_gpu(
             I_I_out+=nodes;
             memcpy(I_ratio_out, I_ratio[sim_idx], sizeof(u_real) * nodes);
             I_ratio_out+=nodes;
+        }
+        if (do_fic) {
+            memcpy(w_IE_list, w_IE_fic[sim_idx], sizeof(u_real) * nodes);
+            w_IE_list+=nodes;
         }
     }
 
