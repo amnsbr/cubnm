@@ -49,6 +49,7 @@ extern void run_simulations_gpu(
     double * S_E_out, double * S_I_out, double * S_ratio_out,
     double * r_E_out, double * r_I_out, double * r_ratio_out,
     double * I_E_out, double * I_I_out, double * I_ratio_out,
+    bool * fic_unstable_out, bool * fic_failed_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
@@ -157,6 +158,9 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
     PyObject* py_I_E_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
     PyObject* py_I_I_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
     PyObject* py_I_ratio_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
+    npy_intp sims_dims[1] = {N_SIMS};
+    PyObject* py_fic_unstable_out = PyArray_SimpleNew(1, sims_dims, PyArray_BOOL);
+    PyObject* py_fic_failed_out = PyArray_SimpleNew(1, sims_dims, PyArray_BOOL);
 
     printf("Running %d simulations...\n", N_SIMS);
     start = std::chrono::high_resolution_clock::now();
@@ -167,6 +171,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         (double*)PyArray_DATA(py_S_E_out), (double*)PyArray_DATA(py_S_I_out), (double*)PyArray_DATA(py_S_ratio_out),
         (double*)PyArray_DATA(py_r_E_out), (double*)PyArray_DATA(py_r_I_out), (double*)PyArray_DATA(py_r_ratio_out),
         (double*)PyArray_DATA(py_I_E_out), (double*)PyArray_DATA(py_I_I_out), (double*)PyArray_DATA(py_I_ratio_out),
+        (bool*)PyArray_DATA(py_fic_unstable_out), (bool*)PyArray_DATA(py_fic_failed_out),
         (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
         (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
         (double*)PyArray_DATA(v_list),
@@ -179,12 +184,12 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
     printf("took %lf s\n", elapsed_seconds.count());
 
     if (extended_output) {
-        return Py_BuildValue("OOOOOOOOOOOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out,
+        return Py_BuildValue("OOOOOOOOOOOOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out,
             py_S_E_out, py_S_I_out, py_S_ratio_out, py_r_E_out, py_r_I_out, py_r_ratio_out,
-            py_I_E_out, py_I_I_out, py_I_ratio_out
+            py_I_E_out, py_I_I_out, py_I_ratio_out, py_fic_unstable_out
         );
     } else {
-        return Py_BuildValue("OOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out);
+        return Py_BuildValue("OOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out, py_fic_unstable_out);
     }
 }
 

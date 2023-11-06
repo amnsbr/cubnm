@@ -78,7 +78,7 @@ int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_
 int last_noise_size = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
 bool adjust_fic, has_delay;
 cudaDeviceProp prop;
-bool *FIC_failed;
+bool *fic_failed, *fic_unstable;
 u_real **S_ratio, **I_ratio, **r_ratio, **S_E, **I_E, **r_E, **S_I, **I_I, **r_I,
     **BOLD_ex, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
     **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise, **w_IE_fic,
@@ -102,7 +102,7 @@ __global__ void bnm(
     u_real **S_i_E_hist, int **delay, int max_delay,
     int N_SIMS, int nodes, int BOLD_TR, int time_steps, 
     u_real *noise, bool do_fic, u_real **w_IE_fic,
-    bool adjust_fic, int max_fic_trials, bool *FIC_failed, int *fic_n_trials,
+    bool adjust_fic, int max_fic_trials, bool *fic_unstable, bool *fic_failed, int *fic_n_trials,
     bool extended_output,
     int corr_len, u_real **mean_bold, u_real **ssd_bold,
     bool regional_params = false
@@ -110,6 +110,7 @@ __global__ void bnm(
     // convert block to a cooperative group
     int sim_idx = blockIdx.x;
     if (sim_idx >= N_SIMS) return;
+    if (fic_unstable[sim_idx]) return;
     cg::thread_block b = cg::this_thread_block();
 
     // allocate shared memory for the S_i_1_E (S_E at time t-1)
@@ -199,7 +200,7 @@ __global__ void bnm(
         delta = d_conf.init_delta;
         fic_trial = 0;
         I_E_ba_diff;
-        FIC_failed[sim_idx] = false;
+        fic_failed[sim_idx] = false;
     }
     // copy adjust_fic to a local shared variable and use it to indicate
     // if adjustment should be stopped after N trials
@@ -403,7 +404,7 @@ __global__ void bnm(
                     } else {
                         // continue the simulation but
                         // declare FIC failed
-                        FIC_failed[sim_idx] = true;
+                        fic_failed[sim_idx] = true;
                         _adjust_fic = false;
                     }
                 } else {
@@ -689,6 +690,7 @@ void run_simulations_gpu(
     double * S_E_out, double * S_I_out, double * S_ratio_out,
     double * r_E_out, double * r_I_out, double * r_ratio_out,
     double * I_E_out, double * I_I_out, double * I_ratio_out,
+    bool * fic_unstable_out, bool * fic_failed_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
     int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
@@ -784,19 +786,17 @@ void run_simulations_gpu(
                     curr_w_EI[j] = (double)(w_EI_list[IndPar*nodes+j]);
                 }
                 // do FIC for the current particle
-                bool _unstable = false;
+                fic_unstable[IndPar] = false;
                 gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
                 analytical_fic_het(
                     SC_gsl, G_list[IndPar], curr_w_EE, curr_w_EI,
-                    curr_w_IE, &_unstable);
+                    curr_w_IE, fic_unstable+IndPar);
                 // copy to w_IE_fic which will be passed on to the device
                 for (int j=0; j<nodes; j++) {
                     w_IE_fic[IndPar][j] = (u_real)gsl_vector_get(curr_w_IE, j);
                 }
-                if (_unstable) {
-                    printf("In simulation #%d FIC solution is unstable. There might be problems with the SC. Exiting...\n", IndPar);
-                    // exit(1);
-                    //TODO: instead of exiting skip the unstable simulation
+                if (fic_unstable[IndPar]) {
+                    printf("In simulation #%d FIC solution is unstable. Will skip this simulation\n", IndPar);
                 }
             }
         }
@@ -819,7 +819,7 @@ void run_simulations_gpu(
         S_i_E_hist, delay, max_delay,
         N_SIMS, nodes, BOLD_TR, time_steps, 
         noise, do_fic, w_IE_fic, 
-        adjust_fic, _max_fic_trials, FIC_failed, fic_n_trials,
+        adjust_fic, _max_fic_trials, fic_unstable, fic_failed, fic_n_trials,
         _extended_output,
         corr_len, mean_bold, ssd_bold, 
         regional_params); // true refers to regional_params
@@ -937,6 +937,10 @@ void run_simulations_gpu(
             w_IE_list+=nodes;
         }
     }
+    if (do_fic) {
+        memcpy(fic_unstable_out, fic_unstable, sizeof(bool) * N_SIMS);
+        memcpy(fic_failed_out, fic_failed, sizeof(bool) * N_SIMS);
+    }
 
     // free delay and S_i_E_hist memories if allocated
     // Note: no need to clear memory of the other variables
@@ -986,8 +990,8 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     // no adjustment is done but FIC success is assessed
     adjust_fic = do_fic & conf.numerical_fic;
     bool _extended_output = (extended_output | do_fic);
-    CUDA_CHECK_RETURN(cudaMallocManaged(&FIC_failed, sizeof(bool) * N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged(&fic_n_trials, sizeof(int) * N_SIMS));
+    CUDA_CHECK_RETURN(cudaMallocManaged(&fic_failed, sizeof(bool) * N_SIMS));
+    CUDA_CHECK_RETURN(cudaMallocManaged(&fic_unstable, sizeof(bool) * N_SIMS));
     CUDA_CHECK_RETURN(cudaMallocManaged(&fic_n_trials, sizeof(int) * N_SIMS));
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic, sizeof(u_real*) * N_SIMS));
     if (_extended_output) {

@@ -129,12 +129,13 @@ class SimGroup:
             ext_out['S_E'], ext_out['S_I'], ext_out['S_ratio'],\
             ext_out['r_E'], ext_out['r_I'], ext_out['r_ratio'],\
             ext_out['I_E'], ext_out['I_I'], ext_out['I_ratio'],\
+            self.fic_unstable\
               = out
             self.ext_out = ext_out
             for k in self.ext_out:
                 self.ext_out[k] = self.ext_out[k].reshape(self.N, -1)
         else:
-            sim_bold, sim_fc_trils, sim_fcd_trils = out
+            sim_bold, sim_fc_trils, sim_fcd_trils, self.fic_unstable = out
         self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)
         self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
         self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)
@@ -160,12 +161,27 @@ class SimGroup:
             columns.append('fic_penalty')
         scores = pd.DataFrame(columns=columns, dtype=float)
         for idx in range(self.N):
-            scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
-            scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
-            scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
+            if self.do_fic & self.fic_unstable[idx]:
+                # in unfeasible simulations set GOF to max
+                # TODO: instead, reject these particles and get
+                # substitutes
+                scores.loc[idx, 'fc_corr'] = -1
+                scores.loc[idx, 'fc_diff'] = 1
+                scores.loc[idx, 'fcd_ks'] = 1
+            else:
+                # otherwise calculate FC corr, FC diff and FCD ks
+                scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
+                scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
+                scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
+        # aggeegate GOF
         scores.loc[:, 'gof'] = scores.loc[:, 'fc_corr'] - 1 - scores.loc[:, 'fc_diff'] - scores.loc[:, 'fcd_ks']
+        # calculate FIC penalty
         if self.do_fic:
             for idx in range(self.N):
+                if self.fic_unstable[idx]:
+                    # in unfeasible simulations set GOF to max
+                    scores.loc[idx, 'fic_penalty'] = 1
+                    continue
                 diff_r_E = np.abs(self.ext_out['r_E'][idx,:] - 3)
                 if (diff_r_E > 1).sum() > 1:
                     diff_r_E[diff_r_E <= 1] = np.NaN
