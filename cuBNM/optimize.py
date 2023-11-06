@@ -1,4 +1,5 @@
 import itertools
+from abc import ABC, abstractmethod
 import numpy as np
 import pandas as pd
 from pymoo.core.problem import Problem
@@ -6,6 +7,7 @@ from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 import cma
+from bayes_opt import BayesianOptimization, UtilityFunction
 
 
 from cuBNM import sim
@@ -14,6 +16,7 @@ class GridSearch():
     """
     Simple grid search
     """
+    #TODO: GridSearch should also be an Optimizer
     def __init__(self, params, **kwargs):
         """
         Parameters
@@ -80,6 +83,7 @@ class RWWProblem(Problem):
                 self.ub.append(v[1])
         self.lb = np.array(self.lb)
         self.ub = np.array(self.ub)
+        self.ndim = len(self.free_params)
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
         self.maps_path = maps_path
         self.is_heterogeneous = False
@@ -94,12 +98,18 @@ class RWWProblem(Problem):
             xu=np.ones(len(self.free_params), dtype=float)
         )
 
+    def _get_Xt(self, X):
+        """
+        Transforms X from normalized [0, 1] range to [self.lb, self.ub]
+        """
+        return (X * (self.ub - self.lb)) + self.lb
+
     def _set_sim_params(self, X):
         global_params = ['G','v']
         local_params = ['wEE', 'wEI', 'wIE']
         # transform X from [0, 1] range to the actual
         # parameter range
-        Xt = (X * (self.ub - self.lb)) + self.lb
+        Xt = self._get_Xt(X)
         if self.is_heterogeneous:
             raise NotImplementedError("Heterogeneous models are not implemented yet")
         else:
@@ -129,13 +139,23 @@ class RWWProblem(Problem):
         # out["F"] = X.sum(axis=1)
         # out["G"] = ... # TODO: consider using this for enforcing FIC success
 
-class Optimizer:
+class Optimizer(ABC):
+    @abstractmethod
+    def setup_problem(self, problem, **kwargs):
+        pass
+
+    @abstractmethod
+    def optimize(self):
+        pass
+
+class PymooOptimizer(Optimizer):
     """
     General purpose wrapper for pymoo and other optimizers
     """
-    def setup_problem(self, problem, **kwargs):
+    def __init__(self, **kwargs):
         """
-        Sets up the problem with the algorithm
+        Initialize pymoo optimizers by setting up the
+        termination rule based on `n_iter` or `termination`
         """
         # set termination and n_iter (aka n_max_gen)
         self.termination = kwargs.pop('termination', None)
@@ -144,6 +164,11 @@ class Optimizer:
         else:
             self.n_iter = kwargs.pop('n_iter', 2)
             self.termination = get_termination('n_iter', self.n_iter)
+
+    def setup_problem(self, problem, **kwargs):
+        """
+        Sets up the problem with the algorithm
+        """
         # setup the algorithm with the problem
         self.seed = kwargs.pop('seed', 0)
         self.problem = problem
@@ -161,12 +186,13 @@ class Optimizer:
             # TODO: do same more things, printing, logging, storing or even modifying the algorithm object
 
 
-class CMAESOptimizer(Optimizer):
+class CMAESOptimizer(PymooOptimizer):
     def __init__(self, popsize, x0=None, sigma=0.5, 
             use_bound_penalty=False, **kwargs):
         """
         Sets up a CMAES optimizer with some defaults
         """
+        super().setup_problem(problem, **kwargs)
         if use_bound_penalty:
             bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
             kwargs['BoundaryHandler'] = bound_penalty
@@ -185,3 +211,66 @@ class CMAESOptimizer(Optimizer):
             # after problem is registered with the algorithm
             # the bounds will be enforced by bound_penalty
             self.algorithm.options['bounds'] = None 
+
+class BayesOptimizer(Optimizer):
+    # this does not have the mechanics of PymooOptimizer but
+    # uses similar API as much as possible
+    def __init__(self, popsize, n_iter):
+        """
+        Sets up a Bayesian optimizer
+        """
+        # does not initialize BayesianOptimization because
+        # the number of dimensions and therefore pbounds
+        # are not known yet
+        self.popsize = popsize
+        self.n_iter = n_iter
+        # setting up utility function
+        # based on the default in BayesianOptimization.maximize function
+        self.utility = UtilityFunction(kind='ucb',
+                                   kappa=2.576,
+                                   xi=0.0,
+                                   kappa_decay=1,
+                                   kappa_decay_delay=0)
+        
+    def setup_problem(self, problem, **kwargs):
+        """
+        Initializes the algorithm based on problem ndim
+        """
+        self.problem = problem
+        self.seed = kwargs.pop('seed', 0)
+        pbounds = dict([(f'p{i}', (0, 1)) for i in range(self.problem.ndim)])
+        self.algorithm = BayesianOptimization(
+            f=None,
+            pbounds=pbounds,
+            verbose=2,
+            random_state=self.seed,
+        )
+
+
+    def optimize(self):
+        for it in range(self.n_iter):
+            # get the next popsize suggestions
+            params = []
+            for sim_idx in range(self.popsize):
+                params.append(self.algorithm.suggest(self.utility))
+            # evaluate them
+            # convert params dictionaries to a numpy array
+            # while making sure that the order is preserved
+            X = pd.DataFrame(params).T.sort_index().T.values
+            out = {}
+            self.problem._evaluate(X, out)
+            out['F'] = -out['F'] # this optimizer maximizes the target
+            # register the results
+            for sim_idx in range(self.popsize):
+                self.algorithm.register(params[sim_idx], out['F'][sim_idx])
+            # update the utility function
+            # note that by default because kappa_decay is 1
+            # this doesn't do anything
+            self.utility.update_params()
+            # TODO: consider bound modification similar to BayesianOptimization.maximize function
+            # TODO: consider adding constraints for FIC failure
+            # print results
+            res = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+            res['F'] = out['F']
+            print(res)
+
