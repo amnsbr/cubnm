@@ -60,7 +60,7 @@ class RWWProblem(Problem):
     global_params = ['G','v']
     local_params = ['wEE', 'wEI', 'wIE']
     def __init__(self, params, emp_fc_tril, emp_fcd_tril, het_params=[], maps_path=None,
-            reject_negative=False, **kwargs):
+            reject_negative=False, node_grouping=None, **kwargs):
         """
         The "Problem" of reduced Wong-Wang model optimal parameters fitted
         to the provided empirical FC and FCDs
@@ -81,25 +81,76 @@ class RWWProblem(Problem):
             rejects particles with negative (or actually < 0.001) local parameters
             after applying heterogeneity. If False, instead of rejecting shifts the parameter map to
             have a min of 0.001
+        node_grouping: (str)
+            - None: does not use region-/group-specific parameters
+            - 'node'
+            - 'sym'
+            - path to node grouping array
+        **kwargs to sim.SimGroup
         """
+        # set opts
         self.params = params
         self.emp_fc_tril = emp_fc_tril
         self.emp_fcd_tril = emp_fcd_tril
         self.het_params = kwargs.pop('het_params', het_params)
         self.maps_path = kwargs.pop('maps_path', maps_path)
+        self.reject_negative = kwargs.pop('reject_negative', reject_negative)
+        self.node_grouping = kwargs.pop('node_grouping', node_grouping)
+        # initialize sim_group (N not known yet)
         self.sim_group = sim.SimGroup(**kwargs)
+        # raise errors if opts are impossible
         if (self.sim_group.do_fic) & ('wIE' in self.het_params):
             raise ValueError("wIE should not be specified as a heterogeneous parameter when FIC is done")
+        if (self.node_grouping is not None) & (self.maps_path is not None):
+            raise ValueError("Both node_groups and maps_path cannot be used")
+        # identify free and fixed parameters
         self.free_params = []
         self.lb = []
         self.ub = []
+        # decide if parameters can be variable across nodes/groups
+        # note that this is different from map-based heterogeneity
+        self.is_regional = self.node_grouping is not None
+        if self.is_regional:
+            for param in self.het_params:
+                if not isinstance(params[param], tuple):
+                    raise ValueError(f"{param} is set to be heterogeneous based on groups but no range is provided")
+        # set up node_groups (ordered index of all unique groups)
+        # and memberships (from node i to N, which group they belong to)
+        if self.is_regional:
+            if self.node_grouping=='node':
+                # each node gets its own local free parameters
+                # therefore each node has its own group and 
+                # is the only member of it
+                self.node_groups = np.arange(self.sim_group.nodes)
+                self.memberships = np.arange(self.sim_group.nodes)
+            elif self.node_grouping=='sym':
+                print("Warning: `sym` node grouping assumes symmetry of parcels between L and R hemispheres")
+                # nodes i & rh_idx+i belong to the same group
+                # and will have similar parameters
+                assert (self.sim_group.nodes % 2 == 0), "Number of nodes must be even"
+                rh_idx = int(self.sim_group.nodes / 2)
+                self.node_groups = np.arange(rh_idx)
+                self.memberships = np.tile(np.arange(rh_idx), 2)
+            else:
+                self.memberships = np.loadtxt(self.node_grouping).astype('int')
+                self.node_groups = np.unique(self.memberships)
+        # set up global and local (incl. bias) free parameters
         for param, v in params.items():
             if isinstance(v, tuple):
-                self.free_params.append(param)
-                self.lb.append(v[0])
-                self.ub.append(v[1])
+                if self.is_regional & (param in self.local_params) & (param in self.het_params):
+                    # set up local parameters which are regionally variable based on groups
+                    for group in self.node_groups:
+                        param_name = f'{param}{group}'
+                        self.free_params.append(param_name)
+                        self.lb.append(v[0])
+                        self.ub.append(v[1])
+                else:
+                    # is a global or bias parameter
+                    self.free_params.append(param)
+                    self.lb.append(v[0])
+                    self.ub.append(v[1])
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
-        self.reject_negative = reject_negative
+        # set up map scaler parameters
         self.is_heterogeneous = False
         if self.maps_path is not None:
             self.is_heterogeneous = True
@@ -115,12 +166,12 @@ class RWWProblem(Problem):
                         # map is min-max normalized
                         scale_min = 0
                         scale_max = scale_max_minmax # defined in constants
-                    else:
+                    elif ((map_min < 0) & (map_max > 0)):
                         # e.g. z-scored
                         scale_min = -1 / map_max
-                        scale_min = np.ceil(scale_min / 0.01) * 0.01 # round up
+                        scale_min = np.ceil(scale_min / 0.1) * 0.1 # round up
                         scale_max = -1 / map_min
-                        scale_max = np.floor(scale_max / 0.01) * 0.01 # round down 
+                        scale_max = np.floor(scale_max / 0.1) * 0.1 # round down 
                     # add the scaler as a free parameter
                     scaler_name = f"{param}scale{map_idx}"
                     self.free_params.append(scaler_name)
@@ -185,6 +236,15 @@ class RWWProblem(Problem):
                             raise NotImplementedError("Rejecting particles due to negative local parameter is not implemented")
                         else:
                             self.sim_group.param_lists[param][sim_idx, :] -= self.sim_group.param_lists[param][sim_idx, :].min() - 0.001
+        # determine regional parameters that are variable based on groups
+        if self.is_regional:
+            for param in self.het_params:
+                curr_param_maps = np.zeros((Xt.shape[0], self.sim_group.nodes))
+                for group in self.node_groups:
+                    param_name = f"{param}{group}"
+                    curr_param_maps[:, self.memberships==group] = Xt.loc[:, param_name].values[:, np.newaxis]
+                self.sim_group.param_lists[param] = curr_param_maps
+
 
     def _evaluate(self, X, out, *args, **kwargs):
         # set N to current iteration population size
