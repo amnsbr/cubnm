@@ -173,8 +173,54 @@ def test_cmaes_simple():
 
     return problem, algorithm, termination, res
 
+def test_cmaes_ask_tell():
+    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    problem = optimize.RWWProblem(
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+        },
+        emp_fc_tril = emp_fc_tril,
+        emp_fcd_tril = emp_fcd_tril,
+        duration = 60,
+        TR = 1,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
+    )
+    # initialize algorithm with bound penalty
+    bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
+    algorithm = CMAES(
+        # x0=np.array([0.5, 0.5]), # initial guess in the middle; note that X is 0-1 normalized
+        x0=None, # will estimate the initial guess based on 20 random samples
+        sigma=0.5,
+        maxiter=1, # this is overwritten by the termination rules
+        popsize=10, 
+        eval_initial_x=False,
+        BoundaryHandler=bound_penalty
+    )
+    # set up algorithm with the problem and termination rules
+    termination = get_termination('n_iter', 2)
+    algorithm.setup(problem, termination=termination, seed=1, verbose=True, save_history=True)
+    if algorithm.options.get('BoundaryHandler') is not None:
+        # the following is to avoid an error caused by pymoo interfering with cma
+        # after problem is registered with the algorithm
+        # the bounds will be enforced by bound_penalty
+        algorithm.options['bounds'] = None 
+    while algorithm.has_next():
+        # ask the algorithm for the next solution to be evaluated
+        pop = algorithm.ask()
+        # evaluate the individuals using the algorithm's evaluator (necessary to count evaluations for termination)
+        algorithm.evaluator.eval(problem, pop)
+        # returned the evaluated individuals which have been evaluated or even modified
+        algorithm.tell(infills=pop)
+        # do same more things, printing, logging, storing or even modifying the algorithm object
+        print(algorithm.n_gen, algorithm.evaluator.n_eval)
+
+    return problem, algorithm, termination
+
 if __name__ == '__main__':
     # run_sims(2)
     # gs, scores = run_grid()
     # problem, out = test_problem()
-    problem, algorithm, termination, res = test_cmaes_simple()
+    problem, algorithm, termination = test_cmaes_ask_tell()
