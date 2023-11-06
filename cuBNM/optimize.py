@@ -2,6 +2,11 @@ import itertools
 import numpy as np
 import pandas as pd
 from pymoo.core.problem import Problem
+from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
+from pymoo.optimize import minimize
+from pymoo.termination import get_termination
+import cma
+
 
 from cuBNM import sim
 
@@ -123,3 +128,60 @@ class RWWProblem(Problem):
             out["F"] = -scores.loc[:, 'gof'].values
         # out["F"] = X.sum(axis=1)
         # out["G"] = ... # TODO: consider using this for enforcing FIC success
+
+class Optimizer:
+    """
+    General purpose wrapper for pymoo and other optimizers
+    """
+    def setup_problem(self, problem, **kwargs):
+        """
+        Sets up the problem with the algorithm
+        """
+        # set termination and n_iter (aka n_max_gen)
+        self.termination = kwargs.pop('termination', None)
+        if self.termination:
+            self.n_iter = self.termination.n_max_gen
+        else:
+            self.n_iter = kwargs.pop('n_iter', 2)
+            self.termination = get_termination('n_iter', self.n_iter)
+        # setup the algorithm with the problem
+        self.seed = kwargs.pop('seed', 0)
+        self.problem = problem
+        self.algorithm.setup(problem, termination=self.termination, 
+            seed=self.seed, verbose=True, save_history=True, **kwargs)
+
+    def optimize(self):
+        while self.algorithm.has_next():
+            # ask the algorithm for the next solution to be evaluated
+            pop = self.algorithm.ask()
+            # evaluate the individuals using the algorithm's evaluator (necessary to count evaluations for termination)
+            self.algorithm.evaluator.eval(self.problem, pop)
+            # returned the evaluated individuals which have been evaluated or even modified
+            self.algorithm.tell(infills=pop)
+            # TODO: do same more things, printing, logging, storing or even modifying the algorithm object
+
+
+class CMAESOptimizer(Optimizer):
+    def __init__(self, popsize, x0=None, sigma=0.5, 
+            use_bound_penalty=False, **kwargs):
+        """
+        Sets up a CMAES optimizer with some defaults
+        """
+        if use_bound_penalty:
+            bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
+            kwargs['BoundaryHandler'] = bound_penalty
+        kwargs['eval_initial_x'] = False
+        self.algorithm = CMAES(
+            x0=x0, # will estimate the initial guess based on 20 random samples
+            sigma=sigma,
+            popsize=popsize, # from second generation
+            **kwargs
+        )
+
+    def setup_problem(self, problem, **kwargs):
+        super().setup_problem(problem, **kwargs)
+        if self.algorithm.options.get('BoundaryHandler') is not None:
+            # the following is to avoid an error caused by pymoo interfering with cma
+            # after problem is registered with the algorithm
+            # the bounds will be enforced by bound_penalty
+            self.algorithm.options['bounds'] = None 

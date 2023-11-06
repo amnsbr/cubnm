@@ -219,8 +219,29 @@ def test_cmaes_ask_tell():
 
     return problem, algorithm, termination
 
+def test_cmaes_optimizer():
+    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    problem = optimize.RWWProblem(
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+        },
+        emp_fc_tril = emp_fc_tril,
+        emp_fcd_tril = emp_fcd_tril,
+        duration = 60,
+        TR = 1,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
+    )
+    cmaes = optimize.CMAESOptimizer(popsize=10)
+    cmaes.setup_problem(problem, n_iter=2)
+    cmaes.optimize()
+
+    return cmaes
+
 if __name__ == '__main__':
     # run_sims(2)
     # gs, scores = run_grid()
     # problem, out = test_problem()
-    problem, algorithm, termination = test_cmaes_ask_tell()
+    cmaes = test_cmaes_optimizer()
