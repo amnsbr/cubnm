@@ -201,7 +201,6 @@ class RWWProblem(Problem):
         # transform X from [0, 1] range to the actual
         # parameter range and label them
         Xt = pd.DataFrame(self._get_Xt(X), columns=self.free_params, dtype=float)
-        print(Xt)
         # set fixed parameter lists
         # these are not going to vary across iterations
         # but must be specified here as in elsewhere N is unknown
@@ -274,7 +273,7 @@ class PymooOptimizer(Optimizer):
     """
     General purpose wrapper for pymoo and other optimizers
     """
-    def __init__(self, **kwargs):
+    def __init__(self, termination=None, n_iter=2, **kwargs):
         """
         Initialize pymoo optimizers by setting up the
         termination rule based on `n_iter` or `termination`
@@ -310,11 +309,12 @@ class PymooOptimizer(Optimizer):
 
 class CMAESOptimizer(PymooOptimizer):
     def __init__(self, popsize, x0=None, sigma=0.5, 
-            use_bound_penalty=False, **kwargs):
+            use_bound_penalty=False, termination=None, n_iter=2, 
+            algorithm_kws={}, **kwargs):
         """
         Sets up a CMAES optimizer with some defaults
         """
-        super().setup_problem(problem, **kwargs)
+        super().__init__(termination=termination, n_iter=n_iter, **kwargs)
         if use_bound_penalty:
             bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
             kwargs['BoundaryHandler'] = bound_penalty
@@ -323,7 +323,7 @@ class CMAESOptimizer(PymooOptimizer):
             x0=x0, # will estimate the initial guess based on 20 random samples
             sigma=sigma,
             popsize=popsize, # from second generation
-            **kwargs
+            **algorithm_kws
         )
 
     def setup_problem(self, problem, **kwargs):
@@ -366,6 +366,7 @@ class BayesOptimizer(Optimizer):
             pbounds=pbounds,
             verbose=2,
             random_state=self.seed,
+            **kwargs
         )
 
 
