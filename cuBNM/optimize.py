@@ -261,6 +261,7 @@ class RWWProblem(Problem):
         # out["G"] = ... # TODO: consider using this for enforcing FIC success
 
 class Optimizer(ABC):
+
     @abstractmethod
     def setup_problem(self, problem, **kwargs):
         pass
@@ -286,7 +287,7 @@ class PymooOptimizer(Optimizer):
             self.n_iter = kwargs.pop('n_iter', 2)
             self.termination = get_termination('n_iter', self.n_iter)
 
-    def setup_problem(self, problem, **kwargs):
+    def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
         """
         Sets up the problem with the algorithm
         """
@@ -294,9 +295,11 @@ class PymooOptimizer(Optimizer):
         self.seed = kwargs.pop('seed', 0)
         self.problem = problem
         self.algorithm.setup(problem, termination=self.termination, 
-            seed=self.seed, verbose=True, save_history=True, **kwargs)
+            seed=self.seed, verbose=pymoo_verbose, save_history=True, **kwargs)
 
     def optimize(self):
+        self.history = []
+        self.opt_history = []
         while self.algorithm.has_next():
             # ask the algorithm for the next solution to be evaluated
             pop = self.algorithm.ask()
@@ -305,6 +308,17 @@ class PymooOptimizer(Optimizer):
             # returned the evaluated individuals which have been evaluated or even modified
             self.algorithm.tell(infills=pop)
             # TODO: do same more things, printing, logging, storing or even modifying the algorithm object
+            X = np.array([p.x for p in self.algorithm.pop])
+            res = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+            res.index.name = 'sim_idx'
+            res['F'] = np.array([p.f for p in self.algorithm.pop])
+            print(res)
+            res['gen'] = self.algorithm.n_gen-1
+            self.history.append(res)
+            self.opt_history.append(res.loc[res['F'].argmin()])
+        self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
+        self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
+        self.opt = self.opt_history.loc[self.opt_history['F'].argmin()]
 
 
 class CMAESOptimizer(PymooOptimizer):
@@ -360,7 +374,7 @@ class BayesOptimizer(Optimizer):
         """
         self.problem = problem
         self.seed = kwargs.pop('seed', 0)
-        pbounds = dict([(f'p{i}', (0, 1)) for i in range(self.problem.ndim)])
+        pbounds = dict([(f'p{i:03}', (0, 1)) for i in range(self.problem.ndim)])
         self.algorithm = BayesianOptimization(
             f=None,
             pbounds=pbounds,
@@ -371,6 +385,8 @@ class BayesOptimizer(Optimizer):
 
 
     def optimize(self):
+        self.history = []
+        self.opt_history = []
         for it in range(self.n_iter):
             # get the next popsize suggestions
             params = []
@@ -394,6 +410,14 @@ class BayesOptimizer(Optimizer):
             # TODO: consider adding constraints for FIC failure
             # print results
             res = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
-            res['F'] = out['F']
+            res.index.name = 'sim_idx'
+            res['F'] = -out['F'] # convert to cost again for consistency with pymoo optimizers
             print(res)
+            res['gen'] = it+1
+            self.history.append(res)
+            self.opt_history.append(res.loc[res['F'].argmin()])
+        self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
+        self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
+        self.opt = self.opt_history.loc[self.opt_history['F'].argmin()]
+
 
