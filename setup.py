@@ -33,11 +33,9 @@ if gpu_enabled:
         extra_objects=[
             "/data/project/ei_development/tools/gsl_build_shared/lib/libgsl.a",
             "/data/project/ei_development/tools/gsl_build_shared/lib/libgslcblas.a",
-            "/data/project/ei_development/tools/libks/libks.so",
         ],
         include_dirs=[
             '/data/project/ei_development/tools/gsl_build_shared/include', 
-            '/data/project/ei_development/tools/libks/include',
             '/usr/lib/cuda/include',
             '/usr/include/cuda',
             np.get_include(),
