@@ -94,12 +94,12 @@ class SimGroup:
             self.param_lists['v'] = np.zeros(self._N, dtype=float)
 
 
-    def run(self):
+    def run(self, force_reinit=False):
         """
         Run the simulations in parallel on GPU
         """
         # TODO: add assertions to make sure all the data is complete
-        force_reinit = (self.N != self.last_N)
+        force_reinit = (force_reinit | (self.N != self.last_N))
         # set wIE to its flattened copy and pass this
         # array to run_simulations so that in the case
         # of do_fic it is overwritten with the actual wIE
@@ -161,27 +161,15 @@ class SimGroup:
             columns.append('fic_penalty')
         scores = pd.DataFrame(columns=columns, dtype=float)
         for idx in range(self.N):
-            if self.do_fic & self.fic_unstable[idx]:
-                # in unfeasible simulations set GOF to max
-                # TODO: instead, reject these particles and get
-                # substitutes
-                scores.loc[idx, 'fc_corr'] = -1
-                scores.loc[idx, 'fc_diff'] = 1
-                scores.loc[idx, 'fcd_ks'] = 1
-            else:
-                # otherwise calculate FC corr, FC diff and FCD ks
-                scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
-                scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
-                scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
+            # otherwise calculate FC corr, FC diff and FCD ks
+            scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
+            scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
+            scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
         # aggeegate GOF
         scores.loc[:, 'gof'] = scores.loc[:, 'fc_corr'] - 1 - scores.loc[:, 'fc_diff'] - scores.loc[:, 'fcd_ks']
         # calculate FIC penalty
         if self.do_fic:
             for idx in range(self.N):
-                if self.fic_unstable[idx]:
-                    # in unfeasible simulations set GOF to max
-                    scores.loc[idx, 'fic_penalty'] = 1
-                    continue
                 diff_r_E = np.abs(self.ext_out['r_E'][idx,:] - 3)
                 if (diff_r_E > 1).sum() > 1:
                     diff_r_E[diff_r_E <= 1] = np.NaN

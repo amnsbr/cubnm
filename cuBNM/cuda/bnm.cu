@@ -110,7 +110,6 @@ __global__ void bnm(
     // convert block to a cooperative group
     int sim_idx = blockIdx.x;
     if (sim_idx >= N_SIMS) return;
-    if (fic_unstable[sim_idx]) return;
     cg::thread_block b = cg::this_thread_block();
 
     // allocate shared memory for the S_i_1_E (S_E at time t-1)
@@ -768,35 +767,30 @@ void run_simulations_gpu(
 
     // do fic if indicated
     if (do_fic) {
-        if (only_wIE_free) {
-            // copy w_IE_list to w_IE_fic (TODO: fix this so that kernel uses w_IE_list directly)
-            for (int IndPar=0; IndPar<N_SIMS; IndPar++) {
-                for (int j=0; j<nodes; j++) {
-                    w_IE_fic[IndPar][j] = w_IE_list[IndPar*nodes+j];
-                }
+        gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
+        double *curr_w_EE = (double *)malloc(nodes * sizeof(double));
+        double *curr_w_EI = (double *)malloc(nodes * sizeof(double));
+        for (int IndPar=0; IndPar<N_SIMS; IndPar++) {
+            // make a copy of regional wEE and wEI
+            for (int j=0; j<nodes; j++) {
+                curr_w_EE[j] = (double)(w_EE_list[IndPar*nodes+j]);
+                curr_w_EI[j] = (double)(w_EI_list[IndPar*nodes+j]);
             }
-        } else {
-            for (int IndPar=0; IndPar<N_SIMS; IndPar++) {
-                // make a copy of regional wEE and wEI
-                double *curr_w_EE, *curr_w_EI;
-                curr_w_EE = (double *)malloc(nodes * sizeof(double));
-                curr_w_EI = (double *)malloc(nodes * sizeof(double));
+            // do FIC for the current particle
+            fic_unstable[IndPar] = false;
+            analytical_fic_het(
+                SC_gsl, G_list[IndPar], curr_w_EE, curr_w_EI,
+                curr_w_IE, fic_unstable+IndPar);
+
+            if (fic_unstable[IndPar]) {
+                printf("In simulation #%d FIC solution is unstable. Will set wIE to 1 in all nodes\n", IndPar);
                 for (int j=0; j<nodes; j++) {
-                    curr_w_EE[j] = (double)(w_EE_list[IndPar*nodes+j]);
-                    curr_w_EI[j] = (double)(w_EI_list[IndPar*nodes+j]);
+                    w_IE_fic[IndPar][j] = 1.0;
                 }
-                // do FIC for the current particle
-                fic_unstable[IndPar] = false;
-                gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
-                analytical_fic_het(
-                    SC_gsl, G_list[IndPar], curr_w_EE, curr_w_EI,
-                    curr_w_IE, fic_unstable+IndPar);
+            } else {
                 // copy to w_IE_fic which will be passed on to the device
                 for (int j=0; j<nodes; j++) {
                     w_IE_fic[IndPar][j] = (u_real)gsl_vector_get(curr_w_IE, j);
-                }
-                if (fic_unstable[IndPar]) {
-                    printf("In simulation #%d FIC solution is unstable. Will skip this simulation\n", IndPar);
                 }
             }
         }
