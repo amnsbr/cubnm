@@ -7,8 +7,6 @@ from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 import cma
-from bayes_opt import BayesianOptimization, UtilityFunction
-
 
 from cuBNM import sim
 
@@ -261,7 +259,6 @@ class RWWProblem(Problem):
         # out["G"] = ... # TODO: consider using this for enforcing FIC success
 
 class Optimizer(ABC):
-
     @abstractmethod
     def setup_problem(self, problem, **kwargs):
         pass
@@ -347,77 +344,4 @@ class CMAESOptimizer(PymooOptimizer):
             # after problem is registered with the algorithm
             # the bounds will be enforced by bound_penalty
             self.algorithm.options['bounds'] = None 
-
-class BayesOptimizer(Optimizer):
-    # this does not have the mechanics of PymooOptimizer but
-    # uses similar API as much as possible
-    def __init__(self, popsize, n_iter):
-        """
-        Sets up a Bayesian optimizer
-        """
-        # does not initialize BayesianOptimization because
-        # the number of dimensions and therefore pbounds
-        # are not known yet
-        self.popsize = popsize
-        self.n_iter = n_iter
-        # setting up utility function
-        # based on the default in BayesianOptimization.maximize function
-        self.utility = UtilityFunction(kind='ucb',
-                                   kappa=2.576,
-                                   xi=0.0,
-                                   kappa_decay=1,
-                                   kappa_decay_delay=0)
-        
-    def setup_problem(self, problem, **kwargs):
-        """
-        Initializes the algorithm based on problem ndim
-        """
-        self.problem = problem
-        self.seed = kwargs.pop('seed', 0)
-        pbounds = dict([(f'p{i:03}', (0, 1)) for i in range(self.problem.ndim)])
-        self.algorithm = BayesianOptimization(
-            f=None,
-            pbounds=pbounds,
-            verbose=2,
-            random_state=self.seed,
-            **kwargs
-        )
-
-
-    def optimize(self):
-        self.history = []
-        self.opt_history = []
-        for it in range(self.n_iter):
-            # get the next popsize suggestions
-            params = []
-            for sim_idx in range(self.popsize):
-                params.append(self.algorithm.suggest(self.utility))
-            # evaluate them
-            # convert params dictionaries to a numpy array
-            # while making sure that the order is preserved
-            X = pd.DataFrame(params).T.sort_index().T.values
-            out = {}
-            self.problem._evaluate(X, out)
-            out['F'] = -out['F'] # this optimizer maximizes the target
-            # register the results
-            for sim_idx in range(self.popsize):
-                self.algorithm.register(params[sim_idx], out['F'][sim_idx])
-            # update the utility function
-            # note that by default because kappa_decay is 1
-            # this doesn't do anything
-            self.utility.update_params()
-            # TODO: consider bound modification similar to BayesianOptimization.maximize function
-            # TODO: consider adding constraints for FIC failure
-            # print results
-            res = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
-            res.index.name = 'sim_idx'
-            res['F'] = -out['F'] # convert to cost again for consistency with pymoo optimizers
-            print(res)
-            res['gen'] = it+1
-            self.history.append(res)
-            self.opt_history.append(res.loc[res['F'].argmin()])
-        self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
-        self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
-        self.opt = self.opt_history.loc[self.opt_history['F'].argmin()]
-
 
