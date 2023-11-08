@@ -254,12 +254,12 @@ def test_bayes_optimizer():
         TR = 1,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
     )
-    bo = optimize.BayesOptimizer(popsize=10, n_iter=2)
+    bo = optimize.BayesOptimizer(popsize=10, n_iter=7)
     bo.setup_problem(problem, seed=1)
     bo.optimize()
     return bo
 
-def test_bayes_optimizer_het():
+def test_cmaes_optimizer_het():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -277,12 +277,12 @@ def test_bayes_optimizer_het():
         TR = 1,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
     )
-    bo = optimize.BayesOptimizer(popsize=10, n_iter=2)
-    bo.setup_problem(problem, seed=1)
-    bo.optimize()
-    return bo
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
+    cmaes.setup_problem(problem, seed=1)
+    cmaes.optimize()
+    return cmaes
 
-def test_bayes_optimizer_het_nofic():
+def test_cmaes_optimizer_het_nofic():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -302,12 +302,12 @@ def test_bayes_optimizer_het_nofic():
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
         do_fic=False
     )
-    bo = optimize.BayesOptimizer(popsize=10, n_iter=1)
-    bo.setup_problem(problem, seed=1)
-    bo.optimize()
-    return bo
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
+    cmaes.setup_problem(problem, seed=1)
+    cmaes.optimize()
+    return cmaes
 
-def test_bayes_optimizer_regional(node_grouping='sym'):
+def test_cmaes_optimizer_regional(node_grouping='sym'):
     if node_grouping == 'yeo':
         node_grouping = '/data/project/ei_development/tools/cuBNM/sample_input/yeo7_schaefer-100.txt'
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
@@ -326,15 +326,13 @@ def test_bayes_optimizer_regional(node_grouping='sym'):
         TR = 1,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
     )
-    bo = optimize.BayesOptimizer(popsize=10, n_iter=2)
-    bo.setup_problem(problem, seed=1)
-    bo.optimize()
-    return bo
-
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
+    cmaes.setup_problem(problem, seed=1)
+    cmaes.optimize()
+    return cmaes
 
 if __name__ == '__main__':
     # run_sims(2)
     # gs, scores = run_grid()
     # problem, out = test_problem()
-    # cmaes = test_cmaes_optimizer()
-    bo = test_bayes_optimizer_regional('yeo')
+    cmaes = test_cmaes_optimizer_het()
