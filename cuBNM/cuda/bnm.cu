@@ -41,6 +41,9 @@ Author: Amin Saberi, Feb 2023
 #include <gsl/gsl_roots.h>
 #include "constants.hpp"
 
+#ifdef MANY_NODES
+    #warning Compiling with -D MANY_NODES (S_E at t-1 is stored in device instead of shared memory)
+#endif
 
 extern void analytical_fic_het(
         gsl_matrix * sc, double G, double * w_EE, double * w_EI,
@@ -111,27 +114,10 @@ __global__ void bnm(
     int sim_idx = blockIdx.x;
     if (sim_idx >= N_SIMS) return;
     cg::thread_block b = cg::this_thread_block();
-
-    // allocate shared memory for the S_i_1_E (S_E at time t-1)
-    // to be able to calculate global input from other regions 
-    // (threads on the same block)
-    // the memory is allocated dynamically based on the number of nodes
-    // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
-    extern __shared__ u_real S_i_1_E[];
-    u_real S_i_E, S_i_I, bw_x_ex, bw_f_ex, bw_nu_ex, bw_q_ex;
-
     int j = b.thread_rank(); // region index
     if (j >= nodes) return;
 
-    // set initial values and sync all threads
-    S_i_1_E[j] = 0.001;
-    S_i_E = 0.001;
-    S_i_I = 0.001;
-    bw_x_ex = 0.0;
-    bw_f_ex = 1.0;
-    bw_nu_ex = 1.0;
-    bw_q_ex = 1.0;
-    
+    // determine the parameters of current simulation and node
     // use __shared__ for parameters that are shared
     // between regions in the same simulation, but
     // not for those that (may) vary, e.g. w_IE, w_EE and w_IE
@@ -163,6 +149,14 @@ __global__ void bnm(
         }
     }
 
+    // set initial values
+    u_real S_i_E, S_i_I, bw_x_ex, bw_f_ex, bw_nu_ex, bw_q_ex;
+    S_i_E = 0.001;
+    S_i_I = 0.001;
+    bw_x_ex = 0.0;
+    bw_f_ex = 1.0;
+    bw_nu_ex = 1.0;
+    bw_q_ex = 1.0;
     // initialization of extended output
     if (extended_output) {
         S_ratio[sim_idx][j] = 0;
@@ -175,6 +169,7 @@ __global__ void bnm(
         I_I[sim_idx][j] = 0;
         r_I[sim_idx][j] = 0;
     }
+
     // determine if there is delay
     bool has_delay = (max_delay > 0);
     // if there is delay use a circular buffer (S_i_E_hist)
@@ -190,6 +185,21 @@ __global__ void bnm(
         }
         buff_idx = max_delay-1;
     }
+    // set up immediate history of S_i_E
+    #ifndef MANY_NODES
+    // allocate shared memory for the S_i_1_E (S_E at time t-1)
+    // to be able to calculate global input from other regions 
+    // (threads on the same block)
+    // the memory is allocated dynamically based on the number of nodes
+    // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
+    extern __shared__ u_real S_i_1_E[];
+    #define S_1_E S_i_1_E
+    #else
+    // when many nodes are simulated there will be not enough room
+    // on shared memory for the history. In that case use device memory
+    #define S_1_E S_i_E_hist[sim_idx]
+    #endif
+    S_1_E[j] = 0.001;
 
     // initializations for FIC adjustment
     u_real mean_I_E, delta, I_E_ba_diff;
@@ -242,7 +252,7 @@ __global__ void bnm(
                 tmp_globalinput = 0;
                 for (k=0; k<nodes; k++) {
                     // calculate global input
-                    tmp_globalinput += SC[j*nodes+k] * S_i_1_E[k];
+                    tmp_globalinput += SC[j*nodes+k] * S_1_E[k];
                 }            
             }
         }
@@ -261,7 +271,7 @@ __global__ void bnm(
                     cg::sync(b);
                     tmp_globalinput = 0;
                     for (k=0; k<nodes; k++) {
-                        tmp_globalinput += SC[j*nodes+k] * S_i_1_E[k];
+                        tmp_globalinput += SC[j*nodes+k] * S_1_E[k];
                     }            
                 }
             }
@@ -300,7 +310,7 @@ __global__ void bnm(
                     // wait for other regions
                     // see note above on why this is needed before updating S_i_1_E
                     cg::sync(b);
-                    S_i_1_E[j] = S_i_E;
+                    S_1_E[k] = S_i_E;
                 }
             }
         }
@@ -318,7 +328,7 @@ __global__ void bnm(
                 // wait for other regions
                 // see note above on why this is needed before updating S_i_1_E
                 cg::sync(b);
-                S_i_1_E[j] = S_i_E;
+                S_1_E[k] = S_i_E;
             }
         }
 
@@ -384,7 +394,7 @@ __global__ void bnm(
                         noise_idx = 0;
                         fic_trial++;
                         // reset states
-                        S_i_1_E[j] = 0.001;
+                        S_1_E[k] = 0.001;
                         S_i_E = 0.001;
                         S_i_I = 0.001;
                         bw_x_ex = 0.0;
@@ -710,7 +720,8 @@ void run_simulations_gpu(
     // Note: unlike many other variables delay and S_i_E_hist are not global variables
     // and are not initialized in init_gpu, in order to allow variable ranges of velocities
     // in each run_simulations_gpu call within a session
-    u_real **S_i_E_hist;
+    u_real **S_i_E_hist; 
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist, sizeof(u_real*) * N_SIMS)); 
     int **delay;
     max_delay = 0; // msec or 0.1 msec depending on conf.sync_msec; this is a global variable that will be used in the kernel
     float min_velocity = 1e10; // only used for printing info
@@ -759,11 +770,20 @@ void run_simulations_gpu(
 
         // allocate memory to S_i_E_hist for N_SIMS * (nodes * max_delay)
         // TODO: make it possible to have variable max_delay per each simulation
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist, sizeof(u_real*) * N_SIMS)); 
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist[sim_idx], sizeof(u_real) * nodes * max_delay));
         }
+    } 
+    #ifdef MANY_NODES
+    // in case of large number of nodes also allocate memory to
+    // S_i_E_hist[sim_idx] for a length of nodes. This array
+    // will contain the immediate history of S_i_E (at t-1)
+    else {
+        for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist[sim_idx], sizeof(u_real) * nodes));
+        }
     }
+    #endif
 
     // do fic if indicated
     if (do_fic) {
@@ -803,7 +823,12 @@ void run_simulations_gpu(
     // provide NULL for extended output variables and FIC variables
     bool _extended_output = (extended_output | do_fic); // extended output is needed if requested by user or FIC is done
     bool regional_params = true;
-    bnm<<<numBlocks,threadsPerBlock,nodes*sizeof(u_real)>>>(
+    #ifndef MANY_NODES
+    size_t shared_mem_extern = nodes*sizeof(u_real);
+    #else
+    size_t shared_mem_extern = 0;
+    #endif
+    bnm<<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
         BOLD_ex, 
         S_ratio, I_ratio, r_ratio,
         S_E, I_E, r_E, 
@@ -950,8 +975,15 @@ void run_simulations_gpu(
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaFree(S_i_E_hist[sim_idx]));
         }
-        CUDA_CHECK_RETURN(cudaFree(S_i_E_hist));
     }
+    #ifdef MANY_NODES
+    else {
+        for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaFree(S_i_E_hist[sim_idx]));
+        }
+    } 
+    #endif   
+    CUDA_CHECK_RETURN(cudaFree(S_i_E_hist));
 
 }
 
