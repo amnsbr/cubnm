@@ -78,7 +78,8 @@ bool gpu_initialized = false;
 __constant__ struct ModelConstants d_mc;
 __constant__ struct ModelConfigs d_conf;
 int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
-int last_noise_size = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
+int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
+int last_nodes = 0;
 bool adjust_fic, has_delay;
 cudaDeviceProp prop;
 bool *fic_failed, *fic_unstable;
@@ -87,6 +88,11 @@ u_real **S_ratio, **I_ratio, **r_ratio, **S_E, **I_E, **r_E, **S_I, **I_I, **r_I
     **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise, **w_IE_fic,
     *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list;
 int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
+#ifdef NOISE_SEGMENT
+int *shuffled_nodes;
+int noise_time_steps = 30000; // msec
+int noise_repeats; // number of noise segment repeats
+#endif
 #ifdef USE_FLOATS
 double **d_fc_trils, **d_fcd_trils;
 #else
@@ -108,6 +114,9 @@ __global__ void bnm(
     bool adjust_fic, int max_fic_trials, bool *fic_unstable, bool *fic_failed, int *fic_n_trials,
     bool extended_output,
     int corr_len, u_real **mean_bold, u_real **ssd_bold,
+#ifdef NOISE_SEGMENT
+    int * shuffled_nodes, int noise_time_steps, int noise_repeats,
+#endif
     bool regional_params = false
     ) {
     // convert block to a cooperative group
@@ -116,6 +125,14 @@ __global__ void bnm(
     cg::thread_block b = cg::this_thread_block();
     int j = b.thread_rank(); // region index
     if (j >= nodes) return;
+    #ifdef NOISE_SEGMENT
+    // get position of the node
+    // in shuffled nodes for the first
+    // repeat of noise segment
+    int jsh = shuffled_nodes[j];
+    int curr_noise_repeat = 0;
+    int ts_noise = 0;
+    #endif
 
     // determine the parameters of current simulation and node
     // use __shared__ for parameters that are shared
@@ -287,9 +304,13 @@ __global__ void bnm(
             #endif
             tmp_r_E = tmp_aIb_E / (1 - EXP(-d_mc.d_E * tmp_aIb_E));
             tmp_r_I = tmp_aIb_I / (1 - EXP(-d_mc.d_I * tmp_aIb_I));
+            #ifdef NOISE_SEGMENT
+            noise_idx = (((ts_noise * 10 + int_i) * nodes * 2) + (jsh * 2));
+            #else
             noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
+            #endif
             tmp_rand_E = noise[noise_idx];
-            noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2) + 1);
+            noise_idx += 1; // move one forward to get noise of I
             tmp_rand_I = noise[noise_idx];
             dSdt_E = tmp_rand_E * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * ((1 - S_i_E) * d_mc.gamma_E * tmp_r_E - S_i_E * d_mc.itau_E);
             dSdt_I = tmp_rand_I * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * (d_mc.gamma_I * tmp_r_I - S_i_I * d_mc.itau_I);
@@ -359,6 +380,25 @@ __global__ void bnm(
         }
         ts_bold++;
 
+        #ifdef NOISE_SEGMENT
+        // update noise segment time
+        ts_noise++;
+        // reset noise segment time 
+        // and shuffle nodes if the segment
+        // has reached to the end
+        if (ts_noise % noise_time_steps == 0) {
+            // at the last time point don't do this
+            // to avoid going over the extent of shuffled_nodes
+            if (ts_bold <= time_steps) {
+                curr_noise_repeat++;
+                // if ((j==0)&(sim_idx==0)) printf("t=%d curr_repeat->%d jsh %d->", ts_noise, curr_noise_repeat, jsh);
+                jsh = shuffled_nodes[curr_noise_repeat*nodes+j];
+                // if ((j==0)&(sim_idx==0)) printf("%d\n", jsh);
+                ts_noise = 0;
+            }
+        }
+        #endif
+
         if (_adjust_fic) {
             if ((ts_bold >= d_conf.I_SAMPLING_START) & (ts_bold <= d_conf.I_SAMPLING_END)) {
                 mean_I_E += tmp_I_E;
@@ -410,6 +450,12 @@ __global__ void bnm(
                             }
                             buff_idx = max_delay-1;
                         }
+                        #ifdef NOISE_SEGMENT
+                        // reset the node shuffling
+                        jsh = shuffled_nodes[j];
+                        curr_noise_repeat = 0;
+                        ts_noise = 0;
+                        #endif
                     } else {
                         // continue the simulation but
                         // declare FIC failed
@@ -841,7 +887,10 @@ void run_simulations_gpu(
         adjust_fic, _max_fic_trials, fic_unstable, fic_failed, fic_n_trials,
         _extended_output,
         corr_len, mean_bold, ssd_bold, 
-        regional_params); // true refers to regional_params
+    #ifdef NOISE_SEGMENT
+        shuffled_nodes, noise_time_steps, noise_repeats,
+    #endif
+        regional_params);
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     // calculate window mean and sd bold for FCD calculations
@@ -1190,10 +1239,19 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     }
 
     // pre-calculate normally-distributed noise on CPU
+    // this is necessary to ensure consistency of noise given the same seed
+    // doing the same thing directly on the device is more challenging
+    #ifndef NOISE_SEGMENT
     int noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
-    if (noise_size != last_noise_size) {
+    #else
+    int noise_size = nodes * (noise_time_steps) * 10 * 2;
+    noise_repeats = ceil((time_steps+1) / noise_time_steps); // +1 for inclusive last time point
+    CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_nodes, sizeof(int) * noise_repeats * nodes));
+    #endif
+    if ((time_steps != last_time_steps) || (nodes != last_nodes)) {
         printf("Precalculating %d noise elements...\n", noise_size);
-        last_noise_size = noise_size;
+        last_time_steps = time_steps;
+        last_nodes = nodes;
         std::mt19937 rand_gen(rand_seed);
         std::normal_distribution<float> normal_dist(0, 1);
         CUDA_CHECK_RETURN(cudaMallocManaged(&noise, sizeof(u_real) * noise_size));
@@ -1204,6 +1262,20 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
             noise[i] = (double)normal_dist(rand_gen);
             #endif
         }
+        #ifdef NOISE_SEGMENT
+        // create shuffled nodes indices for each repeat of the 
+        // precalculaed noise
+        printf("noise will be repeated %d times after shuffling nodes\n", noise_repeats);
+        std::vector<int> node_indices(nodes);
+        std::iota(node_indices.begin(), node_indices.end(), 0);
+        for (int i = 0; i < noise_repeats; i++) {
+            std::shuffle(node_indices.begin(), node_indices.end(), rand_gen);
+            std::copy(node_indices.begin(), node_indices.end(), shuffled_nodes+(i*nodes));
+        }
+        // for (int i = 0; i < nodes*noise_repeats; i++) {
+        //     printf("%d ", shuffled_nodes[i]);
+        // }
+        #endif
     } else {
         printf("Noise already precalculated\n");
     }
