@@ -121,12 +121,25 @@ __global__ void bnm(
     bool regional_params = false
     ) {
     // convert block to a cooperative group
+    // get simulation and node indices
     int sim_idx = blockIdx.x;
     if (sim_idx >= N_SIMS) return;
     cg::thread_block b = cg::this_thread_block();
-    int j = b.thread_rank(); // region index
+    int j = b.thread_rank();
     if (j >= nodes) return;
+
+    // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
+    /* 
+    How noise shuffling works?
+    At each time point we will have `ts_bold` which is the real time (in msec) 
+    from the start of simulation, `ts_noise` which is the real time passed within 
+    each repeat of the noise segment (`curr_noise_repeat`), `sh_ts_noise` which is 
+    the shuffled timepoint (column of the noise segment) that will be used for getting 
+    the noise of nodes * 10 int_i * 2 neurons for the current msec. 
+    Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
+    vary in each repeat.
+    */
     // get position of the node
     // in shuffled nodes for the first
     // repeat of noise segment
@@ -134,15 +147,13 @@ __global__ void bnm(
     int curr_noise_repeat = 0;
     int ts_noise = 0;
     // also get the shuffled ts of the
-    // first time point, e.g. is it's 10
-    // then the noise column of timepoint 10
-    // will be used
+    // first time point
     int sh_ts_noise = shuffled_ts[ts_noise];
     #endif
 
     // determine the parameters of current simulation and node
     // use __shared__ for parameters that are shared
-    // between regions in the same simulation, but
+    // between regions in the same simulation, e.g. G, but
     // not for those that (may) vary, e.g. w_IE, w_EE and w_IE
     __shared__ u_real G;
     u_real w_IE, w_EE, w_EI;
@@ -150,25 +161,18 @@ __global__ void bnm(
     if (regional_params) {
         w_EE = w_EE_list[sim_idx*nodes+j];
         w_EI = w_EI_list[sim_idx*nodes+j];
-        if (do_fic) {
-            w_IE = w_IE_fic[sim_idx][j];
-            if (d_conf.w_IE_1) {
-                w_IE = 1;
-            }
-        } else {
-            w_IE = w_IE_list[sim_idx*nodes+j];
-        }
+        w_IE = w_IE_list[sim_idx*nodes+j];
     } else {
         w_EE = w_EE_list[sim_idx]; 
         w_EI = w_EI_list[sim_idx];
-        // get w_IE from precalculated FIC output or use fixed w_IE
-        if (do_fic) {
-            w_IE = w_IE_fic[sim_idx][j];
-            if (d_conf.w_IE_1) {
-                w_IE = 1;
-            }
-        } else {
-            w_IE = w_IE_list[sim_idx];
+        w_IE = w_IE_list[sim_idx];
+    }
+    if (do_fic) {
+        // TODO: use w_IE_list for FIC output
+        // then this line will not be needed
+        w_IE = w_IE_fic[sim_idx][j];
+        if (d_conf.w_IE_1) {
+            w_IE = 1;
         }
     }
 
@@ -180,7 +184,7 @@ __global__ void bnm(
     bw_f_ex = 1.0;
     bw_nu_ex = 1.0;
     bw_q_ex = 1.0;
-    // initialization of extended output
+    // initialization of extended output sums
     if (extended_output) {
         S_ratio[sim_idx][j] = 0;
         I_ratio[sim_idx][j] = 0;
@@ -193,7 +197,7 @@ __global__ void bnm(
         r_I[sim_idx][j] = 0;
     }
 
-    // determine if there is delay
+    // delay setup
     bool has_delay = (max_delay > 0);
     // if there is delay use a circular buffer (S_i_E_hist)
     // and keep track of current buffer index (will be the same
@@ -209,10 +213,12 @@ __global__ void bnm(
         buff_idx = max_delay-1;
     }
     // set up immediate history of S_i_E
+    // (S_E at time t-1 which is msec of 0.1 msec
+    // depending on conf.sync_msec)
+    // which is used in case there is no delay
     #ifndef MANY_NODES
-    // allocate shared memory for the S_i_1_E (S_E at time t-1)
-    // to be able to calculate global input from other regions 
-    // (threads on the same block)
+    // if N nodes is not very high (~100) the immediate
+    // history can be stored on shared memory
     // the memory is allocated dynamically based on the number of nodes
     // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
     extern __shared__ u_real S_i_1_E[];
@@ -224,7 +230,7 @@ __global__ void bnm(
     #endif
     S_1_E[j] = 0.001;
 
-    // initializations for FIC adjustment
+    // initializations for FIC numerical adjustment
     u_real mean_I_E, delta, I_E_ba_diff;
     int fic_trial;
     if (adjust_fic) {
@@ -240,7 +246,7 @@ __global__ void bnm(
     _adjust_fic = adjust_fic;
     __shared__ bool needs_fic_adjustment;
 
-    // initialization of corr calculations
+    // initialization of corr calculations needed for FC
     mean_bold[sim_idx][j] = 0;
     ssd_bold[sim_idx][j] = 0;
 
@@ -274,7 +280,6 @@ __global__ void bnm(
                 cg::sync(b);
                 tmp_globalinput = 0;
                 for (k=0; k<nodes; k++) {
-                    // calculate global input
                     tmp_globalinput += SC[j*nodes+k] * S_1_E[k];
                 }            
             }
@@ -311,12 +316,13 @@ __global__ void bnm(
             tmp_r_E = tmp_aIb_E / (1 - EXP(-d_mc.d_E * tmp_aIb_E));
             tmp_r_I = tmp_aIb_I / (1 - EXP(-d_mc.d_I * tmp_aIb_I));
             #ifdef NOISE_SEGMENT
+            // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
             noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * 2) + (sh_j * 2));
             #else
             noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
             #endif
             tmp_rand_E = noise[noise_idx];
-            noise_idx += 1; // move one forward to get noise of I
+            noise_idx += 1; // move one forward to get noise of inhibitory neuron
             tmp_rand_I = noise[noise_idx];
             dSdt_E = tmp_rand_E * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * ((1 - S_i_E) * d_mc.gamma_E * tmp_r_E - S_i_E * d_mc.itau_E);
             dSdt_I = tmp_rand_I * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * (d_mc.gamma_I * tmp_r_I - S_i_I * d_mc.itau_I);
@@ -359,18 +365,28 @@ __global__ void bnm(
             }
         }
 
-        // Compute BOLD for that time-step (subsampled to 1 ms)
+        // Balloon-Windkessel model equations here since its
+        // dt is 1 msec
         bw_x_ex  = bw_x_ex  +  d_mc.model_dt * (S_i_E - d_mc.kappa * bw_x_ex - d_mc.y * (bw_f_ex - 1.0));
         tmp_f    = bw_f_ex  +  d_mc.model_dt * bw_x_ex;
         bw_nu_ex = bw_nu_ex +  d_mc.model_dt * d_mc.itau * (bw_f_ex - POW(bw_nu_ex, d_mc.ialpha));
         bw_q_ex  = bw_q_ex  +  d_mc.model_dt * d_mc.itau * (bw_f_ex * (1.0 - POW(d_mc.oneminrho,(1.0/bw_f_ex))) / d_mc.rho  - POW(bw_nu_ex,d_mc.ialpha) * bw_q_ex / bw_nu_ex);
         bw_f_ex  = tmp_f;
 
+        // Save BOLD and extended output to managed memory
+        // every TR
+        // TODO: make it possible to have different sampling rate
+        // for BOLD and extended output
+        // TODO: add option to return time series of extended output
         if (ts_bold % BOLD_TR == 0) {
             BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = 100 / d_mc.rho * d_mc.V_0 * (d_mc.k1 * (1 - bw_q_ex) + d_mc.k2 * (1 - bw_q_ex/bw_nu_ex) + d_mc.k3 * (1 - bw_nu_ex));
             if ((BOLD_len_i>=n_vols_remove)) {
+                // update sum (later mean) of BOLD and extended
+                // output only after the simulation has stabilized
+                // (default > 30s)
                 mean_bold[sim_idx][j] += BOLD_ex[sim_idx][BOLD_len_i*nodes+j];
                 if (extended_output) {
+                    // TODO: consider removing ratios
                     S_ratio[sim_idx][j] += (S_i_E / S_i_I);
                     I_ratio[sim_idx][j] += (tmp_I_E / tmp_I_I);
                     r_ratio[sim_idx][j] += (tmp_r_E / tmp_r_I);
@@ -404,7 +420,6 @@ __global__ void bnm(
             }
         }
         // get the shuffled timepoint corresponding to ts_noise 
-        // passed from the curr_noise_repeat'th repeat
         sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
         #endif
 
@@ -505,7 +520,7 @@ __global__ void bnm(
     // mean
     mean_bold[sim_idx][j] /= corr_len;
     // sqrt((x_i - mean)**@)
-    u_real _ssd_bold = 0; // avoid repeated reading of GPU memory
+    u_real _ssd_bold = 0;
     u_real _mean_bold = mean_bold[sim_idx][j];
     int vol;
     for (vol=n_vols_remove; vol<BOLD_len_i; vol++) {
@@ -1252,8 +1267,13 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     // this is necessary to ensure consistency of noise given the same seed
     // doing the same thing directly on the device is more challenging
     #ifndef NOISE_SEGMENT
+    // precalculate the entire noise needed; can use up a lot of memory
+    // with high N of nodes and longer durations leads maxes out the memory
     int noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
     #else
+    // otherwise precalculate a noise segment and arrays of shuffled
+    // nodes and time points and reuse-shuffle the noise segment
+    // throughout the simulation for `noise_repeats`
     int noise_size = nodes * (noise_time_steps) * 10 * 2;
     noise_repeats = ceil((time_steps+1) / noise_time_steps); // +1 for inclusive last time point
     CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_nodes, sizeof(int) * noise_repeats * nodes));
@@ -1296,6 +1316,5 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
         printf("Noise already precalculated\n");
     }
 
-    // emp_FCD_tril_copy = gsl_vector_alloc(emp_FCD_tril->size); // for fcd_ks
     gpu_initialized = true;
 }
