@@ -4,6 +4,7 @@ import pandas as pd
 import os
 
 from cuBNM.core import run_simulations
+from cuBNM._many_nodes_flag import many_nodes_flag
 
 
 class SimGroup:
@@ -55,6 +56,17 @@ class SimGroup:
         os.environ['BNM_EXC_INTERHEMISPHERIC'] = str(int(self.exc_interhemispheric))
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
+        if (self.nodes > 100) & (not many_nodes_flag):
+            # TODO: try to get an estimate of max nodes based on the device's
+            # __shared__ memory size
+            print(f"""
+            Warning: In the current version with {self.nodes} nodes the simulation might
+            fail due to limits in __shared__ GPU memory. If the simulations fail
+            reinstall the package with MANY_NODES support (which uses slower but larger
+            __device__ memory) via: 
+            > export CUBNM_MANY_NODES=1 && pip install --ignore-installed cuBNM
+            But if it doesn't fail there is no need to reinstall the package.
+            """)
         # inter-regional delay will be added to the simulations 
         # if SC distance matrix is provided
         if self.sc_dist_path:

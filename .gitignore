@@ -3,3 +3,4 @@ build
 dist
 __pycache__
 cuBNM/cuda/*.o
+cuBNM/cuda/*.a
