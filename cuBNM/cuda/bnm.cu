@@ -89,7 +89,7 @@ u_real **S_ratio, **I_ratio, **r_ratio, **S_E, **I_E, **r_E, **S_I, **I_I, **r_I
     *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list;
 int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
 #ifdef NOISE_SEGMENT
-int *shuffled_nodes;
+int *shuffled_nodes, *shuffled_ts;
 int noise_time_steps = 30000; // msec
 int noise_repeats; // number of noise segment repeats
 #endif
@@ -115,7 +115,8 @@ __global__ void bnm(
     bool extended_output,
     int corr_len, u_real **mean_bold, u_real **ssd_bold,
 #ifdef NOISE_SEGMENT
-    int * shuffled_nodes, int noise_time_steps, int noise_repeats,
+    int *shuffled_nodes, int *shuffled_ts,
+    int noise_time_steps, int noise_repeats,
 #endif
     bool regional_params = false
     ) {
@@ -129,9 +130,14 @@ __global__ void bnm(
     // get position of the node
     // in shuffled nodes for the first
     // repeat of noise segment
-    int jsh = shuffled_nodes[j];
+    int sh_j = shuffled_nodes[j];
     int curr_noise_repeat = 0;
     int ts_noise = 0;
+    // also get the shuffled ts of the
+    // first time point, e.g. is it's 10
+    // then the noise column of timepoint 10
+    // will be used
+    int sh_ts_noise = shuffled_ts[ts_noise];
     #endif
 
     // determine the parameters of current simulation and node
@@ -305,7 +311,7 @@ __global__ void bnm(
             tmp_r_E = tmp_aIb_E / (1 - EXP(-d_mc.d_E * tmp_aIb_E));
             tmp_r_I = tmp_aIb_I / (1 - EXP(-d_mc.d_I * tmp_aIb_I));
             #ifdef NOISE_SEGMENT
-            noise_idx = (((ts_noise * 10 + int_i) * nodes * 2) + (jsh * 2));
+            noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * 2) + (sh_j * 2));
             #else
             noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
             #endif
@@ -391,12 +397,15 @@ __global__ void bnm(
             // to avoid going over the extent of shuffled_nodes
             if (ts_bold <= time_steps) {
                 curr_noise_repeat++;
-                // if ((j==0)&(sim_idx==0)) printf("t=%d curr_repeat->%d jsh %d->", ts_noise, curr_noise_repeat, jsh);
-                jsh = shuffled_nodes[curr_noise_repeat*nodes+j];
-                // if ((j==0)&(sim_idx==0)) printf("%d\n", jsh);
+                // if ((j==0)&(sim_idx==0)) printf("t=%d curr_repeat->%d sh_j %d->", ts_noise, curr_noise_repeat, sh_j);
+                sh_j = shuffled_nodes[curr_noise_repeat*nodes+j];
+                // if ((j==0)&(sim_idx==0)) printf("%d\n", sh_j);
                 ts_noise = 0;
             }
         }
+        // get the shuffled timepoint corresponding to ts_noise 
+        // passed from the curr_noise_repeat'th repeat
+        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
         #endif
 
         if (_adjust_fic) {
@@ -452,9 +461,10 @@ __global__ void bnm(
                         }
                         #ifdef NOISE_SEGMENT
                         // reset the node shuffling
-                        jsh = shuffled_nodes[j];
+                        sh_j = shuffled_nodes[j];
                         curr_noise_repeat = 0;
                         ts_noise = 0;
+                        sh_ts_noise = shuffled_ts[ts_noise];
                         #endif
                     } else {
                         // continue the simulation but
@@ -888,7 +898,7 @@ void run_simulations_gpu(
         _extended_output,
         corr_len, mean_bold, ssd_bold, 
     #ifdef NOISE_SEGMENT
-        shuffled_nodes, noise_time_steps, noise_repeats,
+        shuffled_nodes, shuffled_ts, noise_time_steps, noise_repeats,
     #endif
         regional_params);
     CUDA_CHECK_LAST_ERROR();
@@ -1247,6 +1257,7 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     int noise_size = nodes * (noise_time_steps) * 10 * 2;
     noise_repeats = ceil((time_steps+1) / noise_time_steps); // +1 for inclusive last time point
     CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_nodes, sizeof(int) * noise_repeats * nodes));
+    CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_ts, sizeof(int) * noise_repeats * noise_time_steps));
     #endif
     if ((time_steps != last_time_steps) || (nodes != last_nodes)) {
         printf("Precalculating %d noise elements...\n", noise_size);
@@ -1264,17 +1275,22 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
         }
         #ifdef NOISE_SEGMENT
         // create shuffled nodes indices for each repeat of the 
-        // precalculaed noise
-        printf("noise will be repeated %d times after shuffling nodes\n", noise_repeats);
+        // precalculaed noise (row shuffling)
+        printf("noise will be repeated %d times (nodes [rows] and timepoints [columns] will be shuffled in each repeat)\n", noise_repeats);
         std::vector<int> node_indices(nodes);
         std::iota(node_indices.begin(), node_indices.end(), 0);
         for (int i = 0; i < noise_repeats; i++) {
             std::shuffle(node_indices.begin(), node_indices.end(), rand_gen);
             std::copy(node_indices.begin(), node_indices.end(), shuffled_nodes+(i*nodes));
         }
-        // for (int i = 0; i < nodes*noise_repeats; i++) {
-        //     printf("%d ", shuffled_nodes[i]);
-        // }
+        // similarly create shuffled time point indices (msec)
+        // for each repeat (column shuffling)
+        std::vector<int> ts_indices(noise_time_steps);
+        std::iota(ts_indices.begin(), ts_indices.end(), 0);
+        for (int i = 0; i < noise_repeats; i++) {
+            std::shuffle(ts_indices.begin(), ts_indices.end(), rand_gen);
+            std::copy(ts_indices.begin(), ts_indices.end(), shuffled_ts+(i*noise_time_steps));
+        }
         #endif
     } else {
         printf("Noise already precalculated\n");
