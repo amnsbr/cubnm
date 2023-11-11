@@ -18,6 +18,9 @@
     #define CUDA_MIN min
 #endif
 
+extern float get_env_or_default(std::string key, double value_default = 0.0);
+extern int get_env_or_default(std::string key, int value_default = 0);
+
 struct ModelConstants {
     u_real dt;
     u_real model_dt;

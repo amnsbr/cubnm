@@ -1,7 +1,25 @@
 #ifndef CONSTANTS_CPP
 #define CONSTANTS_CPP
-#include "helpers.cpp"
 #include "constants.hpp"
+
+
+float get_env_or_default(std::string key, double value_default) {
+    const char* value = std::getenv(key.c_str());
+    if (value != nullptr) {
+        return atof(value);
+    } else {
+        return value_default;
+    }
+}
+
+int get_env_or_default(std::string key, int value_default) {
+    const char* value = std::getenv(key.c_str());
+    if (value != nullptr) {
+        return atoi(value);
+    } else {
+        return value_default;
+    }
+}
 
 struct ModelConstants mc;
 struct ModelConfigs conf;
@@ -9,7 +27,7 @@ struct ModelConfigs conf;
 void init_constants(struct ModelConstants* mc) {
     mc->dt                  = 0.1;      // Integration step length dt = 0.1 ms
     mc->model_dt            = 0.001;    // Time-step of model (sampling-rate=1000 Hz)
-    mc->sqrt_dt             = 0.316227; // sqrt(dt)
+    mc->sqrt_dt             = sqrt(mc->dt); 
     /*
     Local model: DMF-Parameters from Deco et al. JNeuro 2014
     */
