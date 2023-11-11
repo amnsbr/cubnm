@@ -78,8 +78,6 @@ bool gpu_initialized = false;
 __constant__ struct ModelConstants d_mc;
 __constant__ struct ModelConfigs d_conf;
 int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
-int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
-int last_nodes = 0;
 bool adjust_fic, has_delay;
 cudaDeviceProp prop;
 bool *fic_failed, *fic_unstable;
@@ -88,6 +86,8 @@ u_real **S_ratio, **I_ratio, **r_ratio, **S_E, **I_E, **r_E, **S_I, **I_I, **r_I
     **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise, **w_IE_fic,
     *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list;
 int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
+int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
+int last_nodes = 0;
 #ifdef NOISE_SEGMENT
 int *shuffled_nodes, *shuffled_ts;
 int noise_time_steps = 30000; // msec
@@ -217,7 +217,7 @@ __global__ void bnm(
     // depending on conf.sync_msec)
     // which is used in case there is no delay
     #ifndef MANY_NODES
-    // if N nodes is not very high (~100) the immediate
+    // if N nodes is not very high (<400) the immediate
     // history can be stored on shared memory
     // the memory is allocated dynamically based on the number of nodes
     // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
@@ -773,11 +773,13 @@ void run_simulations_gpu(
     bool * fic_unstable_out, bool * fic_failed_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
-    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
+    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, 
+    int window_size, int window_step,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
-    struct ModelConfigs conf
+    struct ModelConstants mc, struct ModelConfigs conf,
 )
 // TODO: clean the order of args
+// Note: window_step and mc are not needed but are there to have the same args with CPU version
 {
     // copy SC and parameter lists to device
     CUDA_CHECK_RETURN(cudaMemcpy(d_SC, SC, nodes*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
@@ -861,27 +863,27 @@ void run_simulations_gpu(
         gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
         double *curr_w_EE = (double *)malloc(nodes * sizeof(double));
         double *curr_w_EI = (double *)malloc(nodes * sizeof(double));
-        for (int IndPar=0; IndPar<N_SIMS; IndPar++) {
+        for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
             // make a copy of regional wEE and wEI
             for (int j=0; j<nodes; j++) {
-                curr_w_EE[j] = (double)(w_EE_list[IndPar*nodes+j]);
-                curr_w_EI[j] = (double)(w_EI_list[IndPar*nodes+j]);
+                curr_w_EE[j] = (double)(w_EE_list[sim_idx*nodes+j]);
+                curr_w_EI[j] = (double)(w_EI_list[sim_idx*nodes+j]);
             }
             // do FIC for the current particle
-            fic_unstable[IndPar] = false;
+            fic_unstable[sim_idx] = false;
             analytical_fic_het(
-                SC_gsl, G_list[IndPar], curr_w_EE, curr_w_EI,
-                curr_w_IE, fic_unstable+IndPar);
+                SC_gsl, G_list[sim_idx], curr_w_EE, curr_w_EI,
+                curr_w_IE, fic_unstable+sim_idx);
 
-            if (fic_unstable[IndPar]) {
-                printf("In simulation #%d FIC solution is unstable. Will set wIE to 1 in all nodes\n", IndPar);
+            if (fic_unstable[sim_idx]) {
+                printf("In simulation #%d FIC solution is unstable. Will set wIE to 1 in all nodes\n", sim_idx);
                 for (int j=0; j<nodes; j++) {
-                    w_IE_fic[IndPar][j] = 1.0;
+                    w_IE_fic[sim_idx][j] = 1.0;
                 }
             } else {
                 // copy to w_IE_fic which will be passed on to the device
                 for (int j=0; j<nodes; j++) {
-                    w_IE_fic[IndPar][j] = (u_real)gsl_vector_get(curr_w_IE, j);
+                    w_IE_fic[sim_idx][j] = (u_real)gsl_vector_get(curr_w_IE, j);
                 }
             }
         }
@@ -1276,8 +1278,6 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     // throughout the simulation for `noise_repeats`
     int noise_size = nodes * (noise_time_steps) * 10 * 2;
     noise_repeats = ceil((time_steps+1) / noise_time_steps); // +1 for inclusive last time point
-    CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_nodes, sizeof(int) * noise_repeats * nodes));
-    CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_ts, sizeof(int) * noise_repeats * noise_time_steps));
     #endif
     if ((time_steps != last_time_steps) || (nodes != last_nodes)) {
         printf("Precalculating %d noise elements...\n", noise_size);
@@ -1299,6 +1299,7 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
         printf("noise will be repeated %d times (nodes [rows] and timepoints [columns] will be shuffled in each repeat)\n", noise_repeats);
         std::vector<int> node_indices(nodes);
         std::iota(node_indices.begin(), node_indices.end(), 0);
+        CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_nodes, sizeof(int) * noise_repeats * nodes));
         for (int i = 0; i < noise_repeats; i++) {
             std::shuffle(node_indices.begin(), node_indices.end(), rand_gen);
             std::copy(node_indices.begin(), node_indices.end(), shuffled_nodes+(i*nodes));
@@ -1307,6 +1308,7 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
         // for each repeat (column shuffling)
         std::vector<int> ts_indices(noise_time_steps);
         std::iota(ts_indices.begin(), ts_indices.end(), 0);
+        CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_ts, sizeof(int) * noise_repeats * noise_time_steps));
         for (int i = 0; i < noise_repeats; i++) {
             std::shuffle(ts_indices.begin(), ts_indices.end(), rand_gen);
             std::copy(ts_indices.begin(), ts_indices.end(), shuffled_ts+(i*noise_time_steps));

@@ -54,7 +54,7 @@ extern void run_simulations_gpu(
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
-    struct ModelConfigs conf
+    struct ModelConstants mc, struct ModelConfigs conf
 );
 extern bool gpu_initialized;
 extern int n_pairs, n_window_pairs, output_ts; // will be defined by init_gpu
@@ -177,7 +177,8 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         (double*)PyArray_DATA(v_list),
         (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
         time_steps, BOLD_TR, _max_fic_trials,
-        window_size, N_SIMS, do_fic, only_wIE_free, extended_output, conf
+        window_size, N_SIMS, do_fic, only_wIE_free, extended_output, 
+        mc, conf
     );
     end = std::chrono::high_resolution_clock::now();
     elapsed_seconds = end - start;

@@ -56,9 +56,12 @@ class SimGroup:
         os.environ['BNM_EXC_INTERHEMISPHERIC'] = str(int(self.exc_interhemispheric))
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
-        if (self.nodes > 100) & (not many_nodes_flag):
+        if (self.nodes > 400) & (not many_nodes_flag):
             # TODO: try to get an estimate of max nodes based on the device's
             # __shared__ memory size
+            # TODO: with higher number of nodes simulation may still fail
+            # even if __device__ memory is used because the "real" max number of threads
+            # on a block is usually maxed out beyond 600 nodes
             print(f"""
             Warning: In the current version with {self.nodes} nodes the simulation might
             fail due to limits in __shared__ GPU memory. If the simulations fail
