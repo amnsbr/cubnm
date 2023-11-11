@@ -9,21 +9,6 @@ Author: Amin Saberi, Feb 2023
 */
 #ifndef FIC_CPP
 #define FIC_CPP
-// #include <iostream>
-// #include <fstream>
-// #include <cmath>
-// #include <cstdlib>
-// #include <sys/stat.h>
-// #include <stdio.h>
-// #include <gsl/gsl_matrix_double.h>
-// #include <gsl/gsl_vector_double.h>
-// #include <gsl/gsl_blas.h>
-// #include <gsl/gsl_math.h>
-// #include <gsl/gsl_errno.h>
-// #include <gsl/gsl_roots.h>
-// #include <vector>
-// #include <memory>
-// #include "constants.hpp"
 
 // helper functions
 void repeat(gsl_vector ** dest, double a, int size) {
