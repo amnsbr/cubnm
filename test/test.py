@@ -2,6 +2,8 @@ import numpy as np
 import cuBNM
 from cuBNM.core import run_simulations
 from cuBNM import optimize, sim
+from cuBNM._flags import many_nodes_flag, gpu_enabled_flag
+
 import os
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.optimize import minimize
@@ -36,7 +38,7 @@ def run_sims(N_SIMS=2, v=0.5):
     # w_IE_list = np.repeat(1.0, nodes*N_SIMS)
     # do_fic = False
 
-    do_delay = True
+    do_delay = False
     if do_delay:
         v_list = np.linspace(0.5, 4.0, N_SIMS)
         # v_list = np.repeat(v, N_SIMS)
@@ -48,14 +50,16 @@ def run_sims(N_SIMS=2, v=0.5):
         os.environ['BNM_SYNC_MSEC'] = '1'
         # TODO: add a function to do bnm.set_conf('sync_msec', True)
     else:
-        v_list = np.repeat(0, N_SIMS) # doesn't matter what it is!
+        v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(nodes*nodes, dtype=float) # doesn't matter what it is!
     # make sure all the input arrays are of type float/double
-    sim_bolds, sim_fc_trils, sim_fcd_trils = run_simulations(
+    out = run_simulations(
         SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
-        do_fic, extended_output, do_delay, force_reinit, N_SIMS, nodes, time_steps, BOLD_TR,
+        do_fic, extended_output, do_delay, force_reinit, not gpu_enabled_flag,
+        N_SIMS, nodes, time_steps, BOLD_TR,
         window_size, window_step, rand_seed
     )
+    sim_bolds , sim_fc_trils, sim_fcd_trils = out[:3]
 
     for sim_idx in range(N_SIMS):
         print(f"BOLD Python {sim_idx}: shape {sim_bolds.shape}, idx 500 {sim_bolds[sim_idx, 500]}")
@@ -65,10 +69,12 @@ def run_sims(N_SIMS=2, v=0.5):
 def run_grid():
     gs = optimize.GridSearch(
         params = {
-            'G': 0.5,
-            'wEE': (0.05, 1, 2),
-            'wEI': (0.07, 0.75, 2)
+            'G': (0.5, 2.5, 4),
+            'wEE': 0.15,
+            'wEI': 0.21
         },
+        # duration = 450,
+        # TR = 3,
         duration = 60,
         TR = 1,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt'
@@ -273,7 +279,9 @@ def test_cmaes_optimizer_het():
         het_params = ['wEE', 'wEI'],
         maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
         # maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_minmax.txt',
-        duration = 60,
+        # duration = 60,
+        # TR = 1,
+        duration = 450,
         TR = 1,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
     )
@@ -331,8 +339,29 @@ def test_cmaes_optimizer_regional(node_grouping='sym'):
     cmaes.optimize()
     return cmaes
 
+def run_grid_many_nodes():
+    gs = optimize.GridSearch(
+        params = {
+            'G': (0.5, 2.5, 4),
+            'wEE': 0.15,
+            'wEI': 0.21
+        },
+        # duration = 450,
+        # TR = 3,
+        duration = 60,
+        TR = 1,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-400_approach-median_mean001_desc-strength.txt'
+    )
+    gs.sim_group.run()
+    # emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    # emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    # scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
+    gs.sim_group.save()
+    return gs, scores
+
 if __name__ == '__main__':
-    # run_sims(2)
+    run_sims()
     # gs, scores = run_grid()
     # problem, out = test_problem()
-    cmaes = test_cmaes_optimizer_het()
+    # cmaes = test_cmaes_optimizer_het()
+    # run_grid_many_nodes()

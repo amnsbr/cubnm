@@ -4,7 +4,7 @@ import pandas as pd
 import os
 
 from cuBNM.core import run_simulations
-from cuBNM._many_nodes_flag import many_nodes_flag
+from cuBNM._flags import many_nodes_flag, gpu_enabled_flag
 
 
 class SimGroup:
@@ -89,9 +89,11 @@ class SimGroup:
         else:
             self.out_dir = out_dir
         os.makedirs(out_dir, exist_ok=True)
-        # keep track of the last N run to determine if force_reinit
+        # keep track of the last N, nodes and timesteps run to determine if force_reinit
         # is needed (when last_N is different from current N)
         self.last_N = 0
+        self.last_nodes = 0
+        self.last_time_steps = 0
         # keep track of the iterations for iterative algorithms
         self.it = 0
 
@@ -109,12 +111,18 @@ class SimGroup:
             self.param_lists['v'] = np.zeros(self._N, dtype=float)
 
 
-    def run(self, force_reinit=False):
+    def run(self, force_reinit=False, force_cpu=False):
         """
         Run the simulations in parallel on GPU
         """
         # TODO: add assertions to make sure all the data is complete
-        force_reinit = (force_reinit | (self.N != self.last_N))
+        force_reinit = (
+            force_reinit | \
+            (self.N != self.last_N) | \
+            (self.time_steps != self.last_time_steps) \
+            (self.nodes != self.last_nodes)
+            )
+        use_cpu = (force_cpu | (not gpu_enabled_flag))
         # set wIE to its flattened copy and pass this
         # array to run_simulations so that in the case
         # of do_fic it is overwritten with the actual wIE
@@ -128,13 +136,15 @@ class SimGroup:
             self.param_lists['wEI'].flatten(), 
             self.param_lists['wIE'], 
             self.param_lists['v'],
-            self.do_fic, self.extended_output, self.do_delay, force_reinit, 
+            self.do_fic, self.extended_output, self.do_delay, force_reinit, use_cpu,
             self.N, self.nodes, self.time_steps, self.TR,
-            self.window_size, self.window_step, self.rand_seed
+            self.window_size, self.window_step, self.rand_seed,
         )
         # avoid reinitializing GPU in the next runs
         # of the same group
         self.last_N = self.N
+        self.last_nodes = self.nodes
+        self.last_time_steps = self.time_steps
         self.it += 1
         # assign the output to object properties
         # and reshape them to (N_SIMS, ...)

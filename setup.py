@@ -14,13 +14,16 @@ GSL2.7
 
 # specify if extension needs to be 
 many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
+gpu_enabled = False
 # Write the value of many_nodes to a temporary file
-with open("cuBNM/_many_nodes_flag.py", "w") as flag_file:
-    flag_file.write(f"many_nodes_flag = {many_nodes}\n")
+with open("cuBNM/_flags.py", "w") as flag_file:
+    flag_file.write("\n".join(
+        [f"many_nodes_flag = {many_nodes}",
+        f"gpu_enabled_flag = {gpu_enabled}"]
+    ))
 
 os.environ["CC"] = "g++"
 os.environ["CXX"] = "g++"
-gpu_enabled = True
 
 if gpu_enabled:
     if many_nodes:
@@ -41,6 +44,7 @@ if gpu_enabled:
             "-O3",
             "-m64",
             "-fopenmp",
+            "-D GPU_ENABLED"
         ],
         libraries=libraries,
         extra_objects=[
@@ -56,10 +60,28 @@ if gpu_enabled:
         library_dirs = [".", '/usr/lib/cuda', 'cuBNM/cuda']
     )
 else:
-    raise NotImplementedError("The package currently does not support CPU simulations")
+    bnm_ext = Extension(
+        'cuBNM.core',
+        ['cuBNM/cpp/run_simulations.cpp'],
+        language='c++',
+        extra_compile_args=[
+            "-O3",
+            "-m64",
+            "-fopenmp",
+        ],
+        libraries=["m", "gomp"],
+        extra_objects=[
+            "/data/project/ei_development/tools/gsl_build_shared/lib/libgsl.a",
+            "/data/project/ei_development/tools/gsl_build_shared/lib/libgslcblas.a",
+        ],
+        include_dirs=[
+            '/data/project/ei_development/tools/gsl_build_shared/include', 
+            np.get_include(),
+            ],
+    )
 
 setup(name = 'cuBNM', version = '1.0',
     packages=find_packages(),
     ext_modules = [bnm_ext])
 
-os.remove("cuBNM/_many_nodes_flag.py")
+os.remove("cuBNM/_flags.py")

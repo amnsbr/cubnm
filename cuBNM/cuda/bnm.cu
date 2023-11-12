@@ -73,10 +73,12 @@ void checkLast(const char* const file, const int line)
     }
 }
 
-bool gpu_initialized = false;
-
 __constant__ struct ModelConstants d_mc;
 __constant__ struct ModelConfigs d_conf;
+
+namespace bnm_gpu {
+    bool is_initialized = false;
+}
 int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
 bool adjust_fic, has_delay;
 cudaDeviceProp prop;
@@ -322,8 +324,7 @@ __global__ void bnm(
             noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
             #endif
             tmp_rand_E = noise[noise_idx];
-            noise_idx += 1; // move one forward to get noise of inhibitory neuron
-            tmp_rand_I = noise[noise_idx];
+            tmp_rand_I = noise[noise_idx+1];
             dSdt_E = tmp_rand_E * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * ((1 - S_i_E) * d_mc.gamma_E * tmp_r_E - S_i_E * d_mc.itau_E);
             dSdt_I = tmp_rand_I * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * (d_mc.gamma_I * tmp_r_I - S_i_I * d_mc.itau_I);
             S_i_E += dSdt_E;
@@ -347,7 +348,6 @@ __global__ void bnm(
                 }
             }
         }
-
 
         if (d_conf.sync_msec) {
             if (has_delay) {
@@ -452,10 +452,9 @@ __global__ void bnm(
                 // the simulation until the end
                 if (needs_fic_adjustment) {
                     if (fic_trial < max_fic_trials) {
-                        // reset time and random sequence
+                        // reset time
                         ts_bold = 0;
                         BOLD_len_i = 0;
-                        noise_idx = 0;
                         fic_trial++;
                         // reset states
                         S_1_E[k] = 0.001;
@@ -466,6 +465,23 @@ __global__ void bnm(
                         bw_nu_ex = 1.0;
                         bw_q_ex = 1.0;
                         mean_I_E = 0;
+                        // reset mean and ssd bold + extended output
+                        // normally this isn't needed because by default
+                        // bold_remove_s is 30s and FIC adjustment happens < 10s
+                        // so these variables have not been updated so far
+                        mean_bold[sim_idx][j] = 0;
+                        ssd_bold[sim_idx][j] = 0;
+                        if (extended_output) {
+                            S_ratio[sim_idx][j] = 0;
+                            I_ratio[sim_idx][j] = 0;
+                            r_ratio[sim_idx][j] = 0;
+                            S_E[sim_idx][j] = 0;
+                            I_E[sim_idx][j] = 0;
+                            r_E[sim_idx][j] = 0;
+                            S_I[sim_idx][j] = 0;
+                            I_I[sim_idx][j] = 0;
+                            r_I[sim_idx][j] = 0;
+                        }
                         if (has_delay) {
                             // reset buffer
                             // initialize S_i_E_hist in every time point at initial value
@@ -773,13 +789,11 @@ void run_simulations_gpu(
     bool * fic_unstable_out, bool * fic_failed_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
-    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, 
-    int window_size, int window_step,
+    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
-    struct ModelConstants mc, struct ModelConfigs conf,
+    struct ModelConfigs conf
 )
 // TODO: clean the order of args
-// Note: window_step and mc are not needed but are there to have the same args with CPU version
 {
     // copy SC and parameter lists to device
     CUDA_CHECK_RETURN(cudaMemcpy(d_SC, SC, nodes*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
@@ -876,7 +890,7 @@ void run_simulations_gpu(
                 curr_w_IE, fic_unstable+sim_idx);
 
             if (fic_unstable[sim_idx]) {
-                printf("In simulation #%d FIC solution is unstable. Will set wIE to 1 in all nodes\n", sim_idx);
+                printf("In simulation #%d FIC solution is unstable. Setting wIE to 1 in all nodes\n", sim_idx);
                 for (int j=0; j<nodes; j++) {
                     w_IE_fic[sim_idx][j] = 1.0;
                 }
@@ -1063,7 +1077,9 @@ void run_simulations_gpu(
 
 }
 
-void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
+void init_gpu(
+        int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
+        int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
         struct ModelConstants mc, struct ModelConfigs conf, bool verbose
         )
@@ -1317,6 +1333,10 @@ void init_gpu(int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand
     } else {
         printf("Noise already precalculated\n");
     }
+    // pass on output_ts etc. to the run_simulations_interface
+    *output_ts_p = output_ts;
+    *n_pairs_p = n_pairs;
+    *n_window_pairs_p = n_window_pairs;
 
-    gpu_initialized = true;
+    bnm_gpu::is_initialized = true;
 }

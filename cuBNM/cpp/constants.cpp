@@ -93,7 +93,7 @@ void init_conf(struct ModelConfigs* conf) {
     conf->I_SAMPLING_END = get_env_or_default("BNM_I_SAMPLING_END", 10000);
     conf->I_SAMPLING_DURATION = conf->I_SAMPLING_END - conf->I_SAMPLING_START + 1;
     conf->numerical_fic = get_env_or_default("BNM_NUMERICAL_FIC", 1);
-    conf->max_fic_trials_cmaes = get_env_or_default("BNM_MAX_FIC_TRIALS_CMAES", 10);
+    conf->max_fic_trials_cmaes = get_env_or_default("BNM_MAX_FIC_TRIALS_CMAES", 5);
     conf->max_fic_trials = get_env_or_default("BNM_MAX_FIC_TRIALS", 150);
     conf->init_delta = get_env_or_default("BNM_INIT_DELTA", 0.02); // initial delta in numerical adjustment of FIC
     conf->use_fc_ks = get_env_or_default("BNM_USE_FC_KS", 0);
@@ -101,8 +101,11 @@ void init_conf(struct ModelConfigs* conf) {
     conf->exc_interhemispheric = get_env_or_default("BNM_EXC_INTERHEM", 1); // exclude interhemispheric connections from FC(D) calculation and fitting
     conf->drop_edges = get_env_or_default("BNM_DROP_EDGES", 1); // drop the edges of the signal in dFC calculation
     conf->sync_msec = get_env_or_default("BNM_SYNC_MSEC", 0); // sync nodes every msec vs every 0.1 msec
+    // TODO: extended_output_ts option is not implemented in GPU and Python and is assumed to be Fasle
+    conf->extended_output_ts = get_env_or_default("BNM_EXT_OUT_TS", 0); // record time series of extended output instead of their means
+    conf->sim_verbose = get_env_or_default("BNM_SIM_VERBOSE", 0);
+    conf->fic_verbose = get_env_or_default("BNM_FIC_VERBOSE", 0);
     // CMAES config
-    conf->sim_verbose = get_env_or_default("BNM_CMAES_SIM_VERBOSE", 0);
     conf->sigma = get_env_or_default("BNM_CMAES_SIGMA", 0.5); // is updated during CMAES, should not be const
     conf->alphacov = get_env_or_default("BNM_CMAES_ALPHACOV", 2);
     conf->Variante = get_env_or_default("BNM_CMAES_VARIANTE", 6);

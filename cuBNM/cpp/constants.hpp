@@ -90,9 +90,11 @@ struct ModelConfigs {
     bool exc_interhemispheric;
     bool drop_edges;
     bool sync_msec;
+    bool extended_output_ts;
+    bool sim_verbose;
+    bool fic_verbose;
 
     // CMAES config
-    bool sim_verbose;
     double sigma;
     double alphacov;
     int Variante;
