@@ -92,8 +92,12 @@ int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of 
 int last_nodes = 0;
 #ifdef NOISE_SEGMENT
 int *shuffled_nodes, *shuffled_ts;
-int noise_time_steps = 30000; // msec
-int noise_repeats; // number of noise segment repeats
+// set a default length of noise (msec)
+// (+1 to avoid having an additional repeat for a single time point
+// when time_steps can be divided by 30(000), as the actual duration of
+// simulation (in msec) is always user request time steps + 1)
+int noise_time_steps = 30001;
+int noise_repeats; // number of noise segment repeats for current simulations
 #endif
 #ifdef USE_FLOATS
 double **d_fc_trils, **d_fcd_trils;
@@ -1288,7 +1292,7 @@ void init_gpu(
     // nodes and time points and reuse-shuffle the noise segment
     // throughout the simulation for `noise_repeats`
     int noise_size = nodes * (noise_time_steps) * 10 * 2;
-    noise_repeats = ceil((time_steps+1) / noise_time_steps); // +1 for inclusive last time point
+    noise_repeats = ceil((float)(time_steps+1) / (float)noise_time_steps); // +1 for inclusive last time point
     #endif
     if ((time_steps != last_time_steps) || (nodes != last_nodes)) {
         printf("Precalculating %d noise elements...\n", noise_size);

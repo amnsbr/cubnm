@@ -15,7 +15,11 @@ namespace bnm_cpu {
     int last_nodes = 0;
     #ifdef NOISE_SEGMENT
     int *shuffled_nodes, *shuffled_ts;
-    int noise_time_steps = 30000; // msec
+    // set a default length of noise (msec)
+    // (+1 to avoid having an additional repeat for a single time point
+    // when time_steps can be divided by 30(000), as the actual duration of
+    // simulation (in msec) is always user request time steps + 1)
+    int noise_time_steps = 30001; 
     int noise_repeats; // number of noise segment repeats
     #endif
     u_real *noise;
@@ -312,8 +316,32 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     int BOLD_len_i = 0;
     int ts_bold = 0;
     int bold_idx = 0;
+    // set up noise shuffling if indicated
+    #ifdef NOISE_SEGMENT
+    /* 
+    How noise shuffling works?
+    At each time point we will have `ts_bold` which is the real time (in msec) 
+    from the start of simulation, `ts_noise` which is the real time passed within 
+    each repeat of the noise segment (`curr_noise_repeat`), `sh_ts_noise` which is 
+    the shuffled timepoint (column of the noise segment) that will be used for getting 
+    the noise of nodes * 10 int_i * 2 neurons for the current msec. 
+    Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
+    vary in each repeat.
+    */
+    // get position of the node
+    // in shuffled nodes for the first
+    // repeat of noise segment
+    int curr_noise_repeat = 0;
+    int ts_noise = 0;
+    // keep track of shuffled position of
+    // current node, ts
+    int sh_j, sh_ts_noise;
+    #endif
     while (ts_bold <= time_steps) {
         if (conf.sim_verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)time_steps) * 100.0f );
+        #ifdef NOISE_SEGMENT
+        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
+        #endif
         for (int int_i = 0; int_i < 10; int_i++) {
             // copy S_E of previous time point to S_i_1_E
             for (j=0; j<nodes; j++) {
@@ -339,7 +367,8 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                 r_i_I[j] = tmp_aIb_I / (1 - EXP(-mc.d_I * tmp_aIb_I));
                 #ifdef NOISE_SEGMENT
                 // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
-                // noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * 2) + (sh_j * 2));
+                sh_j = shuffled_nodes[curr_noise_repeat*nodes+j];
+                noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * 2) + (sh_j * 2));
                 #else
                 noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
                 #endif
@@ -404,6 +433,18 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         }
         ts_bold++;
 
+        #ifdef NOISE_SEGMENT
+        // update noise segment time
+        ts_noise++;
+        // reset noise segment time 
+        // and shuffle nodes if the segment
+        // has reached to the end
+        if (ts_noise % noise_time_steps == 0) {
+            curr_noise_repeat++;
+            ts_noise = 0;
+        }
+        #endif
+
         // adjust FIC according to Deco2014
         if (_adjust_fic) {
             if ((ts_bold >= conf.I_SAMPLING_START) && (ts_bold <= conf.I_SAMPLING_END)) {
@@ -439,6 +480,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                         ts_bold = 0;
                         BOLD_len_i = 0;
                         fic_trial++;
+                        #ifdef NOISE_SEGMENT
+                        curr_noise_repeat = 0;
+                        ts_noise = 0;
+                        #endif
                         // reset states
                         for (j = 0; j < nodes; j++) {
                             S_i_E[j] = 0.001;
@@ -577,7 +622,7 @@ void init_cpu(
     // nodes and time points and reuse-shuffle the noise segment
     // throughout the simulation for `noise_repeats`
     int noise_size = nodes * (noise_time_steps) * 10 * 2;
-    noise_repeats = ceil((time_steps+1) / noise_time_steps); // +1 for inclusive last time point
+    noise_repeats = ceil((float)(time_steps+1) / (float)noise_time_steps); // +1 for inclusive last time point
     #endif
     if ((time_steps != last_time_steps) || (nodes != last_nodes)) {
         printf("Precalculating %d noise elements...\n", noise_size);

@@ -41,10 +41,11 @@ if gpu_enabled:
         'cuBNM.core',
         ['cuBNM/cpp/run_simulations.cpp'],
         language='c++',
-        extra_compile_args=[
+        extra_compile_args=[ # note that these are not the flags to compile bnm.cu
             "-O3",
             "-m64",
             "-fopenmp",
+            "-D NOISE_SEGMENT",
             "-D GPU_ENABLED"
         ],
         libraries=libraries,
@@ -69,6 +70,7 @@ else:
             "-O3",
             "-m64",
             "-fopenmp",
+            "-D NOISE_SEGMENT",
         ],
         libraries=["m", "gomp"],
         extra_objects=[
