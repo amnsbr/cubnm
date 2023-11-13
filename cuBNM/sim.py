@@ -10,7 +10,7 @@ from cuBNM._flags import many_nodes_flag, gpu_enabled_flag
 class SimGroup:
     def __init__(self, duration, TR, sc_path, sc_dist_path=None, out_dir='same',
             do_fic=True, extended_output=True, window_size=10, window_step=2, rand_seed=410,
-            exc_interhemispheric=True):
+            exc_interhemispheric=True, force_cpu=False):
         """
         Group of simulations that will be executed in parallel
 
@@ -41,6 +41,10 @@ class SimGroup:
             seed used for the noise simulation
         exc_interhemispheric: (bool)
             excluded interhemispheric connections from sim FC and FCD calculations
+        force_cpu: (bool)
+            use CPU for the simulations (even if GPU is available). If set
+            to False the program might use GPU or CPU depending on GPU
+            availability
         """
         self.time_steps = int(duration * 1000) # in msec
         self.TR = int(TR * 1000) # in msec
@@ -53,6 +57,7 @@ class SimGroup:
         self.window_step = window_step
         self.rand_seed = rand_seed
         self.exc_interhemispheric = exc_interhemispheric
+        self.force_cpu = force_cpu
         os.environ['BNM_EXC_INTERHEMISPHERIC'] = str(int(self.exc_interhemispheric))
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
@@ -111,7 +116,7 @@ class SimGroup:
             self.param_lists['v'] = np.zeros(self._N, dtype=float)
 
 
-    def run(self, force_reinit=False, force_cpu=False):
+    def run(self, force_reinit=False):
         """
         Run the simulations in parallel on GPU
         """
@@ -122,7 +127,7 @@ class SimGroup:
             (self.time_steps != self.last_time_steps) \
             (self.nodes != self.last_nodes)
             )
-        use_cpu = (force_cpu | (not gpu_enabled_flag))
+        use_cpu = (self.force_cpu | (not gpu_enabled_flag))
         # set wIE to its flattened copy and pass this
         # array to run_simulations so that in the case
         # of do_fic it is overwritten with the actual wIE
