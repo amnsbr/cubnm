@@ -267,6 +267,7 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         }
         gsl_vector_free(_w_IE_vector);
     }
+
     u_real *S_E_ts, *S_I_ts, *r_E_ts, *r_I_ts, *I_E_ts, *I_I_ts;
     if (_extended_output && conf.extended_output_ts) {
         S_E_ts                  = (u_real *)malloc((bold_size * sizeof(u_real)));
@@ -303,6 +304,7 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     int fic_trial = 0;
     *fic_failed_p = false;
     bool _adjust_fic = adjust_fic; // whether to adjust FIC in the next trial
+    bool needs_fic_adjustment;
     u_real tmp_globalinput, tmp_rand_E, tmp_rand_I, 
         dSdt_E, dSdt_I, tmp_f, tmp_aIb_E, tmp_aIb_I,
         I_E_ba_diff;
@@ -343,8 +345,8 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                 #endif
                 tmp_rand_E = noise[noise_idx];
                 tmp_rand_I = noise[noise_idx+1];
-                dSdt_E = tmp_rand_E * mc.sigma_model * mc.sqrt_dt + mc.dt * ((1 - S_i_E[j]) * mc.gamma_E * r_i_E[j] - (S_i_E[j] / mc.tau_E));
-                dSdt_I = tmp_rand_I * mc.sigma_model * mc.sqrt_dt + mc.dt * (mc.gamma_I * r_i_I[j] - (S_i_I[j] / mc.tau_I));
+                dSdt_E = tmp_rand_E * mc.sigma_model * mc.sqrt_dt + mc.dt * ((1 - S_i_E[j]) * mc.gamma_E * r_i_E[j] - (S_i_E[j] * mc.itau_E));
+                dSdt_I = tmp_rand_I * mc.sigma_model * mc.sqrt_dt + mc.dt * (mc.gamma_I * r_i_I[j] - (S_i_I[j] * mc.itau_I));
                 S_i_E[j] += dSdt_E;
                 S_i_I[j] += dSdt_I;
                 // clip S to 0-1
@@ -410,7 +412,7 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                 }
             }
             if (ts_bold == conf.I_SAMPLING_END) {
-                bool needs_fic_adjustment = false;
+                needs_fic_adjustment = false;
                 if (conf.fic_verbose) printf("FIC adjustment trial %d\nnode\tIE_ba_diff\tdelta\tnew_w_IE\n", fic_trial);
                 for (j = 0; j<nodes; j++) {
                     mean_I_E[j] /= conf.I_SAMPLING_DURATION;
@@ -437,7 +439,6 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                         ts_bold = 0;
                         BOLD_len_i = 0;
                         fic_trial++;
-
                         // reset states
                         for (j = 0; j < nodes; j++) {
                             S_i_E[j] = 0.001;
@@ -544,8 +545,7 @@ void run_simulations_cpu(
             I_E_out+(sim_idx*nodes),
             I_I_out+(sim_idx*nodes),
             I_ratio_out+(sim_idx*nodes),
-            // fic_unstable_out+sim_idx,
-            &(fic_unstable_out[sim_idx]),
+            fic_unstable_out+sim_idx,
             fic_failed_out+sim_idx,
             nodes, SC, SC_gsl,
             G_list[sim_idx], 

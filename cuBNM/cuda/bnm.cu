@@ -239,7 +239,6 @@ __global__ void bnm(
         mean_I_E = 0;
         delta = d_conf.init_delta;
         fic_trial = 0;
-        I_E_ba_diff;
         fic_failed[sim_idx] = false;
     }
     // copy adjust_fic to a local shared variable and use it to indicate
@@ -265,22 +264,20 @@ __global__ void bnm(
             // (will be fixed through 10 steps of the millisecond)
             // TODO: consider using directives or separate kernels
             // to avoid unnecessary repetitive if clauses
+            // wait for other nodes
+            // note that a sync call is needed before using
+            // and updating S_i_1_E, otherwise the current
+            // thread might access S_E of other nodes at wrong
+            // times (t or t-2 instead of t-1)
+            cg::sync(b);
+            tmp_globalinput = 0;
             if (has_delay) {
-                cg::sync(b);
-                tmp_globalinput = 0;
                 for (k=0; k<nodes; k++) {
                     // calculate correct index of the other region in the buffer based on j-k delay
                     k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
                     tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
                 }
             } else {
-                // wait for other nodes
-                // note that a sync call is needed before using
-                // and updating S_i_1_E, otherwise the current
-                // thread might access S_E of other nodes at wrong
-                // times (t or t-2 instead of t-1)
-                cg::sync(b);
-                tmp_globalinput = 0;
                 for (k=0; k<nodes; k++) {
                     tmp_globalinput += SC[j*nodes+k] * S_1_E[k];
                 }            
@@ -289,17 +286,15 @@ __global__ void bnm(
         for (int_i = 0; int_i < 10; int_i++) {
             if (!d_conf.sync_msec) {
                 // calculate global input every 0.1 ms
+                cg::sync(b);
+                tmp_globalinput = 0;
                 if (has_delay) {
-                    cg::sync(b);
-                    tmp_globalinput = 0;
                     for (k=0; k<nodes; k++) {
                         // calculate correct index of the other region in the buffer based on j-k delay
                         k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
                         tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
                     }
                 } else {
-                    cg::sync(b);
-                    tmp_globalinput = 0;
                     for (k=0; k<nodes; k++) {
                         tmp_globalinput += SC[j*nodes+k] * S_1_E[k];
                     }            
@@ -344,7 +339,7 @@ __global__ void bnm(
                     // wait for other regions
                     // see note above on why this is needed before updating S_i_1_E
                     cg::sync(b);
-                    S_1_E[k] = S_i_E;
+                    S_1_E[j] = S_i_E;
                 }
             }
         }
@@ -357,11 +352,11 @@ __global__ void bnm(
                 cg::sync(b);
                 buff_idx = (buff_idx + max_delay - 1) % max_delay;
                 S_i_E_hist[sim_idx][buff_idx*nodes+j] = S_i_E;
-            } else  {
+            } else {
                 // wait for other regions
                 // see note above on why this is needed before updating S_i_1_E
                 cg::sync(b);
-                S_1_E[k] = S_i_E;
+                S_1_E[j] = S_i_E;
             }
         }
 
@@ -457,7 +452,7 @@ __global__ void bnm(
                         BOLD_len_i = 0;
                         fic_trial++;
                         // reset states
-                        S_1_E[k] = 0.001;
+                        S_1_E[j] = 0.001;
                         S_i_E = 0.001;
                         S_i_I = 0.001;
                         bw_x_ex = 0.0;

@@ -14,7 +14,7 @@ GSL2.7
 
 # specify if extension needs to be 
 many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
-gpu_enabled = False
+gpu_enabled = os.environ.get("CUDA_VISIBLE_DEVICES") is not None # this probably only works on Juseless and JSC
 # Write the value of many_nodes to a temporary file
 with open("cuBNM/_flags.py", "w") as flag_file:
     flag_file.write("\n".join(
@@ -26,6 +26,7 @@ os.environ["CC"] = "g++"
 os.environ["CXX"] = "g++"
 
 if gpu_enabled:
+    print("GPU enabled")
     if many_nodes:
         print("""
         Installing with support for running simulations with high number of nodes 
