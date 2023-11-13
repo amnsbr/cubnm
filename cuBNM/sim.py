@@ -124,7 +124,7 @@ class SimGroup:
         force_reinit = (
             force_reinit | \
             (self.N != self.last_N) | \
-            (self.time_steps != self.last_time_steps) \
+            (self.time_steps != self.last_time_steps) | \
             (self.nodes != self.last_nodes)
             )
         use_cpu = (self.force_cpu | (not gpu_enabled_flag))
