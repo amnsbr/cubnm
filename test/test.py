@@ -12,7 +12,7 @@ from pymoo.core.termination import Termination
 from pymoo.termination import get_termination
 import cma
 
-def run_sims(N_SIMS=1, v=0.5, force_cpu=False):
+def run_sims(N_SIMS=256, v=0.5, force_cpu=False):
     # os.environ['BNM_MAX_FIC_TRIALS_CMAES'] = '0'
     # run identical simulations and check if BOLD is the same
     nodes = 100
@@ -361,7 +361,7 @@ def run_grid_many_nodes():
     return gs, scores
 
 if __name__ == '__main__':
-    run_sims()
+    run_sims(force_cpu=False)
     # gs, scores = run_grid()
     # problem, out = test_problem()
     # cmaes = test_cmaes_optimizer_het()
