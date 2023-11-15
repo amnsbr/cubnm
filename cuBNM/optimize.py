@@ -1,5 +1,7 @@
+import os
 import itertools
 from abc import ABC, abstractmethod
+import json
 import numpy as np
 import pandas as pd
 from pymoo.core.problem import Problem
@@ -191,11 +193,31 @@ class RWWProblem(Problem):
             xu=np.ones(self.ndim, dtype=float)
         )
 
+    def get_config(self, include_sim_group=True, include_N=False):
+        config = {
+            'params': self.params,
+            'het_params': self.het_params,
+            'maps_path': self.maps_path,
+            'reject_negative': self.reject_negative,
+            'node_grouping': self.node_grouping
+        }
+        if include_N:
+            config['N'] = self.sim_group.N
+        if include_sim_group:
+            config.update(self.sim_group.get_config())
+        return config
+
     def _get_Xt(self, X):
         """
         Transforms X from normalized [0, 1] range to [self.lb, self.ub]
         """
         return (X * (self.ub - self.lb)) + self.lb
+
+    def _get_X(self, Xt):
+        """
+        Transforms Xt from [self.lb, self.ub] to [0, 1]
+        """
+        return (Xt - self.lb) / (self.ub - self.lb)
 
     def _set_sim_params(self, X):
         # transform X from [0, 1] range to the actual
@@ -246,19 +268,27 @@ class RWWProblem(Problem):
 
 
     def _evaluate(self, X, out, *args, **kwargs):
+        """
+        This is used by PyMoo optimizers
+        """
+        scores = self.eval(X)
+        if 'scores' in kwargs:
+            kwargs['scores'].append(scores)
+        if self.sim_group.do_fic:
+            out["F"] = (scores.loc[:, 'fic_penalty']-scores.loc[:, 'gof']).values
+        else:
+            out["F"] = -scores.loc[:, 'gof'].values
+        # out["G"] = ... # TODO: consider using this for enforcing FIC success
+    
+    def eval(self, X):
         # set N to current iteration population size
         # which might be variable, e.g. from evaluating
         # CMAES initial guess to its next iterations
         self.sim_group.N = X.shape[0]
         self._set_sim_params(X)
         self.sim_group.run()
-        scores = self.sim_group.score(self.emp_fc_tril, self.emp_fcd_tril)
-        if self.sim_group.do_fic:
-            out["F"] = (scores.loc[:, 'fic_penalty']-scores.loc[:, 'gof']).values
-        else:
-            out["F"] = -scores.loc[:, 'gof'].values
-        # out["F"] = X.sum(axis=1)
-        # out["G"] = ... # TODO: consider using this for enforcing FIC success
+        return self.sim_group.score(self.emp_fc_tril, self.emp_fcd_tril)
+
 
 class Optimizer(ABC):
 
@@ -270,15 +300,71 @@ class Optimizer(ABC):
     def optimize(self):
         pass
 
+    def save(self):
+        """
+        Saves the output of the optimizer, including history
+        of particles, history of optima, the optimal point,
+        and its simulation data
+        """
+        # specify the directory
+        run_idx = 0
+        while True:            
+            dirname = type(self).__name__.lower().replace('optimizer','') + f'_run-{run_idx}'
+            optimizer_dir = os.path.join(self.problem.sim_group.out_dir, dirname)
+            if not os.path.exists(optimizer_dir):
+                break
+            else:
+                run_idx += 1
+        os.makedirs(optimizer_dir, exist_ok=True)
+        # save the optimizer history
+        self.history.to_csv(os.path.join(optimizer_dir, 'history.csv'))
+        self.opt_history.to_csv(os.path.join(optimizer_dir, 'opt_history.csv'))
+        self.opt.to_csv(os.path.join(optimizer_dir, 'opt.csv'))
+        # save the configs of simulations and optimizer
+        with open(os.path.join(optimizer_dir, 'problem.json'), 'w') as f:
+            json.dump(self.problem.get_config(include_sim_group=True, include_N=True), f, indent=1)
+        with open(os.path.join(optimizer_dir, 'optimizer.json'), 'w') as f:
+            json.dump(self.get_config(), f, indent=1)
+        # rerun optimum simulation and save it
+        print("Rerunning and saving the optimal simulation")
+        ## reuse the original problem used throughout the optimization
+        ## but change its out_dir, N and parameters to the optimum
+        self.problem.sim_group.out_dir = os.path.join(optimizer_dir, 'opt_sim')
+        os.makedirs(self.problem.sim_group.out_dir, exist_ok=True)
+        self.problem.sim_group.N = 1
+        ## get opt parameters in the unnormalized space
+        Xt = self.opt.loc[self.problem.free_params]
+        ## normalize to [0,1]
+        X = self.problem._get_X(np.atleast_2d(Xt.values))
+        # run the best simulation and save its data
+        ## save params and scores to double check it's the correct simulation
+        opt_scores = self.problem.eval(X)
+        res = pd.concat([Xt, opt_scores.iloc[0]])
+        res.to_csv(os.path.join(self.problem.sim_group.out_dir, 'res.csv'))
+        ## save simulation data (including BOLD, FC and FCD, extended output, and param maps)
+        self.problem.sim_group.save()
+        #TODO: add option to save everything, including all the
+        # SimGroup's of the different iterations
+
+    def get_config(self):
+        # TODO: add optimizer-specific get_config funcitons
+        return {
+            'n_iter': self.n_iter,
+            'popsize': self.popsize,
+            'seed': self.seed
+        }
+
 class PymooOptimizer(Optimizer):
     """
     General purpose wrapper for pymoo and other optimizers
     """
-    def __init__(self, termination=None, n_iter=2, **kwargs):
+    def __init__(self, termination=None, n_iter=2, seed=0, **kwargs):
         """
         Initialize pymoo optimizers by setting up the
         termination rule based on `n_iter` or `termination`
         """
+        # set optimizer seed
+        self.seed = seed
         # set termination and n_iter (aka n_max_gen)
         self.termination = kwargs.pop('termination', None)
         if self.termination:
@@ -292,7 +378,6 @@ class PymooOptimizer(Optimizer):
         Sets up the problem with the algorithm
         """
         # setup the algorithm with the problem
-        self.seed = kwargs.pop('seed', 0)
         self.problem = problem
         self.algorithm.setup(problem, termination=self.termination, 
             seed=self.seed, verbose=pymoo_verbose, save_history=True, **kwargs)
@@ -304,7 +389,8 @@ class PymooOptimizer(Optimizer):
             # ask the algorithm for the next solution to be evaluated
             pop = self.algorithm.ask()
             # evaluate the individuals using the algorithm's evaluator (necessary to count evaluations for termination)
-            self.algorithm.evaluator.eval(self.problem, pop)
+            scores = [] # pass on an empty scores list to the evaluator to store the individual GOF measures
+            self.algorithm.evaluator.eval(self.problem, pop, scores=scores)
             # returned the evaluated individuals which have been evaluated or even modified
             self.algorithm.tell(infills=pop)
             # TODO: do same more things, printing, logging, storing or even modifying the algorithm object
@@ -312,13 +398,14 @@ class PymooOptimizer(Optimizer):
             res = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
             res.index.name = 'sim_idx'
             res['F'] = np.array([p.f for p in self.algorithm.pop])
-            print(res)
+            res = pd.concat([res, scores[0]],axis=1)
             res['gen'] = self.algorithm.n_gen-1
+            print(res)
             self.history.append(res)
             self.opt_history.append(res.loc[res['F'].argmin()])
         self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
         self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
-        self.opt = self.opt_history.loc[self.opt_history['F'].argmin()]
+        self.opt = self.history.loc[self.history['F'].argmin()]
 
 
 class CMAESOptimizer(PymooOptimizer):
@@ -333,6 +420,7 @@ class CMAESOptimizer(PymooOptimizer):
             bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
             kwargs['BoundaryHandler'] = bound_penalty
         kwargs['eval_initial_x'] = False
+        self.popsize = popsize
         self.algorithm = CMAES(
             x0=x0, # will estimate the initial guess based on 20 random samples
             sigma=sigma,
@@ -351,7 +439,7 @@ class CMAESOptimizer(PymooOptimizer):
 class BayesOptimizer(Optimizer):
     # this does not have the mechanics of PymooOptimizer but
     # uses similar API as much as possible
-    def __init__(self, popsize, n_iter):
+    def __init__(self, popsize, n_iter, seed=0):
         """
         Sets up a Bayesian optimizer
         """
@@ -361,13 +449,13 @@ class BayesOptimizer(Optimizer):
         # and then passing it on to the optimizer
         self.popsize = popsize
         self.n_iter = n_iter
+        self.seed = seed
         
     def setup_problem(self, problem, **kwargs):
         """
         Initializes the algorithm based on problem ndim
         """
         self.problem = problem
-        self.seed = kwargs.pop('seed', 0)
         self.algorithm = skopt.Optimizer(
             dimensions=[skopt.space.Real(0.0, 1.0)] * self.problem.ndim,
             random_state=self.seed,

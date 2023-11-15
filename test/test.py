@@ -266,7 +266,7 @@ def test_bayes_optimizer():
     bo.optimize()
     return bo
 
-def test_cmaes_optimizer_het():
+def test_cmaes_optimizer_het(force_cpu=False):
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -278,17 +278,19 @@ def test_cmaes_optimizer_het():
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wEI'],
-        maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
-        # maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_minmax.txt',
-        # duration = 60,
-        # TR = 1,
-        duration = 450,
+        # maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
+        maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_minmax.txt',
+        duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
+        # duration = 450,
+        # TR = 3,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt', 
+        force_cpu = force_cpu 
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
-    cmaes.setup_problem(problem, seed=1)
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes.setup_problem(problem)
     cmaes.optimize()
+    cmaes.save()
     return cmaes
 
 def test_cmaes_optimizer_het_nofic():
@@ -311,9 +313,10 @@ def test_cmaes_optimizer_het_nofic():
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
         do_fic=False
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
-    cmaes.setup_problem(problem, seed=1)
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes.setup_problem(problem)
     cmaes.optimize()
+    cmaes.save()
     return cmaes
 
 def test_cmaes_optimizer_regional(node_grouping='sym'):
@@ -335,9 +338,10 @@ def test_cmaes_optimizer_regional(node_grouping='sym'):
         TR = 1,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
-    cmaes.setup_problem(problem, seed=1)
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes.setup_problem(problem)
     cmaes.optimize()
+    cmaes.save()
     return cmaes
 
 def run_grid_many_nodes():
@@ -361,8 +365,8 @@ def run_grid_many_nodes():
     return gs, scores
 
 if __name__ == '__main__':
-    run_sims()
+    # run_sims()
     # gs, scores = run_grid()
     # problem, out = test_problem()
-    # cmaes = test_cmaes_optimizer_het()
+    cmaes = test_cmaes_optimizer_het()
     # run_grid_many_nodes()

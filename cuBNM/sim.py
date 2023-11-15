@@ -46,10 +46,11 @@ class SimGroup:
             to False the program might use GPU or CPU depending on GPU
             availability
         """
-        self.time_steps = int(duration * 1000) # in msec
-        self.TR = int(TR * 1000) # in msec
+        self.duration = duration
+        self.TR = TR # in msec
         self.sc_path = sc_path
         self.sc_dist_path = sc_dist_path
+        self._out_dir = out_dir
         self.sc = np.loadtxt(self.sc_path)
         self.do_fic = do_fic
         self.extended_output = (extended_output | do_fic)  # extended output is needed for FIC penalty calculations
@@ -58,6 +59,9 @@ class SimGroup:
         self.rand_seed = rand_seed
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
+        # get time and TR in msec
+        self.duration_msec = int(duration * 1000) # in msec
+        self.TR_msec = int(TR * 1000)
         os.environ['BNM_EXC_INTERHEMISPHERIC'] = str(int(self.exc_interhemispheric))
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
@@ -98,7 +102,7 @@ class SimGroup:
         # is needed (when last_N is different from current N)
         self.last_N = 0
         self.last_nodes = 0
-        self.last_time_steps = 0
+        self.last_duration = 0
         # keep track of the iterations for iterative algorithms
         self.it = 0
 
@@ -115,6 +119,24 @@ class SimGroup:
         if not self.do_delay:
             self.param_lists['v'] = np.zeros(self._N, dtype=float)
 
+    def get_config(self, include_N=False):
+        config = {
+            'duration': self.duration,
+            'TR': self.TR,
+            'sc_path': self.sc_path,
+            'sc_dist_path': self.sc_dist_path,
+            'out_dir': self.out_dir,
+            'do_fic': self.do_fic,
+            'extended_output': self.extended_output,
+            'window_size': self.window_size,
+            'window_step': self.window_step,
+            'rand_seed': self.rand_seed,
+            'exc_interhemispheric': self.exc_interhemispheric,
+            'force_cpu': self.force_cpu
+        }
+        if include_N:
+            config['N'] = self.N
+        return config
 
     def run(self, force_reinit=False):
         """
@@ -124,7 +146,7 @@ class SimGroup:
         force_reinit = (
             force_reinit | \
             (self.N != self.last_N) | \
-            (self.time_steps != self.last_time_steps) | \
+            (self.duration != self.last_duration) | \
             (self.nodes != self.last_nodes)
             )
         use_cpu = (self.force_cpu | (not gpu_enabled_flag))
@@ -142,14 +164,14 @@ class SimGroup:
             self.param_lists['wIE'], 
             self.param_lists['v'],
             self.do_fic, self.extended_output, self.do_delay, force_reinit, use_cpu,
-            self.N, self.nodes, self.time_steps, self.TR,
+            self.N, self.nodes, self.duration_msec, self.TR_msec,
             self.window_size, self.window_step, self.rand_seed,
         )
         # avoid reinitializing GPU in the next runs
         # of the same group
         self.last_N = self.N
         self.last_nodes = self.nodes
-        self.last_time_steps = self.time_steps
+        self.last_duration = self.duration
         self.it += 1
         # assign the output to object properties
         # and reshape them to (N_SIMS, ...)
@@ -219,7 +241,7 @@ class SimGroup:
             - txt: outputs of simulations will be written to separate files,
                 recommended when N = 1 (e.g. rerunning the best simulation) 
         """
-        sims_dir = os.path.join(self.out_dir, 'sims')
+        sims_dir = self.out_dir
         os.makedirs(sims_dir, exist_ok=True)
         if save_as == 'npz':
             out_data = dict(

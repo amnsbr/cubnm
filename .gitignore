@@ -4,3 +4,4 @@ dist
 __pycache__
 cuBNM/cuda/*.o
 cuBNM/cuda/*.a
+sample_input/*/
