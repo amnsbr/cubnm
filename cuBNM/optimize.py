@@ -370,7 +370,7 @@ class PymooOptimizer(Optimizer):
         if self.termination:
             self.n_iter = self.termination.n_max_gen
         else:
-            self.n_iter = kwargs.pop('n_iter', 2)
+            self.n_iter = n_iter
             self.termination = get_termination('n_iter', self.n_iter)
 
     def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
@@ -410,12 +410,12 @@ class PymooOptimizer(Optimizer):
 
 class CMAESOptimizer(PymooOptimizer):
     def __init__(self, popsize, x0=None, sigma=0.5, 
-            use_bound_penalty=False, termination=None, n_iter=2, 
+            use_bound_penalty=False, 
             algorithm_kws={}, **kwargs):
         """
         Sets up a CMAES optimizer with some defaults
         """
-        super().__init__(termination=termination, n_iter=n_iter, **kwargs)
+        super().__init__(**kwargs)
         if use_bound_penalty:
             bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
             kwargs['BoundaryHandler'] = bound_penalty
