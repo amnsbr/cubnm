@@ -96,6 +96,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
             ))
         return NULL;
 
+    // make sure arrays are 1D and of type double
     if (
         SC->nd != 1 || SC->descr->type_num != PyArray_DOUBLE ||
         SC_dist->nd != 1 || SC_dist->descr->type_num != PyArray_DOUBLE ||
@@ -108,7 +109,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         PyErr_SetString(PyExc_ValueError, "arrays must be one-dimensional and of type float");
         return NULL;
     }
-        
+   
     printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d do_delay %d use_cpu %d\n", 
         do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, do_delay, use_cpu);
 

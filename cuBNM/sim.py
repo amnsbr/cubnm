@@ -154,15 +154,19 @@ class SimGroup:
         # array to run_simulations so that in the case
         # of do_fic it is overwritten with the actual wIE
         # used in the simulations
-        self.param_lists['wIE'] = self.param_lists['wIE'].flatten()
+        # Note that the 2D arrays are flattened to a 1D (pseudo-2D) array
+        # and all arrays are made C-contiguous using .ascontiguousarray
+        # .ascontiguousarray may be redundant with .flatten but I'm doing
+        # it to be sure
+        self.param_lists['wIE'] = np.ascontiguousarray(self.param_lists['wIE'].flatten())
         out = run_simulations(
-            self.sc.flatten(), 
-            self.sc_dist.flatten(), 
-            self.param_lists['G'], 
-            self.param_lists['wEE'].flatten(), 
-            self.param_lists['wEI'].flatten(), 
+            np.ascontiguousarray(self.sc.flatten()), 
+            np.ascontiguousarray(self.sc_dist.flatten()), 
+            np.ascontiguousarray(self.param_lists['G']),
+            np.ascontiguousarray(self.param_lists['wEE'].flatten()), 
+            np.ascontiguousarray(self.param_lists['wEI'].flatten()), 
             self.param_lists['wIE'], 
-            self.param_lists['v'],
+            np.ascontiguousarray(self.param_lists['v']),
             self.do_fic, self.extended_output, self.do_delay, force_reinit, use_cpu,
             self.N, self.nodes, self.duration_msec, self.TR_msec,
             self.window_size, self.window_step, self.rand_seed,

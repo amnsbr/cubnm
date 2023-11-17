@@ -1,4 +1,4 @@
-numpy
+numpy>=1.20
 pymoo==0.6
 scipy
 pandas
