@@ -10,7 +10,8 @@ from cuBNM._flags import many_nodes_flag, gpu_enabled_flag
 class SimGroup:
     def __init__(self, duration, TR, sc_path, sc_dist_path=None, out_dir='same',
             do_fic=True, extended_output=True, window_size=10, window_step=2, rand_seed=410,
-            exc_interhemispheric=True, force_cpu=False):
+            exc_interhemispheric=True, force_cpu=False, 
+            gof_terms=['fc_corr', 'fc_diff', 'fcd_ks'], fic_penalty=True):
         """
         Group of simulations that will be executed in parallel
 
@@ -45,6 +46,12 @@ class SimGroup:
             use CPU for the simulations (even if GPU is available). If set
             to False the program might use GPU or CPU depending on GPU
             availability
+        gof_terms: (list of str)
+            - 'fc_corr'
+            - 'fcd_ks'
+            - 'fc_diff'
+        fic_penalty: (bool)
+            penalize deviation from FIC target mean rE of 3 Hz
         """
         self.duration = duration
         self.TR = TR # in msec
@@ -59,6 +66,8 @@ class SimGroup:
         self.rand_seed = rand_seed
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
+        self.gof_terms = gof_terms
+        self.fic_penalty = fic_penalty
         # get time and TR in msec
         self.duration_msec = int(duration * 1000) # in msec
         self.TR_msec = int(TR * 1000)
@@ -216,15 +225,21 @@ class SimGroup:
         if self.do_fic:
             columns.append('fic_penalty')
         scores = pd.DataFrame(columns=columns, dtype=float)
+        # calculate GOF
         for idx in range(self.N):
-            # otherwise calculate FC corr, FC diff and FCD ks
-            scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
-            scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
-            scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
-        # aggeegate GOF
-        scores.loc[:, 'gof'] = scores.loc[:, 'fc_corr'] - 1 - scores.loc[:, 'fc_diff'] - scores.loc[:, 'fcd_ks']
+            scores.loc[idx, 'gof'] = 0
+            for term in self.gof_terms:
+                if term == 'fc_corr':
+                    scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
+                    scores.loc[idx, 'gof'] += scores.loc[idx, 'fc_corr'] - 1
+                elif term == 'fc_diff':
+                    scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
+                    scores.loc[idx, 'gof'] -= scores.loc[idx, 'fc_diff']
+                elif term == 'fcd_ks':
+                    scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
+                    scores.loc[idx, 'gof'] -= scores.loc[idx, 'fcd_ks']
         # calculate FIC penalty
-        if self.do_fic:
+        if self.do_fic & self.fic_penalty:
             for idx in range(self.N):
                 diff_r_E = np.abs(self.ext_out['r_E'][idx,:] - 3)
                 if (diff_r_E > 1).sum() > 1:

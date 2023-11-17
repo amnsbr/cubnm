@@ -274,7 +274,7 @@ class RWWProblem(Problem):
         scores = self.eval(X)
         if 'scores' in kwargs:
             kwargs['scores'].append(scores)
-        if self.sim_group.do_fic:
+        if self.sim_group.do_fic & self.sim_group.fic_penalty:
             out["F"] = (scores.loc[:, 'fic_penalty']-scores.loc[:, 'gof']).values
         else:
             out["F"] = -scores.loc[:, 'gof'].values
