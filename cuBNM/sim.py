@@ -5,6 +5,7 @@ import os
 
 from cuBNM.core import run_simulations
 from cuBNM._flags import many_nodes_flag, gpu_enabled_flag
+from cuBNM import utils
 
 
 class SimGroup:
@@ -47,9 +48,10 @@ class SimGroup:
             to False the program might use GPU or CPU depending on GPU
             availability
         gof_terms: (list of str)
-            - 'fc_corr'
             - 'fcd_ks'
+            - 'fc_corr'
             - 'fc_diff'
+            - 'fc_normec': Euclidean distance of FCs divided by max EC [sqrt(n_pairs*4)]
         fic_penalty: (bool)
             penalize deviation from FIC target mean rE of 3 Hz
         """
@@ -231,13 +233,16 @@ class SimGroup:
             for term in self.gof_terms:
                 if term == 'fc_corr':
                     scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
-                    scores.loc[idx, 'gof'] += scores.loc[idx, 'fc_corr'] - 1
+                    scores.loc[idx, 'gof'] += scores.loc[idx, 'fc_corr']
                 elif term == 'fc_diff':
                     scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
                     scores.loc[idx, 'gof'] -= scores.loc[idx, 'fc_diff']
                 elif term == 'fcd_ks':
                     scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
                     scores.loc[idx, 'gof'] -= scores.loc[idx, 'fcd_ks']
+                elif term == 'fc_normec':
+                    scores.loc[idx, 'fc_normec'] = utils.fc_norm_euclidean(self.sim_fc_trils[idx], emp_fc_tril)
+                    scores.loc[idx, 'gof'] -= scores.loc[idx, 'fc_normec']
         # calculate FIC penalty
         if self.do_fic & self.fic_penalty:
             for idx in range(self.N):

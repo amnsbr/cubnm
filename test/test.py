@@ -274,6 +274,7 @@ def test_cmaes_optimizer_het(force_cpu=False):
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
             'wEI': 0.15,
+            'v': (0.5, 8.0)
         },
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
@@ -285,9 +286,10 @@ def test_cmaes_optimizer_het(force_cpu=False):
         # duration = 450,
         # TR = 3,
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt', 
+        sc_dist_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt', 
         force_cpu = force_cpu 
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=3, seed=1)
     cmaes.setup_problem(problem)
     cmaes.optimize()
     cmaes.save()
@@ -364,9 +366,41 @@ def run_grid_many_nodes():
     gs.sim_group.save()
     return gs, scores
 
+def test_nsga2_optimizer_het(force_cpu=False):
+    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    problem = optimize.RWWProblem(
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+            'v': (0.5, 8.0)
+        },
+        emp_fc_tril = emp_fc_tril,
+        emp_fcd_tril = emp_fcd_tril,
+        het_params = ['wEE', 'wEI'],
+        # maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
+        maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_minmax.txt',
+        duration = 60,
+        TR = 1,
+        # duration = 450,
+        # TR = 3,
+        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt', 
+        sc_dist_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt', 
+        force_cpu = force_cpu,
+        gof_terms = ['fc_normec', 'fcd_ks'],
+        multiobj = True
+    )
+    optimizer = optimize.NSGA2Optimizer(popsize=10, n_iter=3, seed=1)
+    optimizer.setup_problem(problem)
+    optimizer.optimize()
+    optimizer.save()
+    return optimizer
+
 if __name__ == '__main__':
-    # run_sims()
+    # run_sims(2)
     # gs, scores = run_grid()
     # problem, out = test_problem()
-    cmaes = test_cmaes_optimizer_het()
+    # cmaes = test_cmaes_optimizer_het()
     # run_grid_many_nodes()
+    nsga2 = test_nsga2_optimizer_het()

@@ -6,11 +6,11 @@ import numpy as np
 import pandas as pd
 from pymoo.core.problem import Problem
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
+from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 import cma
 import skopt
-
 
 from cuBNM import sim
 
@@ -62,7 +62,7 @@ class RWWProblem(Problem):
     global_params = ['G','v']
     local_params = ['wEE', 'wEI', 'wIE']
     def __init__(self, params, emp_fc_tril, emp_fcd_tril, het_params=[], maps_path=None,
-            reject_negative=False, node_grouping=None, **kwargs):
+            reject_negative=False, node_grouping=None, multiobj=False, **kwargs):
         """
         The "Problem" of reduced Wong-Wang model optimal parameters fitted
         to the provided empirical FC and FCDs
@@ -88,6 +88,10 @@ class RWWProblem(Problem):
             - 'node'
             - 'sym'
             - path to node grouping array
+        multiobj: (bool)
+            instead of combining the objectives into a single objective function
+            (via summation) defines each objective separately. This must not be used
+            with single-objective optimizers
         **kwargs to sim.SimGroup
         """
         # set opts
@@ -98,6 +102,7 @@ class RWWProblem(Problem):
         self.maps_path = kwargs.pop('maps_path', maps_path)
         self.reject_negative = kwargs.pop('reject_negative', reject_negative)
         self.node_grouping = kwargs.pop('node_grouping', node_grouping)
+        self.multiobj = kwargs.pop('multiobj', multiobj)
         # initialize sim_group (N not known yet)
         self.sim_group = sim.SimGroup(**kwargs)
         # raise errors if opts are impossible
@@ -184,10 +189,17 @@ class RWWProblem(Problem):
         self.ub = np.array(self.ub)
         # determine ndim of the problem
         self.ndim = len(self.free_params)
+        # determine the number of objectives
+        if self.multiobj:
+            n_obj = len(self.sim_group.gof_terms)
+            if self.sim_group.fic_penalty:
+                n_obj += 1
+        else:
+            n_obj = 1
         # initialize pymoo Problem
         super().__init__(
             n_var=self.ndim, 
-            n_obj=1, 
+            n_obj=n_obj, 
             n_ieq_constr=0, # TODO: consider using this for enforcing FIC success
             xl=np.zeros(self.ndim, dtype=float), 
             xu=np.ones(self.ndim, dtype=float)
@@ -274,11 +286,16 @@ class RWWProblem(Problem):
         scores = self.eval(X)
         if 'scores' in kwargs:
             kwargs['scores'].append(scores)
-        if self.sim_group.do_fic & self.sim_group.fic_penalty:
-            out["F"] = (scores.loc[:, 'fic_penalty']-scores.loc[:, 'gof']).values
+        if self.multiobj:
+            out["F"] = -scores.loc[:, self.sim_group.gof_terms].values
+            if self.sim_group.do_fic & self.sim_group.fic_penalty:
+                out["F"] = np.concatenate([out["F"], scores.loc[:,['fic_penalty']].values], axis=1)
         else:
-            out["F"] = -scores.loc[:, 'gof'].values
-        # out["G"] = ... # TODO: consider using this for enforcing FIC success
+            if self.sim_group.do_fic & self.sim_group.fic_penalty:
+                out["F"] = (scores.loc[:, 'fic_penalty']-scores.loc[:, 'gof']).values
+            else:
+                out["F"] = -scores.loc[:, 'gof'].values
+            # out["G"] = ... # TODO: consider using this for enforcing FIC success
     
     def eval(self, X):
         # set N to current iteration population size
@@ -322,9 +339,9 @@ class Optimizer(ABC):
         self.opt.to_csv(os.path.join(optimizer_dir, 'opt.csv'))
         # save the configs of simulations and optimizer
         with open(os.path.join(optimizer_dir, 'problem.json'), 'w') as f:
-            json.dump(self.problem.get_config(include_sim_group=True, include_N=True), f, indent=1)
+            json.dump(self.problem.get_config(include_sim_group=True, include_N=True), f, indent=4)
         with open(os.path.join(optimizer_dir, 'optimizer.json'), 'w') as f:
-            json.dump(self.get_config(), f, indent=1)
+            json.dump(self.get_config(), f, indent=4)
         # rerun optimum simulation and save it
         print("Rerunning and saving the optimal simulation")
         ## reuse the original problem used throughout the optimization
@@ -379,6 +396,8 @@ class PymooOptimizer(Optimizer):
         """
         # setup the algorithm with the problem
         self.problem = problem
+        if (self.problem.n_obj > self.max_obj):
+            raise ValueError(f"Maximum number of objectives for {type(self.algorithm)} = {self.max_obj} exceeds the number of problem objectives = {self.problem.n_obj}")
         self.algorithm.setup(problem, termination=self.termination, 
             seed=self.seed, verbose=pymoo_verbose, save_history=True, **kwargs)
 
@@ -407,7 +426,6 @@ class PymooOptimizer(Optimizer):
         self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
         self.opt = self.history.loc[self.history['F'].argmin()]
 
-
 class CMAESOptimizer(PymooOptimizer):
     def __init__(self, popsize, x0=None, sigma=0.5, 
             use_bound_penalty=False, 
@@ -416,6 +434,7 @@ class CMAESOptimizer(PymooOptimizer):
         Sets up a CMAES optimizer with some defaults
         """
         super().__init__(**kwargs)
+        self.max_obj = 1
         if use_bound_penalty:
             bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
             kwargs['BoundaryHandler'] = bound_penalty
@@ -434,7 +453,21 @@ class CMAESOptimizer(PymooOptimizer):
             # the following is to avoid an error caused by pymoo interfering with cma
             # after problem is registered with the algorithm
             # the bounds will be enforced by bound_penalty
-            self.algorithm.options['bounds'] = None 
+            self.algorithm.options['bounds'] = None
+
+class NSGA2Optimizer(PymooOptimizer):
+    def __init__(self, popsize, 
+            algorithm_kws={}, **kwargs):
+        """
+        Sets up a CMAES optimizer with some defaults
+        """
+        super().__init__(**kwargs)
+        self.max_obj = 3
+        self.popsize = popsize
+        self.algorithm = NSGA2(
+            pop_size=popsize,
+            **algorithm_kws
+        )
 
 class BayesOptimizer(Optimizer):
     # this does not have the mechanics of PymooOptimizer but
@@ -447,6 +480,7 @@ class BayesOptimizer(Optimizer):
         # the number of dimensions are not known yet
         # TODO: consider defining Problem before optimizer
         # and then passing it on to the optimizer
+        self.max_obj = 1
         self.popsize = popsize
         self.n_iter = n_iter
         self.seed = seed
