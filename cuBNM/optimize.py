@@ -303,9 +303,9 @@ class RWWProblem(Problem):
                 out["F"] = np.concatenate([out["F"], -scores.loc[:,['-fic_penalty']].values], axis=1)
         else:
             if self.sim_group.do_fic & self.sim_group.fic_penalty:
-                out["F"] = (-scores.loc[:, '-fic_penalty']-scores.loc[:, 'gof']).values
+                out["F"] = (-scores.loc[:, '-fic_penalty']-scores.loc[:, '+gof']).values
             else:
-                out["F"] = -scores.loc[:, 'gof'].values
+                out["F"] = -scores.loc[:, '+gof'].values
             # out["G"] = ... # TODO: consider using this for enforcing FIC success
     
     def eval(self, X):
