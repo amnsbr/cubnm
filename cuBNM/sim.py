@@ -12,7 +12,7 @@ class SimGroup:
     def __init__(self, duration, TR, sc_path, sc_dist_path=None, out_dir='same',
             do_fic=True, extended_output=True, window_size=10, window_step=2, rand_seed=410,
             exc_interhemispheric=True, force_cpu=False, 
-            gof_terms=['fc_corr', 'fc_diff', 'fcd_ks'], fic_penalty=True):
+            gof_terms=['+fc_corr', '-fc_diff', '-fcd_ks'], fic_penalty=True):
         """
         Group of simulations that will be executed in parallel
 
@@ -48,10 +48,10 @@ class SimGroup:
             to False the program might use GPU or CPU depending on GPU
             availability
         gof_terms: (list of str)
-            - 'fcd_ks'
-            - 'fc_corr'
-            - 'fc_diff'
-            - 'fc_normec': Euclidean distance of FCs divided by max EC [sqrt(n_pairs*4)]
+            - '-fcd_ks'
+            - '+fc_corr'
+            - '-fc_diff'
+            - '-fc_normec': Euclidean distance of FCs divided by max EC [sqrt(n_pairs*4)]
         fic_penalty: (bool)
             penalize deviation from FIC target mean rE of 3 Hz
         """
@@ -210,7 +210,7 @@ class SimGroup:
 
     def score(self, emp_fc_tril, emp_fcd_tril, fic_penalty_scale=2):
         """
-        Calcualates fc_corr, fc_diff, fcd_ks and their aggregate (gof).
+        Calcualates gof term and aggregates them as indicated.
         In FIC models also calculates fic_penalty. To ignore fic_penalty
         set `fic_penalty_scale` to 0.
 
@@ -222,36 +222,31 @@ class SimGroup:
             1D array of empirical FCD lower triangle
         fic_penalty_scale: (float)
         """
+        # + => aim to maximize; - => aim to minimize
         #TODO: add the option to provide empirical BOLD as input
-        columns = ['fc_corr', 'fc_diff', 'fcd_ks', 'gof']
+        columns = ['+fc_corr', '-fc_diff', '-fcd_ks', '-fc_normec', '+gof']
         if self.do_fic:
-            columns.append('fic_penalty')
+            columns.append('-fic_penalty')
         scores = pd.DataFrame(columns=columns, dtype=float)
         # calculate GOF
         for idx in range(self.N):
-            scores.loc[idx, 'gof'] = 0
+            scores.loc[idx, '+fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
+            scores.loc[idx, '-fc_diff'] = -np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
+            scores.loc[idx, '-fcd_ks'] = -scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
+            scores.loc[idx, '-fc_normec'] = -utils.fc_norm_euclidean(self.sim_fc_trils[idx], emp_fc_tril)
+            # combined the selected terms into gof (that should be maximized)
+            scores.loc[idx, '+gof'] = 0
             for term in self.gof_terms:
-                if term == 'fc_corr':
-                    scores.loc[idx, 'fc_corr'] = scipy.stats.pearsonr(self.sim_fc_trils[idx], emp_fc_tril).statistic
-                    scores.loc[idx, 'gof'] += scores.loc[idx, 'fc_corr']
-                elif term == 'fc_diff':
-                    scores.loc[idx, 'fc_diff'] = np.abs(self.sim_fc_trils[idx].mean() - emp_fc_tril.mean())
-                    scores.loc[idx, 'gof'] -= scores.loc[idx, 'fc_diff']
-                elif term == 'fcd_ks':
-                    scores.loc[idx, 'fcd_ks'] = scipy.stats.ks_2samp(self.sim_fcd_trils[idx], emp_fcd_tril).statistic
-                    scores.loc[idx, 'gof'] -= scores.loc[idx, 'fcd_ks']
-                elif term == 'fc_normec':
-                    scores.loc[idx, 'fc_normec'] = utils.fc_norm_euclidean(self.sim_fc_trils[idx], emp_fc_tril)
-                    scores.loc[idx, 'gof'] -= scores.loc[idx, 'fc_normec']
+                scores.loc[idx, '+gof'] += scores.loc[idx, term]
         # calculate FIC penalty
         if self.do_fic & self.fic_penalty:
             for idx in range(self.N):
                 diff_r_E = np.abs(self.ext_out['r_E'][idx,:] - 3)
                 if (diff_r_E > 1).sum() > 1:
                     diff_r_E[diff_r_E <= 1] = np.NaN
-                    scores.loc[idx, 'fic_penalty'] = np.nanmean(1 - np.exp(-0.05 * diff_r_E)) * fic_penalty_scale
+                    scores.loc[idx, '-fic_penalty'] = -np.nanmean(1 - np.exp(-0.05 * diff_r_E)) * fic_penalty_scale
                 else:
-                    scores.loc[idx, 'fic_penalty'] = 0
+                    scores.loc[idx, '-fic_penalty'] = 0
         return scores
 
     def save(self, save_as='npz'):

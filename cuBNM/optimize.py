@@ -1,7 +1,8 @@
 import os
 import itertools
 from abc import ABC, abstractmethod
-import json
+import json, pickle
+import copy
 import numpy as np
 import pandas as pd
 from pymoo.core.problem import Problem
@@ -191,11 +192,21 @@ class RWWProblem(Problem):
         self.ndim = len(self.free_params)
         # determine the number of objectives
         if self.multiobj:
-            n_obj = len(self.sim_group.gof_terms)
+            self.obj_names = []
+            for term in self.sim_group.gof_terms:
+                # these are cost values which are minimized by
+                # the optimizers, therefore if the aim is to
+                # maximize a measure (e.g. +fc_corr) its cost
+                # will be -fc_corr
+                if term.startswith("-"):
+                    self.obj_names.append(term.replace("-", "+"))
+                elif term.startswith("+"):
+                    self.obj_names.append(term.replace("+", "-"))
             if self.sim_group.fic_penalty:
-                n_obj += 1
+                self.obj_names.append('+fic_penalty')
         else:
-            n_obj = 1
+            self.obj_names = ['cost']
+        n_obj = len(self.obj_names)
         # initialize pymoo Problem
         super().__init__(
             n_var=self.ndim, 
@@ -289,10 +300,10 @@ class RWWProblem(Problem):
         if self.multiobj:
             out["F"] = -scores.loc[:, self.sim_group.gof_terms].values
             if self.sim_group.do_fic & self.sim_group.fic_penalty:
-                out["F"] = np.concatenate([out["F"], scores.loc[:,['fic_penalty']].values], axis=1)
+                out["F"] = np.concatenate([out["F"], -scores.loc[:,['-fic_penalty']].values], axis=1)
         else:
             if self.sim_group.do_fic & self.sim_group.fic_penalty:
-                out["F"] = (scores.loc[:, 'fic_penalty']-scores.loc[:, 'gof']).values
+                out["F"] = (-scores.loc[:, '-fic_penalty']-scores.loc[:, 'gof']).values
             else:
                 out["F"] = -scores.loc[:, 'gof'].values
             # out["G"] = ... # TODO: consider using this for enforcing FIC success
@@ -333,32 +344,31 @@ class Optimizer(ABC):
             else:
                 run_idx += 1
         os.makedirs(optimizer_dir, exist_ok=True)
+        # save the optimizer object
+        with open(os.path.join(optimizer_dir, 'optimizer.pickle'), 'wb') as f:
+            pickle.dump(self, f)
         # save the optimizer history
         self.history.to_csv(os.path.join(optimizer_dir, 'history.csv'))
-        self.opt_history.to_csv(os.path.join(optimizer_dir, 'opt_history.csv'))
-        self.opt.to_csv(os.path.join(optimizer_dir, 'opt.csv'))
+        if self.problem.n_obj == 1:
+            self.opt_history.to_csv(os.path.join(optimizer_dir, 'opt_history.csv'))
+            self.opt.to_csv(os.path.join(optimizer_dir, 'opt.csv'))
         # save the configs of simulations and optimizer
         with open(os.path.join(optimizer_dir, 'problem.json'), 'w') as f:
             json.dump(self.problem.get_config(include_sim_group=True, include_N=True), f, indent=4)
         with open(os.path.join(optimizer_dir, 'optimizer.json'), 'w') as f:
             json.dump(self.get_config(), f, indent=4)
-        # rerun optimum simulation and save it
-        print("Rerunning and saving the optimal simulation")
+        # rerun optimum simulation(s) and save it
+        print("Rerunning and saving the optimal simulation(s)")
         ## reuse the original problem used throughout the optimization
         ## but change its out_dir, N and parameters to the optimum
         self.problem.sim_group.out_dir = os.path.join(optimizer_dir, 'opt_sim')
         os.makedirs(self.problem.sim_group.out_dir, exist_ok=True)
-        self.problem.sim_group.N = 1
-        ## get opt parameters in the unnormalized space
-        Xt = self.opt.loc[self.problem.free_params]
-        ## normalize to [0,1]
-        X = self.problem._get_X(np.atleast_2d(Xt.values))
-        # run the best simulation and save its data
-        ## save params and scores to double check it's the correct simulation
+        res = self.algorithm.result()
+        X = np.atleast_2d(res.X)
+        Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
         opt_scores = self.problem.eval(X)
-        res = pd.concat([Xt, opt_scores.iloc[0]])
-        res.to_csv(os.path.join(self.problem.sim_group.out_dir, 'res.csv'))
-        ## save simulation data (including BOLD, FC and FCD, extended output, and param maps)
+        pd.concat([Xt, opt_scores],axis=1).to_csv(os.path.join(self.problem.sim_group.out_dir, 'res.csv'))
+        ## save simulations data (including BOLD, FC and FCD, extended output, and param maps)
         self.problem.sim_group.save()
         #TODO: add option to save everything, including all the
         # SimGroup's of the different iterations
@@ -414,17 +424,29 @@ class PymooOptimizer(Optimizer):
             self.algorithm.tell(infills=pop)
             # TODO: do same more things, printing, logging, storing or even modifying the algorithm object
             X = np.array([p.x for p in self.algorithm.pop])
-            res = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
-            res.index.name = 'sim_idx'
-            res['F'] = np.array([p.f for p in self.algorithm.pop])
-            res = pd.concat([res, scores[0]],axis=1)
+            Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+            Xt.index.name = 'sim_idx'
+            F = np.array([p.F for p in self.algorithm.pop])
+            F = pd.DataFrame(F, columns=self.problem.obj_names)
+            if self.problem.multiobj:
+                # in multiobj optimizers simulations are reordered after scores are calculated
+                # therefore don't concatenate scores to them
+                # TODO: make sure this doesn't happen with the other single-objective optimizers
+                # (other than CMAES)
+                res = pd.concat([Xt, F],axis=1)
+            else:
+                res = pd.concat([Xt, F, scores[0]],axis=1)
             res['gen'] = self.algorithm.n_gen-1
             print(res)
             self.history.append(res)
-            self.opt_history.append(res.loc[res['F'].argmin()])
+            if self.problem.n_obj == 1:
+                # a single optimum can be defined from each population
+                self.opt_history.append(res.loc[res['cost'].argmin()])
         self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
-        self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
-        self.opt = self.history.loc[self.history['F'].argmin()]
+        if self.problem.n_obj == 1:
+            # a single optimum can be defined
+            self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
+            self.opt = self.history.loc[self.history['cost'].argmin()]
 
 class CMAESOptimizer(PymooOptimizer):
     def __init__(self, popsize, x0=None, sigma=0.5, 

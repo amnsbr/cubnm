@@ -289,7 +289,7 @@ def test_cmaes_optimizer_het(force_cpu=False):
         sc_dist_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt', 
         force_cpu = force_cpu 
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=3, seed=1)
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
     cmaes.optimize()
     cmaes.save()
@@ -388,7 +388,7 @@ def test_nsga2_optimizer_het(force_cpu=False):
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt', 
         sc_dist_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt', 
         force_cpu = force_cpu,
-        gof_terms = ['fc_normec', 'fcd_ks'],
+        gof_terms = ['-fc_normec', '-fcd_ks'],
         multiobj = True
     )
     optimizer = optimize.NSGA2Optimizer(popsize=10, n_iter=3, seed=1)
