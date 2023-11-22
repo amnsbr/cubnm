@@ -328,11 +328,17 @@ class Optimizer(ABC):
     def optimize(self):
         pass
 
-    def save(self):
+    def save(self, save_obj=False):
         """
         Saves the output of the optimizer, including history
         of particles, history of optima, the optimal point,
         and its simulation data
+
+        Parameters
+        ---------
+        save_obj: (bool)
+            saves the optimizer object which also includes the simulation
+            data of all simulations and therefore can be large file
         """
         # specify the directory
         run_idx = 0
@@ -345,8 +351,9 @@ class Optimizer(ABC):
                 run_idx += 1
         os.makedirs(optimizer_dir, exist_ok=True)
         # save the optimizer object
-        with open(os.path.join(optimizer_dir, 'optimizer.pickle'), 'wb') as f:
-            pickle.dump(self, f)
+        if save_obj:
+            with open(os.path.join(optimizer_dir, 'optimizer.pickle'), 'wb') as f:
+                pickle.dump(self, f)
         # save the optimizer history
         self.history.to_csv(os.path.join(optimizer_dir, 'history.csv'))
         if self.problem.n_obj == 1:
