@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 
+
 def fc_norm_euclidean(x, y):
     """
     Calculates Euclidean distance of two FC arrays
