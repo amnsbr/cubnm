@@ -360,9 +360,9 @@ def run_grid_many_nodes():
         sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-400_approach-median_mean001_desc-strength.txt'
     )
     gs.sim_group.run()
-    # emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    # emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
-    # scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
+    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
+    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     gs.sim_group.save()
     return gs, scores
 

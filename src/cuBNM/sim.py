@@ -4,7 +4,7 @@ import pandas as pd
 import os
 
 from cuBNM.core import run_simulations
-from cuBNM._flags import many_nodes_flag, gpu_enabled_flag
+from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
 from cuBNM import utils
 
 
@@ -177,7 +177,7 @@ class SimGroup:
             | (self.duration != self.last_duration)
             | (self.nodes != self.last_nodes)
         )
-        use_cpu = self.force_cpu | (not gpu_enabled_flag)
+        use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus()==0)
         # set wIE to its flattened copy and pass this
         # array to run_simulations so that in the case
         # of do_fic it is overwritten with the actual wIE

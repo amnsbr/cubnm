@@ -1,6 +1,12 @@
 import numpy as np
 import scipy
+import GPUtil
 
+def avail_gpus():
+    """
+    Gets the number of available GPUs
+    """
+    return len(GPUtil.getAvailable())
 
 def fc_norm_euclidean(x, y):
     """

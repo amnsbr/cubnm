@@ -1,57 +1,85 @@
-from setuptools import setup, Extension, find_packages
+from setuptools import setup, Extension
+from setuptools.command.build_ext import build_ext
 from distutils.spawn import find_executable
 import subprocess
-
-# from setuptools.command.install import install
 import os
 import numpy as np
+import GPUtil
+
+PROJECT = os.path.abspath(os.path.dirname(__file__))
 
 # specify installation options
 many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
 
 
 # detect if there are GPUs
-def has_gpus():
-    if find_executable("nvidia-smi"):
-        try:
-            subprocess.check_output(["nvidia-smi"])
-            return True
-        except subprocess.CalledProcessError:
-            return False
+def has_gpus(method='gputil'):
+    if method == 'gputil':
+        return len(GPUtil.getAvailable()) > 0
     else:
-        return False
+        # can be useful for compiling code on a
+        # non-GPU system for running it later
+        # on GPUs
+        if find_executable("nvcc"):
+                return True
+        else:
+            return False
 
 
 gpu_enabled = has_gpus()
 
 # Write the flags to a temporary _flags.py file
-with open("cuBNM/_flags.py", "w") as flag_file:
+with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_flags.py"), "w") as flag_file:
     flag_file.write(
         "\n".join(
-            [f"many_nodes_flag = {many_nodes}", f"gpu_enabled_flag = {gpu_enabled}"]
+            [f"many_nodes_flag = {many_nodes}", 
+             f"gpu_enabled_flag = {gpu_enabled}"]
         )
     )
 
+# extend build_ext to also compile GPU code
+class build_ext_w_cuda(build_ext):
+    def build_extensions(self):
+        ##  TODO: Build GSL
+        # subprocess.run(["./configure", "--prefix=" + gsl_prefix, "--enable-shared"], cwd="path/to/gsl")
+        # subprocess.run(["make", "install"], cwd="path/to/gsl")
+
+        # Compile CUDA code into libbnm.a
+        if gpu_enabled:
+            cuda_dir = os.path.join(PROJECT, 'src', 'cuda')
+
+            if 'CUBNM_MANY_NODES' in os.environ:
+                add_flags = "-D NOISE_SEGMENT MANY_NODES"
+            else:
+                add_flags = "-D NOISE_SEGMENT"
+
+            compile_commands = [
+                f"nvcc -c -rdc=true --compiler-options '-fPIC' -o {cuda_dir}/bnm_tmp.o {cuda_dir}/bnm.cu "
+                f"-I {PROJECT}/src/cpp {add_flags} -I /data/project/ei_development/tools/gsl_build_shared/include",
+                f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o "
+                f"/data/project/ei_development/tools/gsl_build_shared/lib/libgsl.a "
+                f"/data/project/ei_development/tools/gsl_build_shared/lib/libgslcblas.a -lm -lcudart",
+                f"rm -f {cuda_dir}/libbnm.a",
+                f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o",
+                f"ranlib {cuda_dir}/libbnm.a"
+            ]
+
+            for command in compile_commands:
+                subprocess.run(command, shell=True)
+
+        # Continue with Python extension build
+        super().build_extensions()
+
+# C++ code compilation
 os.environ["CC"] = "g++"
 os.environ["CXX"] = "g++"
 
 if gpu_enabled:
     print("GPU enabled")
-    if many_nodes:
-        print(
-            """
-        Installing with support for running simulations with high number of nodes 
-        which uses __device__ instead of __shared__ memory for S_E history at t-1
-        and therefore is slower, but with high N of nodes is needed because
-        __shared__ memory is limited
-        """
-        )
-        libraries = ["m", "gomp", "bnm_many", "cudart"]
-    else:
-        libraries = ["m", "gomp", "bnm", "cudart"]
+    libraries = ["m", "gomp", "bnm", "cudart"]
     bnm_ext = Extension(
         "cuBNM.core",
-        ["cuBNM/cpp/run_simulations.cpp"],
+        ["src/cpp/run_simulations.cpp"],
         language="c++",
         extra_compile_args=[  # note that these are not the flags to compile bnm.cu
             "-O3",
@@ -69,14 +97,15 @@ if gpu_enabled:
             "/data/project/ei_development/tools/gsl_build_shared/include",
             "/usr/lib/cuda/include",
             "/usr/include/cuda",
+            os.path.join(PROJECT,"src", "cpp"),
             np.get_include(),
         ],
-        library_dirs=[".", "/usr/lib/cuda", "cuBNM/cuda"],
+        library_dirs=[".", "/usr/lib/cuda", os.path.join(PROJECT,"src", "cuda")],
     )
 else:
     bnm_ext = Extension(
         "cuBNM.core",
-        ["cuBNM/cpp/run_simulations.cpp"],
+        ["src/cpp/run_simulations.cpp"],
         language="c++",
         extra_compile_args=[
             "-O3",
@@ -95,4 +124,9 @@ else:
         ],
     )
 
-setup(packages=find_packages(), ext_modules=[bnm_ext])
+setup(
+    ext_modules=[bnm_ext],
+    cmdclass={
+        'build_ext': build_ext_w_cuda,
+    },
+)

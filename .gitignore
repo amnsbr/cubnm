@@ -160,7 +160,7 @@ cython_debug/
 #.idea/
 
 # project specific
-cuBNM/cuda/*.o
-cuBNM/cuda/*.a
+src/cuda/*.o
+src/cuda/*.a
 sample_input/*/
-cuBNM/_flags.py
+src/cuBNM/_setup_flags.py
