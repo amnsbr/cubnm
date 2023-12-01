@@ -122,7 +122,7 @@ def run_grid_delay():
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     return gs, scores
 
-def test_problem():
+def run_problem():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -146,7 +146,7 @@ def test_problem():
     problem._evaluate(X, out)
     return problem, out
 
-def test_cmaes_simple():
+def run_cmaes_simple():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -180,7 +180,7 @@ def test_cmaes_simple():
 
     return problem, algorithm, termination, res
 
-def test_cmaes_ask_tell():
+def run_cmaes_ask_tell():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -226,7 +226,7 @@ def test_cmaes_ask_tell():
 
     return problem, algorithm, termination
 
-def test_cmaes_optimizer():
+def run_cmaes_optimizer():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -246,7 +246,7 @@ def test_cmaes_optimizer():
     cmaes.optimize()
     return cmaes
 
-def test_bayes_optimizer():
+def run_bayes_optimizer():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -266,7 +266,7 @@ def test_bayes_optimizer():
     bo.optimize()
     return bo
 
-def test_cmaes_optimizer_het(force_cpu=False):
+def run_cmaes_optimizer_het(force_cpu=False):
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -295,7 +295,7 @@ def test_cmaes_optimizer_het(force_cpu=False):
     cmaes.save()
     return cmaes
 
-def test_cmaes_optimizer_het_nofic():
+def run_cmaes_optimizer_het_nofic():
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -321,7 +321,7 @@ def test_cmaes_optimizer_het_nofic():
     cmaes.save()
     return cmaes
 
-def test_cmaes_optimizer_regional(node_grouping='sym'):
+def run_cmaes_optimizer_regional(node_grouping='sym'):
     if node_grouping == 'yeo':
         node_grouping = '/data/project/ei_development/tools/cuBNM/sample_input/yeo7_schaefer-100.txt'
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
@@ -366,7 +366,7 @@ def run_grid_many_nodes():
     gs.sim_group.save()
     return gs, scores
 
-def test_nsga2_optimizer_het(force_cpu=False):
+def run_nsga2_optimizer_het(force_cpu=False):
     emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
     emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
     problem = optimize.RWWProblem(
@@ -398,9 +398,9 @@ def test_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    # run_sims(2)
+    run_sims(2)
     # gs, scores = run_grid()
-    # problem, out = test_problem()
-    # cmaes = test_cmaes_optimizer_het()
+    # problem, out = run_problem()
+    # cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()
-    nsga2 = test_nsga2_optimizer_het()
+    # nsga2 = run_nsga2_optimizer_het()
