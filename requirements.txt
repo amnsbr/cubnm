@@ -1,5 +1,0 @@
-numpy>=1.20
-pymoo==0.6
-scipy
-pandas
-scikit-optimize==0.9

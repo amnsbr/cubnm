@@ -1,0 +1,36 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+    "setuptools",
+    "numpy>=1.20"
+]
+
+[project]
+name = "cuBNM"
+version = "0.0.1"
+dependencies = [
+    "numpy>=1.20",
+    "scipy",
+    "pandas",
+    "pymoo==0.6",
+    "scikit-optimize==0.9",
+]
+requires-python = ">=3"
+description = "A toolbox for biophysical network modeling on GPUs "
+authors = [
+    {name = "Amin Saberi", email="amnsbr@gmail.com"}
+]
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    'Intended Audience :: Science/Research',
+    'Intended Audience :: Developers',
+    'Programming Language :: C',
+    'Programming Language :: C++',
+    'Programming Language :: CUDA',
+    'Programming Language :: Python',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3 :: Only',
+    'Operating System :: Unix',
+    'Environment :: GPU :: NVIDIA CUDA',
+    'Topic :: Scientific/Engineering',
+]
