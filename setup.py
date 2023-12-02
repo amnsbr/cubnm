@@ -166,7 +166,6 @@ class build_ext_gsl_cuda(build_ext):
                 f"rm -f {cuda_dir}/libbnm.a",  # remove the previously created .a
                 f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o",
                 f"ranlib {cuda_dir}/libbnm.a",
-                f"ldd {cuda_dir}/libbnm.a",
             ]
 
             for command in compile_commands:

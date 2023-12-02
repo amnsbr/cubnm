@@ -36,3 +36,6 @@ classifiers = [
     'Environment :: GPU :: NVIDIA CUDA',
     'Topic :: Scientific/Engineering',
 ]
+
+[tool.setuptools]
+include-package-data = true

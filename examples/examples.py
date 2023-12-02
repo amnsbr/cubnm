@@ -1,7 +1,7 @@
 import numpy as np
 import cuBNM
 from cuBNM.core import run_simulations
-from cuBNM import optimize, sim, utils
+from cuBNM import optimize, sim, utils, datasets
 from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
 
 import os
@@ -28,9 +28,8 @@ def run_sims(N_SIMS=1, v=0.5, force_cpu=False):
 
     np.random.seed(0)
 
-    SC = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt').flatten()
-    # SC = np.random.randn(nodes*nodes) => This will lead to unstable FIC error
-    SC_dist = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt').flatten()
+    SC = datasets.load_sc('strength', 'schaefer-100').flatten()
+    SC_dist = datasets.load_sc('length', 'schaefer-100').flatten()
     G_list = np.repeat(0.5, N_SIMS)
     w_EE_list = np.repeat(0.21, nodes*N_SIMS)
     w_EI_list = np.repeat(0.15, nodes*N_SIMS)
@@ -79,10 +78,10 @@ def run_grid():
         # TR = 3,
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt'
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True)
     )
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     gs.sim_group.save()
     return gs, scores
@@ -97,11 +96,11 @@ def run_grid_no_fic():
         },
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
         do_fic = False
     )
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     return gs, scores
 
@@ -115,17 +114,17 @@ def run_grid_delay():
         },
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',
-        sc_dist_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt',
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True),
     )
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     return gs, scores
 
 def run_problem():
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
         params = {
             'G': (1.0, 3.0),
@@ -136,7 +135,7 @@ def run_problem():
         emp_fcd_tril = emp_fcd_tril,
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
     )
     # assume that optimizer is using 10 particles
     problem.sim_group.N = 10
@@ -147,89 +146,9 @@ def run_problem():
     problem._evaluate(X, out)
     return problem, out
 
-def run_cmaes_simple():
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
-    problem = optimize.RWWProblem(
-        params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
-        },
-        emp_fc_tril = emp_fc_tril,
-        emp_fcd_tril = emp_fcd_tril,
-        duration = 60,
-        TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
-    )
-    # bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
-    algorithm = CMAES(
-        x0=np.array([0.5, 0.5]), # initial guess in the middle; note that X is 0-1 normalized
-        sigma=0.5,
-        maxiter=1,
-        popsize=20, 
-        eval_initial_x=False,
-    )
-    termination = get_termination('n_iter', 3)
-    res = minimize(problem,
-                algorithm,
-                termination,
-                seed=1,
-                verbose=True,
-                save_history=True
-                )
-
-    return problem, algorithm, termination, res
-
-def run_cmaes_ask_tell():
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
-    problem = optimize.RWWProblem(
-        params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
-        },
-        emp_fc_tril = emp_fc_tril,
-        emp_fcd_tril = emp_fcd_tril,
-        duration = 60,
-        TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
-    )
-    # initialize algorithm with bound penalty
-    bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
-    algorithm = CMAES(
-        # x0=np.array([0.5, 0.5]), # initial guess in the middle; note that X is 0-1 normalized
-        x0=None, # will estimate the initial guess based on 20 random samples
-        sigma=0.5,
-        maxiter=1, # this is overwritten by the termination rules
-        popsize=10, 
-        eval_initial_x=False,
-        BoundaryHandler=bound_penalty
-    )
-    # set up algorithm with the problem and termination rules
-    termination = get_termination('n_iter', 2)
-    algorithm.setup(problem, termination=termination, seed=1, verbose=True, save_history=True)
-    if algorithm.options.get('BoundaryHandler') is not None:
-        # the following is to avoid an error caused by pymoo interfering with cma
-        # after problem is registered with the algorithm
-        # the bounds will be enforced by bound_penalty
-        algorithm.options['bounds'] = None 
-    while algorithm.has_next():
-        # ask the algorithm for the next solution to be evaluated
-        pop = algorithm.ask()
-        # evaluate the individuals using the algorithm's evaluator (necessary to count evaluations for termination)
-        algorithm.evaluator.eval(problem, pop)
-        # returned the evaluated individuals which have been evaluated or even modified
-        algorithm.tell(infills=pop)
-        # do same more things, printing, logging, storing or even modifying the algorithm object
-        print(algorithm.n_gen, algorithm.evaluator.n_eval)
-
-    return problem, algorithm, termination
-
 def run_cmaes_optimizer():
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
         params = {
             'G': (1.0, 3.0),
@@ -240,7 +159,7 @@ def run_cmaes_optimizer():
         emp_fcd_tril = emp_fcd_tril,
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
     cmaes.setup_problem(problem, seed=1)
@@ -248,8 +167,8 @@ def run_cmaes_optimizer():
     return cmaes
 
 def run_bayes_optimizer():
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
         params = {
             'G': (1.0, 3.0),
@@ -260,7 +179,7 @@ def run_bayes_optimizer():
         emp_fcd_tril = emp_fcd_tril,
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',    
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
     )
     bo = optimize.BayesOptimizer(popsize=10, n_iter=7)
     bo.setup_problem(problem, seed=1)
@@ -268,8 +187,8 @@ def run_bayes_optimizer():
     return bo
 
 def run_cmaes_optimizer_het(force_cpu=False):
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
         params = {
             'G': (1.0, 3.0),
@@ -280,14 +199,11 @@ def run_cmaes_optimizer_het(force_cpu=False):
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wEI'],
-        # maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
-        maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_minmax.txt',
+        maps_path = datasets.load_maps('6maps', 'schaefer-100', norm='minmax', return_path=True),
         duration = 60,
         TR = 1,
-        # duration = 450,
-        # TR = 3,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt', 
-        sc_dist_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt', 
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True),
         force_cpu = force_cpu 
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
@@ -297,8 +213,8 @@ def run_cmaes_optimizer_het(force_cpu=False):
     return cmaes
 
 def run_cmaes_optimizer_het_nofic():
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
         params = {
             'G': (1.0, 3.0),
@@ -309,12 +225,11 @@ def run_cmaes_optimizer_het_nofic():
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wIE'],
-        maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
-        # maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_minmax.txt',
+        maps_path = datasets.load_maps('6maps', 'schaefer-100', norm='minmax', return_path=True),
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
-        do_fic=False
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        do_fic = False
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
@@ -324,9 +239,9 @@ def run_cmaes_optimizer_het_nofic():
 
 def run_cmaes_optimizer_regional(node_grouping='sym'):
     if node_grouping == 'yeo':
-        node_grouping = '/data/project/ei_development/tools/cuBNM/sample_input/yeo7_schaefer-100.txt'
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+        node_grouping = datasets.load_maps('yeo7', 'schaefer-100', norm=None, return_path=True)
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
         params = {
             'G': (1.0, 3.0),
@@ -339,7 +254,7 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
         node_grouping = node_grouping,
         duration = 60,
         TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt',  
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
@@ -347,29 +262,9 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
     cmaes.save()
     return cmaes
 
-def run_grid_many_nodes():
-    gs = optimize.GridSearch(
-        params = {
-            'G': (0.5, 2.5, 4),
-            'wEE': 0.15,
-            'wEI': 0.21
-        },
-        # duration = 450,
-        # TR = 3,
-        duration = 60,
-        TR = 1,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-400_approach-median_mean001_desc-strength.txt'
-    )
-    gs.sim_group.run()
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
-    scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
-    gs.sim_group.save()
-    return gs, scores
-
 def run_nsga2_optimizer_het(force_cpu=False):
-    emp_fc_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCtril.txt')
-    emp_fcd_tril = np.loadtxt('/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_hemi-LR_exc-inter_desc-FCDtril.txt')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
         params = {
             'G': (1.0, 3.0),
@@ -380,14 +275,11 @@ def run_nsga2_optimizer_het(force_cpu=False):
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wEI'],
-        # maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_zscore.txt',
-        maps_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_desc-6maps_minmax.txt',
+        maps_path = datasets.load_maps('6maps', 'schaefer-100', norm='minmax', return_path=True),
         duration = 60,
         TR = 1,
-        # duration = 450,
-        # TR = 3,
-        sc_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-strength.txt', 
-        sc_dist_path = '/data/project/ei_development/tools/cuBNM/sample_input/ctx_parc-schaefer-100_approach-median_mean001_desc-length.txt', 
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True),
         force_cpu = force_cpu,
         gof_terms = ['-fc_normec', '-fcd_ks'],
         multiobj = True
@@ -399,8 +291,8 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    run_sims(2)
-    # gs, scores = run_grid()
+    # run_sims(2)
+    gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()
