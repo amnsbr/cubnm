@@ -1,8 +1,8 @@
 import numpy as np
 import cuBNM
 from cuBNM.core import run_simulations
-from cuBNM import optimize, sim
-from cuBNM._flags import many_nodes_flag, gpu_enabled_flag
+from cuBNM import optimize, sim, utils
+from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
 
 import os
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
@@ -53,10 +53,11 @@ def run_sims(N_SIMS=1, v=0.5, force_cpu=False):
     else:
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(nodes*nodes, dtype=float) # doesn't matter what it is!
+    force_cpu = force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus()==0)
     # make sure all the input arrays are of type float/double
     out = run_simulations(
         SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
-        do_fic, extended_output, do_delay, force_reinit, ((not gpu_enabled_flag) | force_cpu),
+        do_fic, extended_output, do_delay, force_reinit, force_cpu,
         N_SIMS, nodes, time_steps, BOLD_TR,
         window_size, window_step, rand_seed
     )

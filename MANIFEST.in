@@ -1,2 +1,3 @@
 recursive-include src/cpp *
-recursive-include src/cuda *
+include src/cuda/bnm.cu
+recursive-include include *

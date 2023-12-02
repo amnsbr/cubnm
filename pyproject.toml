@@ -11,6 +11,7 @@ name = "cuBNM"
 version = "0.0.1"
 dependencies = [
     "numpy>=1.20",
+    "GPUtil==1.4",
     "scipy",
     "pandas",
     "pymoo==0.6",
