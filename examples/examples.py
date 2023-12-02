@@ -12,7 +12,7 @@ from pymoo.core.termination import Termination
 from pymoo.termination import get_termination
 import cma
 
-def run_sims(N_SIMS=1, v=0.5, force_cpu=False):
+def run_sims(N_SIMS=2, v=0.5, force_cpu=False):
     # os.environ['BNM_MAX_FIC_TRIALS_CMAES'] = '0'
     # run identical simulations and check if BOLD is the same
     nodes = 100
@@ -39,9 +39,10 @@ def run_sims(N_SIMS=1, v=0.5, force_cpu=False):
     # do_fic = False
 
     do_delay = False
+    # do_delay = True
     if do_delay:
-        v_list = np.linspace(0.5, 4.0, N_SIMS)
-        # v_list = np.repeat(v, N_SIMS)
+        # v_list = np.linspace(0.5, 4.0, N_SIMS)
+        v_list = np.repeat(v, N_SIMS)
         # v_list = np.repeat(-1.0, N_SIMS)
 
         # with delay it is recommended to do
@@ -291,8 +292,8 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    # run_sims(2)
-    gs, scores = run_grid()
+    run_sims()
+    # gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()
