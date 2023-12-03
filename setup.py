@@ -137,8 +137,7 @@ class build_ext_gsl_cuda(build_ext):
             gsl_setup_commands = [
                 f"wget https://mirror.ibcp.fr/pub/gnu/gsl/gsl-2.7.tar.gz -O {gsl_tar}",
                 f"cd {gsl_dir} && tar -xf {gsl_tar} &&"
-                # f"cd {gsl_src} && ./configure --prefix={gsl_build} --enable-shared &&" # uncomment for dynamic linking
-                f"cd {gsl_src} && ./configure --prefix={gsl_build} &&"
+                f"cd {gsl_src} && ./configure --prefix={gsl_build} --enable-shared &&"
                 f"make && make install",
                 # f"rm {gsl_tar}",
                 # f"rm -r {gsl_src}",
