@@ -3,7 +3,7 @@ import scipy.stats
 import pandas as pd
 import os
 
-from cuBNM.core import run_simulations
+from cuBNM._run_simulations import run_simulations
 from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
 from cuBNM import utils
 

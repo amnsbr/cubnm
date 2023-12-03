@@ -3,6 +3,7 @@ from setuptools.command.build_ext import build_ext
 from distutils.spawn import find_executable
 import subprocess
 import os
+import fnmatch
 import sys
 from pathlib import Path
 import numpy as np
@@ -13,6 +14,13 @@ PROJECT = os.path.abspath(os.path.dirname(__file__))
 # specify installation options
 many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
 
+
+def find_file(file_name, search_path):
+    result = []
+    for root, dirs, files in os.walk(search_path):
+        for name in fnmatch.filter(files, file_name):
+            result.append(os.path.join(root, name))
+    return result
 
 # detect if there are GPUs
 def has_gpus(method='nvcc'):
@@ -26,7 +34,6 @@ def has_gpus(method='nvcc'):
                 return True
         else:
             return False
-
 
 gpu_enabled = has_gpus()
 
@@ -50,7 +57,7 @@ os.environ["CXX"] = "g++"
 
 if gpu_enabled:
     print("GPU enabled")
-    libraries += ["bnm", "cudart"]
+    libraries += ["bnm", "cudart_static"]
     bnm_ext = Extension(
         "cuBNM.core",
         [os.path.join("src","cpp", "run_simulations.cpp")],
@@ -106,16 +113,10 @@ class build_ext_gsl_cuda(build_ext):
         found_gsl = False
         for lib_dir in lib_dirs:
             if ((lib_dir!='') & os.path.exists(lib_dir)):
-                found_lgsl = False
-                found_lgslcblas = False
-                for f in os.listdir(lib_dir):
-                    if os.path.basename(f) == 'libgsl.a': # change to .so for dynamic linking
-                        found_lgsl = True
-                    elif os.path.basename(f) == 'libgslcblas.a': # same
-                        found_lgslcblas = True
-                if found_lgsl & found_lgslcblas:
+                r = find_file('libgsl.a', lib_dir)
+                if r: # assuming libgsl.a and libgslcblas.a are in the same directory
                     found_gsl = True
-                    GSL_LIB_DIR = lib_dir
+                    GSL_LIB_DIR = os.path.dirname(r[0])
                     print(f"Found libgsl.a and libgslcblas.a in {GSL_LIB_DIR}")
                     break
         if not found_gsl:

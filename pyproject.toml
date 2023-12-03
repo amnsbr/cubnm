@@ -9,6 +9,7 @@ requires = [
 [project]
 name = "cuBNM"
 version = "0.0.1"
+license = {file = "LICENSE"}
 dependencies = [
     "numpy>=1.20",
     "GPUtil==1.4",

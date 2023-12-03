@@ -2,7 +2,7 @@
 Tests for the core run_simulations function
 """
 import pytest
-from cuBNM.core import run_simulations
+from cuBNM._run_simulations import run_simulations
 from cuBNM import datasets
 from cuBNM.utils import avail_gpus
 import numpy as np
