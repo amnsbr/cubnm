@@ -18,7 +18,7 @@ dependencies = [
     "pymoo==0.6",
     "scikit-optimize==0.9",
 ]
-requires-python = ">=3"
+requires-python = ">=3.7"
 description = "A toolbox for biophysical network modeling on GPUs "
 readme = "README.md"
 authors = [
@@ -41,3 +41,11 @@ classifiers = [
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.cibuildwheel]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+manylinux-ppc64le-image = "manylinux_2_28"
+before-all = "bash {project}/tools/cibw_before_all.sh"
+build-verbosity = 3
+skip = ["pp*", "*-manylinux_i686", "*musllinux*"]

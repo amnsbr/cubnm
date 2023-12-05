@@ -76,10 +76,12 @@ if gpu_enabled:
             "/usr/include/cuda",
             os.path.join(PROJECT, "src", "cpp"),
             np.get_include(),
+            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
         ],
         library_dirs=[
             "/usr/lib/cuda", 
             os.path.join(PROJECT, "src", "cuda"),
+            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
         ],
     )
 else:
@@ -97,8 +99,11 @@ else:
         include_dirs=[
             os.path.join(PROJECT,"include"),
             np.get_include(),
+            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
         ],
-        library_dirs=[],
+        library_dirs=[
+            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
+        ],
     )
 
 # extend build_ext to also build GSL (if needed) and compile GPU code
@@ -106,10 +111,16 @@ class build_ext_gsl_cuda(build_ext):
     def build_extensions(self):
         # Build GSL (if needed)
         # search for libgsl.a and libgslcblas.a in some common paths
-        lib_dirs = ["/usr/lib", "/lib", "/usr/local/lib"] + \
-            os.environ.get("LIBRARY_PATH","").split(":") + \
-            os.environ.get("LD_LIBRARY_PATH","").split(":") + \
-            [os.path.join(os.path.expanduser('~'), '.cuBNM', 'gsl', 'build', 'lib')]
+        lib_dirs = [
+            "/usr/lib", 
+            "/lib", 
+            "/usr/local/lib",
+            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib'), # cibuildwheel
+            # TODO: identify and search current conda env
+            os.path.join(os.environ.get('HOME', '/root'), '.cuBNM', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
+        ] \
+            + os.environ.get("LIBRARY_PATH","").split(":") \
+            + os.environ.get("LD_LIBRARY_PATH","").split(":")
         found_gsl = False
         for lib_dir in lib_dirs:
             if ((lib_dir!='') & os.path.exists(lib_dir)):
