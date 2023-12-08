@@ -43,7 +43,7 @@ def test_single_sim(opts, expected):
     Note that the values used here are not ground truth (as
     there is no ground truth), and this is simply a test
     of consistency of calculations throughout different versions
-    of the code and platforms
+    of the code and platforms.
 
     Parameters
     -------
@@ -52,6 +52,11 @@ def test_single_sim(opts, expected):
     expected: (dict)
         with keys 'bold' (expected bold[500]), 'fc' (expected fc[30]), 'fcd' (expected fcd[30])
     """
+    # These tests are going to fail if code is compiled with alternative
+    # toolchains, and therefore are only expected to work with binary
+    # wheels or source-compiled library on GCC 12. This is likely due
+    # to differences in the random arrays (TODO: test it)
+    # TODO: skip tests if binaries are built otherwise
     opts = {i.split(':')[0]:int(i.split(':')[1]) for i in opts.split(',')}
     N_SIMS = 1
     G_list = np.repeat(0.5, N_SIMS)

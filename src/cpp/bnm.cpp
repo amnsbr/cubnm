@@ -595,25 +595,13 @@ void init_cpu(
             #endif
         }
         #ifdef NOISE_SEGMENT
-        // create shuffled nodes indices for each repeat of the 
-        // precalculaed noise (row shuffling)
+        // create shuffled nodes and ts indices for each repeat of the 
+        // precalculaed noise 
         printf("noise will be repeated %d times (nodes [rows] and timepoints [columns] will be shuffled in each repeat)\n", noise_repeats);
-        std::vector<int> node_indices(nodes);
-        std::iota(node_indices.begin(), node_indices.end(), 0);
         shuffled_nodes = (int *)malloc(sizeof(int) * noise_repeats * nodes);
-        for (int i = 0; i < noise_repeats; i++) {
-            std::shuffle(node_indices.begin(), node_indices.end(), rand_gen);
-            std::copy(node_indices.begin(), node_indices.end(), shuffled_nodes+(i*nodes));
-        }
-        // similarly create shuffled time point indices (msec)
-        // for each repeat (column shuffling)
-        std::vector<int> ts_indices(noise_time_steps);
-        std::iota(ts_indices.begin(), ts_indices.end(), 0);
         shuffled_ts = (int *)malloc(sizeof(int) * noise_repeats * noise_time_steps);
-        for (int i = 0; i < noise_repeats; i++) {
-            std::shuffle(ts_indices.begin(), ts_indices.end(), rand_gen);
-            std::copy(ts_indices.begin(), ts_indices.end(), shuffled_ts+(i*noise_time_steps));
-        }
+        get_shuffled_nodes_ts(&shuffled_nodes, &shuffled_ts,
+            nodes, noise_time_steps, noise_repeats, &rand_gen);
         #endif
     } else {
         printf("Noise already precalculated\n");

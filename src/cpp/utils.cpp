@@ -69,4 +69,28 @@ int get_dfc_windows(
     return n_windows;
 }
 
+void get_shuffled_nodes_ts(
+        int **shuffled_nodes_p, int **shuffled_ts_p,
+        int nodes, int noise_time_steps, int noise_repeats,
+        std::mt19937 *rand_gen_p
+    ) {
+    // create shuffled nodes indices for each repeat of the 
+    // precalculaed noise  (row shuffling)
+    std::vector<int> node_indices(nodes);
+    std::iota(node_indices.begin(), node_indices.end(), 0);
+    for (int i = 0; i < noise_repeats; i++) {
+        std::shuffle(node_indices.begin(), node_indices.end(), *rand_gen_p);
+        std::copy(node_indices.begin(), node_indices.end(), *shuffled_nodes_p+(i*nodes));
+    }
+    // similarly create shuffled time point indices (msec)
+    // for each repeat (column shuffling)
+    std::vector<int> ts_indices(noise_time_steps);
+    std::iota(ts_indices.begin(), ts_indices.end(), 0);
+    for (int i = 0; i < noise_repeats; i++) {
+        std::shuffle(ts_indices.begin(), ts_indices.end(), *rand_gen_p);
+        std::copy(ts_indices.begin(), ts_indices.end(), *shuffled_ts_p+(i*noise_time_steps));
+    }
+}
+
+
 #endif
