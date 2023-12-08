@@ -30,7 +30,6 @@ Author: Amin Saberi, Feb 2023
 #include <cooperative_groups.h>
 #include <random>
 #include <algorithm>
-#include <vector>
 #include <gsl/gsl_matrix_double.h>
 #include <gsl/gsl_vector_double.h>
 #include <gsl/gsl_blas.h>
@@ -38,6 +37,7 @@ Author: Amin Saberi, Feb 2023
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_roots.h>
 #include "constants.hpp"
+#include "utils.hpp"
 
 #ifdef MANY_NODES
     #warning Compiling with -D MANY_NODES (S_E at t-1 is stored in device instead of shared memory)
@@ -1174,31 +1174,12 @@ void init_gpu(
 
     // FCD preparation
     // calculate number of windows and window start/end indices
-    std::vector<int> _window_starts, _window_ends;
-    int first_center, last_center, window_center, window_start, window_end;
-    if (conf.drop_edges) {
-        first_center = window_size / 2;
-        last_center = corr_len - 1 - (window_size / 2);
-    } else {
-        first_center = 0;
-        last_center = corr_len - 1;
-    }
-    first_center += n_vols_remove;
-    last_center += n_vols_remove;
-    n_windows = 0;
-    window_center = first_center;
-    while (window_center <= last_center) {
-        window_start = window_center - (window_size/2);
-        if (window_start < 0)
-            window_start = 0;
-        window_end = window_center + (window_size/2);
-        if (window_end >= output_ts)
-            window_end = output_ts-1;
-        _window_starts.push_back(window_start);
-        _window_ends.push_back(window_end);
-        window_center += window_step;
-        n_windows ++;
-    }
+    int *_window_starts, *_window_ends; // are cpu integer arrays
+    int _n_windows = get_dfc_windows(
+        &_window_starts, &_window_ends, 
+        corr_len, output_ts, n_vols_remove,
+        window_step, window_size);
+    n_windows = _n_windows;
     if (n_windows == 0) {
         printf("Error: Number of windows is 0\n");
         exit(1);
@@ -1307,25 +1288,13 @@ void init_gpu(
             #endif
         }
         #ifdef NOISE_SEGMENT
-        // create shuffled nodes indices for each repeat of the 
-        // precalculaed noise (row shuffling)
+        // create shuffled nodes and ts indices for each repeat of the 
+        // precalculaed noise 
         printf("noise will be repeated %d times (nodes [rows] and timepoints [columns] will be shuffled in each repeat)\n", noise_repeats);
-        std::vector<int> node_indices(nodes);
-        std::iota(node_indices.begin(), node_indices.end(), 0);
         CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_nodes, sizeof(int) * noise_repeats * nodes));
-        for (int i = 0; i < noise_repeats; i++) {
-            std::shuffle(node_indices.begin(), node_indices.end(), rand_gen);
-            std::copy(node_indices.begin(), node_indices.end(), shuffled_nodes+(i*nodes));
-        }
-        // similarly create shuffled time point indices (msec)
-        // for each repeat (column shuffling)
-        std::vector<int> ts_indices(noise_time_steps);
-        std::iota(ts_indices.begin(), ts_indices.end(), 0);
         CUDA_CHECK_RETURN(cudaMallocManaged(&shuffled_ts, sizeof(int) * noise_repeats * noise_time_steps));
-        for (int i = 0; i < noise_repeats; i++) {
-            std::shuffle(ts_indices.begin(), ts_indices.end(), rand_gen);
-            std::copy(ts_indices.begin(), ts_indices.end(), shuffled_ts+(i*noise_time_steps));
-        }
+        get_shuffled_nodes_ts(&shuffled_nodes, &shuffled_ts,
+            nodes, noise_time_steps, noise_repeats, &rand_gen);
         #endif
     } else {
         printf("Noise already precalculated\n");
