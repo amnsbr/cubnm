@@ -31,7 +31,6 @@ Author: Amin Saberi, Feb 2023
 #include <cooperative_groups.h>
 #include <random>
 #include <algorithm>
-#include <cassert>
 #include <vector>
 #include <gsl/gsl_matrix_double.h>
 #include <gsl/gsl_vector_double.h>
@@ -40,6 +39,7 @@ Author: Amin Saberi, Feb 2023
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_roots.h>
 #include "constants.hpp"
+#include "utils.hpp"
 
 #ifdef MANY_NODES
     #warning Compiling with -D MANY_NODES (S_E at t-1 is stored in device instead of shared memory)
@@ -1176,31 +1176,12 @@ void init_gpu(
 
     // FCD preparation
     // calculate number of windows and window start/end indices
-    std::vector<int> _window_starts, _window_ends;
-    int first_center, last_center, window_center, window_start, window_end;
-    if (conf.drop_edges) {
-        first_center = window_size / 2;
-        last_center = corr_len - 1 - (window_size / 2);
-    } else {
-        first_center = 0;
-        last_center = corr_len - 1;
-    }
-    first_center += n_vols_remove;
-    last_center += n_vols_remove;
-    n_windows = 0;
-    window_center = first_center;
-    while (window_center <= last_center) {
-        window_start = window_center - (window_size/2);
-        if (window_start < 0)
-            window_start = 0;
-        window_end = window_center + (window_size/2);
-        if (window_end >= output_ts)
-            window_end = output_ts-1;
-        _window_starts.push_back(window_start);
-        _window_ends.push_back(window_end);
-        window_center += window_step;
-        n_windows ++;
-    }
+    int *_window_starts, *_window_ends; // are cpu integer arrays
+    int _n_windows = get_dfc_windows(
+        &_window_starts, &_window_ends, 
+        corr_len, output_ts, n_vols_remove,
+        window_step, window_size);
+    n_windows = _n_windows;
     if (n_windows == 0) {
         printf("Error: Number of windows is 0\n");
         exit(1);

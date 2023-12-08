@@ -36,6 +36,7 @@
 #include <memory>
 #include "constants.cpp"
 #include "fic.cpp"
+#include "utils.cpp"
 #include "bnm.cpp"
 
 #ifdef GPU_ENABLED
