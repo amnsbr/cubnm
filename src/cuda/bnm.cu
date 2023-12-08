@@ -27,11 +27,9 @@ Author: Amin Saberi, Feb 2023
 #include <string>
 #include <cstdlib>
 #include <cuda_runtime.h>
-#include <curand_kernel.h>
 #include <cooperative_groups.h>
 #include <random>
 #include <algorithm>
-#include <cassert>
 #include <vector>
 #include <gsl/gsl_matrix_double.h>
 #include <gsl/gsl_vector_double.h>

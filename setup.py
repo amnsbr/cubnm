@@ -36,48 +36,67 @@ def has_gpus(method='nvcc'):
             return False
 
 gpu_enabled = has_gpus()
+omp_enabled = not (('CIBUILDWHEEL' in os.environ) or ('CUBNM_NO_OMP' in os.environ))
 
 # Write the flags to a temporary _flags.py file
 with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_flags.py"), "w") as flag_file:
     flag_file.write(
         "\n".join(
             [f"many_nodes_flag = {many_nodes}", 
-             f"gpu_enabled_flag = {gpu_enabled}"]
+             f"gpu_enabled_flag = {gpu_enabled}",
+             f"omp_enabled_flag = {omp_enabled}", # not currently used
+            ]
         )
     )
 
-# C++ code compilation
-# libraries = ["m", "gsl", "gslcblas", "gomp"] # uncomment for dynamic linking of gsl
-libraries = ["m", "gomp"]
+# determine libraries shared between GPU and CPU versions
+libraries = ["m"]
+if omp_enabled:
+    libraries.append("gomp")
 
 _CC = os.environ.get("CC", "gcc") # this will be used for compiling GSL + restoring os $CC and $CXX at the end
 _CXX = os.environ.get("CXX", "g++")
 os.environ["CC"] = "g++"
 os.environ["CXX"] = "g++"
 
+# create lists of include directories
+shared_includes = [
+    os.path.join(PROJECT,"include"),
+    os.path.join(PROJECT, "src", "cpp"),
+    np.get_include(),
+    os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
+]
+gpu_includes = [
+    # with cibuildwheel these do not exist
+    # and cuda includes are in ~/miniconda/include
+    "/usr/lib/cuda/include",
+    "/usr/include/cuda",
+]
+all_includes = shared_includes + gpu_includes
+
+# extra compile args shared between CPU and GPU
+extra_compile_args = [
+    "-std=c++11",
+    "-O3",
+    "-m64",
+    "-D NOISE_SEGMENT",
+]
+if omp_enabled:
+    extra_compile_args += [
+        "-fopenmp",
+        "-D OMP_ENABLED"
+    ]
+
 if gpu_enabled:
-    print("GPU enabled")
+    print("Compiling for GPU+CPU")
     libraries += ["bnm", "cudart_static"]
     bnm_ext = Extension(
         "cuBNM.core",
         [os.path.join("src","cpp", "run_simulations.cpp")],
         language="c++",
-        extra_compile_args=[  # note that these are not the flags to compile bnm.cu
-            "-O3",
-            "-m64",
-            "-fopenmp",
-            "-D NOISE_SEGMENT",
-            "-D GPU_ENABLED",
-        ],
+        extra_compile_args=extra_compile_args+["-D GPU_ENABLED"],
         libraries=libraries,
-        include_dirs=[
-            os.path.join(PROJECT, "include"),
-            "/usr/lib/cuda/include",
-            "/usr/include/cuda",
-            os.path.join(PROJECT, "src", "cpp"),
-            np.get_include(),
-            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
-        ],
+        include_dirs=all_includes,
         library_dirs=[
             "/usr/lib/cuda", 
             os.path.join(PROJECT, "src", "cuda"),
@@ -85,22 +104,14 @@ if gpu_enabled:
         ],
     )
 else:
+    print("Compiling for CPU")
     bnm_ext = Extension(
         "cuBNM.core",
         [os.path.join("src","cpp", "run_simulations.cpp")],
         language="c++",
-        extra_compile_args=[
-            "-O3",
-            "-m64",
-            "-fopenmp",
-            "-D NOISE_SEGMENT",
-        ],
+        extra_compile_args=extra_compile_args,
         libraries=libraries,
-        include_dirs=[
-            os.path.join(PROJECT,"include"),
-            np.get_include(),
-            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
-        ],
+        include_dirs=shared_includes,
         library_dirs=[
             os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
         ],
@@ -151,8 +162,6 @@ class build_ext_gsl_cuda(build_ext):
                 f"cd {gsl_dir} && tar -xf {gsl_tar} &&"
                 f"cd {gsl_src} && ./configure --prefix={gsl_build} --enable-shared &&"
                 f"make && make install",
-                # f"rm {gsl_tar}",
-                # f"rm -r {gsl_src}",
             ]
             for command in gsl_setup_commands:
                 result = subprocess.run(command, shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)
@@ -168,12 +177,12 @@ class build_ext_gsl_cuda(build_ext):
                 add_flags = "-D NOISE_SEGMENT MANY_NODES"
             else:
                 add_flags = "-D NOISE_SEGMENT"
-
+            include_flags = " ".join([f"-I {p}" for p in all_includes])
             compile_commands = [
-                f"nvcc -c -rdc=true --compiler-options '-fPIC' -o {cuda_dir}/bnm_tmp.o {cuda_dir}/bnm.cu "
-                    f"-I {PROJECT}/src/cpp -I {PROJECT}/include {add_flags}",
+                f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/bnm_tmp.o {cuda_dir}/bnm.cu "
+                    f"{include_flags} {add_flags}",
                 f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o "
-                    f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart",
+                    f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
                 f"rm -f {cuda_dir}/libbnm.a",  # remove the previously created .a
                 f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o",
                 f"ranlib {cuda_dir}/libbnm.a",
@@ -185,7 +194,6 @@ class build_ext_gsl_cuda(build_ext):
                 print(f"Return Code: {result.returncode}")
                 if result.stderr:
                     print(f"Standard Error:\n{result.stderr}")
-
         # Continue with Python extension build
         # add libgsl.a and libgslcblas.a to the compiler objects for
         # their explicit linking

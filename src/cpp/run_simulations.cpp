@@ -1,9 +1,12 @@
 
 #define PY_SSIZE_T_CLEAN
+#define UMALLOC(var, type, size) var = (type *)malloc(sizeof(type) * size)
+#ifdef OMP_ENABLED
+    #include <omp.h>
+#endif
 #include <stdio.h>
 #include <Python.h>
 #include <numpy/arrayobject.h>
-#define UMALLOC(var, type, size) var = (type *)malloc(sizeof(type) * size)
 #include <vector>
 #include <map>
 #include <gsl/gsl_vector.h>
@@ -27,7 +30,6 @@
 #include <string>
 #include <cstdlib>
 #include <random>
-#include <omp.h>
 #include <ios>
 #include <fstream>
 #include <iomanip>

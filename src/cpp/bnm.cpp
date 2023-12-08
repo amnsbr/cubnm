@@ -252,7 +252,9 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
             #define _dw_EI _w_EI
         #endif
         *fic_unstable_p = false;
+        #ifdef OMP_ENABLED
         #pragma omp critical
+        #endif
         analytical_fic_het(
             SC_gsl, G, _dw_EE, _dw_EI,
             _w_IE_vector, fic_unstable_p);
@@ -564,8 +566,10 @@ void run_simulations_cpu(
 ) {
     using namespace bnm_cpu;
     // run the simulations
+    #ifdef OMP_ENABLED
     #pragma omp parallel
 	#pragma omp for
+    #endif
     for(int sim_idx = 0; sim_idx < N_SIMS; sim_idx++) {
         // write thread info with the time
         std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
@@ -573,7 +577,11 @@ void run_simulations_cpu(
         std::tm* timeinfo = std::localtime(&current_time);
         char time_str[9];
         std::strftime(time_str, sizeof(time_str), "%T", timeinfo);
-        printf("Thread %d (of %d) is executing particle %d [%s]\n", omp_get_thread_num(), omp_get_num_threads(), sim_idx, time_str);
+        #ifdef OMP_ENABLED
+            printf("Thread %d (of %d) is executing particle %d [%s]\n", omp_get_thread_num(), omp_get_num_threads(), sim_idx, time_str);
+        #else
+            printf("Executing particle %d [%s]\n", sim_idx, time_str);
+        #endif
         // run the simulation and calcualte FC and FC
         // write the output to chunks of output variables
         // dedicated to the current simulation

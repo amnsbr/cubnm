@@ -42,9 +42,18 @@ classifiers = [
 include-package-data = true
 
 [tool.cibuildwheel]
+before-all = "bash {project}/tools/cibw_before_all.sh {project}"
+# update path to the location of gcc-10 and nvcc
+# it is important to add gcc-10 to the beginning to override gcc-12
+# and important to put miniconda at the end (not to override cibw's Python)
+# reason for downgrade is to solve this offending symbol (with manylinux_2_28):
+# libstdc++.so.6  offending symbols: _ZSt28__throw_bad_array_new_lengthv@GLIBCXX_3.4.29
+# environment = { PATH="/opt/rh/gcc-toolset-10/root/usr/bin:$PATH:/root/miniconda/bin" }
+# Update: will not use gcc-10
+environment = { PATH="$PATH:/root/miniconda/bin" }
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 manylinux-ppc64le-image = "manylinux_2_28"
-before-all = "bash {project}/tools/cibw_before_all.sh"
-build-verbosity = 3
+build-verbosity = 3 # temporary
 skip = ["pp*", "*-manylinux_i686", "*musllinux*"]
+build = ["*-manylinux_x86_64"]
