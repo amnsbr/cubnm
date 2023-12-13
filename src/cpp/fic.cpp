@@ -127,149 +127,41 @@ double _inh_curr_fixed_pts(double x, void * params) {
 // CMAES or grid search
 // They are only allocated in the first call by checking if they are NULL
 gsl_matrix *_K_EE, *_K_EI, *_w_EE_matrix, *sc;
-int nc, curr_node_FIC;
 gsl_vector *_w_II, *_w_IE, *_w_EI, *_w_EE, *_I0, *_I_ext,
             *_I0_E, *_I0_I, *_I_E_ss, *_I_I_ss, *_S_E_ss, *_S_I_ss,
             *_r_I_ss, *_K_EE_row, *w_IE_out;
 
 
-void analytical_fic(
-        gsl_matrix * sc, double G, double w_EE, double w_EI, double w_IE, 
-        gsl_vector * het_map, double exc_scale, double inh_scale,
-        gsl_vector * w_IE_out, bool * _unstable) {
-    nc = sc->size1;
-
-    // specify regional parameters
-    repeat(&_w_II, mc.w_II, nc);
-    repeat(&_w_IE, w_IE, nc);
-    repeat(&_w_EI, w_EI, nc);
-    repeat(&_w_EE, w_EE, nc);
-
-    // apply heterogeneity if indicated
-    double _curr_region_scale;
-    if (exc_scale != 0.0) {
-        for (int i=0; i < nc; i++) {
-            _curr_region_scale = (1 + (gsl_vector_get(het_map, i) * exc_scale));
-            if (_curr_region_scale <= 0) {
-                printf("Heterogeneity scale lead to negative/zero in some regions\n");
-                *_unstable = true;
-                return;
-            }
-            gsl_vector_set(_w_EE, i, w_EE * _curr_region_scale);
-        }
-    }
-    if (inh_scale != 0.0) {
-        for (int i=0; i < nc; i++) {
-            _curr_region_scale = (1 + (gsl_vector_get(het_map, i) * inh_scale));
-            if (_curr_region_scale <= 0) {
-                printf("Heterogeneity scale lead to negative/zero in some regions\n");
-                *_unstable = true;
-                return;
-            }
-            gsl_vector_set(_w_EI, i, w_EI * _curr_region_scale);
-        }
-    }
-
-    repeat(&_I0, mc.I_0, nc);
-    repeat(&_I_ext, mc.I_ext, nc);
-
-    // Baseline input currents
-    vector_scale(&_I0_E, _I0, mc.w_E);
-    vector_scale(&_I0_I, _I0, mc.w_I);
-
-    // Steady state values for isolated node
-    repeat(&_I_E_ss, mc.I_E_ss, nc);
-    repeat(&_I_I_ss, mc.I_I_ss, nc);
-    repeat(&_S_E_ss, mc.S_E_ss, nc);
-    repeat(&_S_I_ss, mc.S_I_ss, nc);
-    // repeat(&_r_E_ss, r_E_ss, nc);
-    repeat(&_r_I_ss, mc.r_I_ss, nc);
-    
-    // set K_EE and K_EI
-    if (_K_EE==NULL) {
-        _K_EE = gsl_matrix_alloc(nc, nc);
-    }
-    gsl_matrix_memcpy(_K_EE, sc);
-    gsl_matrix_scale(_K_EE, G * mc.J_NMDA);
-    make_diag(&_w_EE_matrix, _w_EE);
-    gsl_matrix_add(_K_EE, _w_EE_matrix);
-    // gsl_matrix_free(_w_EE_matrix);
-    make_diag(&_K_EI, _w_EI);
-
-
-    // analytic FIC
-    gsl_function F;
-    double curr_I_I, curr_r_I, _K_EE_dot_S_E_ss, J;
-    if (_K_EE_row==NULL) {
-        _K_EE_row = gsl_vector_alloc(nc);
-    }
-    for (int curr_node_FIC=0; curr_node_FIC<nc; curr_node_FIC++) {
-        struct inh_curr_params params = {
-            _I0_I->data[curr_node_FIC], _w_EI->data[curr_node_FIC],
-            _S_E_ss->data[curr_node_FIC], _w_II->data[curr_node_FIC],
-            mc.gamma_I_s, mc.tau_I_s
-        };
-        F.function = &_inh_curr_fixed_pts;
-        F.params = &params;
-        curr_I_I = gsl_fsolve(F, 0.0, 2.0);
-        if (curr_I_I == -1) {
-            *_unstable = true;
-            return;
-        }
-        // gsl_vector_set(_I_I, curr_node_FIC, curr_I_I);
-        gsl_vector_set(_I_I_ss, curr_node_FIC, curr_I_I);
-        curr_r_I = phi_I(curr_I_I);
-        // gsl_vector_set(_r_I, curr_node_FIC, curr_r_I);
-        gsl_vector_set(_r_I_ss, curr_node_FIC, curr_r_I);
-        gsl_vector_set(_S_I_ss, curr_node_FIC, 
-                        curr_r_I * mc.tau_I_s * mc.gamma_I_s);
-        gsl_matrix_get_row(_K_EE_row, _K_EE, curr_node_FIC);
-        gsl_blas_ddot(_K_EE_row, _S_E_ss, &_K_EE_dot_S_E_ss);
-        J = (-1 / _S_I_ss->data[curr_node_FIC]) *
-                    (_I_E_ss->data[curr_node_FIC] - 
-                    _I_ext->data[curr_node_FIC] - 
-                    _I0_E->data[curr_node_FIC] -
-                    _K_EE_dot_S_E_ss);
-        if (J < 0) {
-            *_unstable = true;
-            return;
-        }
-        gsl_vector_set(_w_IE, curr_node_FIC, J);
-    }    
-
-    gsl_vector_memcpy(w_IE_out, _w_IE);
-}
-
 void analytical_fic_het(
         gsl_matrix * sc, double G, double * w_EE, double * w_EI,
         gsl_vector * w_IE_out, bool * _unstable) {
     // TODO: integrate anyltical_fic and analytical_fic_het into one function
-    nc = sc->size1;
+    int nodes = sc->size1;
 
     // specify regional parameters
-    repeat(&_w_II, mc.w_II, nc);
-    repeat(&_w_IE, 0, nc);
-    copy_array_to_vector(&_w_EI, w_EI, nc);
-    copy_array_to_vector(&_w_EE, w_EE, nc);
+    repeat(&_w_II, mc.w_II, nodes);
+    repeat(&_w_IE, 0, nodes);
+    copy_array_to_vector(&_w_EI, w_EI, nodes);
+    copy_array_to_vector(&_w_EE, w_EE, nodes);
 
-    repeat(&_I0, mc.I_0, nc);
-    repeat(&_I_ext, mc.I_ext, nc);
+    repeat(&_I0, mc.I_0, nodes);
+    repeat(&_I_ext, mc.I_ext, nodes);
 
     // Baseline input currents
     vector_scale(&_I0_E, _I0, mc.w_E);
     vector_scale(&_I0_I, _I0, mc.w_I);
 
     // Steady state values for isolated node
-    repeat(&_I_E_ss, mc.I_E_ss, nc);
-    repeat(&_I_I_ss, mc.I_I_ss, nc);
-    repeat(&_S_E_ss, mc.S_E_ss, nc);
-    repeat(&_S_I_ss, mc.S_I_ss, nc);
-    // repeat(&_r_E_ss, r_E_ss, nc);
-    repeat(&_r_I_ss, mc.r_I_ss, nc);
+    repeat(&_I_E_ss, mc.I_E_ss, nodes);
+    repeat(&_I_I_ss, mc.I_I_ss, nodes);
+    repeat(&_S_E_ss, mc.S_E_ss, nodes);
+    repeat(&_S_I_ss, mc.S_I_ss, nodes);
+    // repeat(&_r_E_ss, r_E_ss, nodes);
+    repeat(&_r_I_ss, mc.r_I_ss, nodes);
     
     // set K_EE and K_EI
     if (_K_EE==NULL) {
-        _K_EE = gsl_matrix_alloc(nc, nc);
+        _K_EE = gsl_matrix_alloc(nodes, nodes);
     }
     gsl_matrix_memcpy(_K_EE, sc);
     gsl_matrix_scale(_K_EE, G * mc.J_NMDA);
@@ -281,14 +173,14 @@ void analytical_fic_het(
 
     // analytic FIC
     gsl_function F;
-    double curr_I_I, curr_r_I, _K_EE_dot_S_E_ss, J;
+    double curr_I_I, curr_r_I, _K_EE_dot_S_E_ss, w_IE;
     if (_K_EE_row==NULL) {
-        _K_EE_row = gsl_vector_alloc(nc);
+        _K_EE_row = gsl_vector_alloc(nodes);
     }
-    for (int curr_node_FIC=0; curr_node_FIC<nc; curr_node_FIC++) {
+    for (int j=0; j<nodes; j++) {
         struct inh_curr_params params = {
-            _I0_I->data[curr_node_FIC], _w_EI->data[curr_node_FIC],
-            _S_E_ss->data[curr_node_FIC], _w_II->data[curr_node_FIC],
+            _I0_I->data[j], _w_EI->data[j],
+            _S_E_ss->data[j], _w_II->data[j],
             mc.gamma_I_s, mc.tau_I_s
         };
         F.function = &_inh_curr_fixed_pts;
@@ -298,62 +190,28 @@ void analytical_fic_het(
             *_unstable = true;
             return;
         }
-        // gsl_vector_set(_I_I, curr_node_FIC, curr_I_I);
-        gsl_vector_set(_I_I_ss, curr_node_FIC, curr_I_I);
+        // gsl_vector_set(_I_I, j, curr_I_I);
+        gsl_vector_set(_I_I_ss, j, curr_I_I);
         curr_r_I = phi_I(curr_I_I);
-        // gsl_vector_set(_r_I, curr_node_FIC, curr_r_I);
-        gsl_vector_set(_r_I_ss, curr_node_FIC, curr_r_I);
-        gsl_vector_set(_S_I_ss, curr_node_FIC, 
+        // gsl_vector_set(_r_I, j, curr_r_I);
+        gsl_vector_set(_r_I_ss, j, curr_r_I);
+        gsl_vector_set(_S_I_ss, j, 
                         curr_r_I * mc.tau_I_s * mc.gamma_I_s);
-        gsl_matrix_get_row(_K_EE_row, _K_EE, curr_node_FIC);
+        gsl_matrix_get_row(_K_EE_row, _K_EE, j);
         gsl_blas_ddot(_K_EE_row, _S_E_ss, &_K_EE_dot_S_E_ss);
-        J = (-1 / _S_I_ss->data[curr_node_FIC]) *
-                    (_I_E_ss->data[curr_node_FIC] - 
-                    _I_ext->data[curr_node_FIC] - 
-                    _I0_E->data[curr_node_FIC] -
+        w_IE = (-1 / _S_I_ss->data[j]) *
+                    (_I_E_ss->data[j] - 
+                    _I_ext->data[j] - 
+                    _I0_E->data[j] -
                     _K_EE_dot_S_E_ss);
-        if (J < 0) {
+        if (w_IE < 0) {
             *_unstable = true;
             return;
         }
-        gsl_vector_set(_w_IE, curr_node_FIC, J);
+        gsl_vector_set(_w_IE, j, w_IE);
     }    
 
     gsl_vector_memcpy(w_IE_out, _w_IE);
 }
 
-gsl_vector * run_fic(gsl_matrix * sc, int n_regions, double G, double wee, 
-        double wei, gsl_vector * het_map, double exc_scale, double inh_scale) {
-    // only does FIC
-    if (w_IE_out == NULL) {
-        w_IE_out = gsl_vector_alloc(n_regions);
-    }
-    bool _unstable = false;
-    analytical_fic(
-        sc, G, wee, wei, 0, het_map, exc_scale, 
-        inh_scale, w_IE_out, &_unstable);
-    return w_IE_out;
-}
-
-void run_fic(float * J_i, std::string sc_path, int n_regions, double G, double wee, 
-        double wei, gsl_vector * het_map, double exc_scale, double inh_scale) {
-    // this is called by tvb.cpp
-    // read sc
-    if (sc == NULL) {
-        sc = gsl_matrix_alloc(n_regions, n_regions);
-    }
-    FILE * sc_file = fopen(sc_path.c_str(), "r");
-    if (sc_file==NULL) {
-        printf( "\nERROR: Could not open SC matrix. Terminating... \n\n");
-        exit(1);
-    }
-    gsl_matrix_fscanf(sc_file, sc);
-    fclose(sc_file);  
-    // do FIC
-    gsl_vector * w_IE = run_fic(sc, n_regions, G, wee, wei, het_map, exc_scale, inh_scale);
-    // save in the float array
-    for (int i=0; i<n_regions; i++) {
-        J_i[i] = (float)gsl_vector_get(w_IE, i);
-    }
-}
 #endif
