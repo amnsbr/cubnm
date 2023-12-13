@@ -67,8 +67,8 @@ shared_includes = [
     os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
 ]
 gpu_includes = [
-    # with cibuildwheel these do not exist
-    # and cuda includes are in ~/miniconda/include
+    # should not be included with nvcc as it will cause errors
+    # also probably not needed with g++
     "/usr/lib/cuda/include",
     "/usr/include/cuda",
 ]
@@ -177,7 +177,7 @@ class build_ext_gsl_cuda(build_ext):
                 add_flags = "-D NOISE_SEGMENT MANY_NODES"
             else:
                 add_flags = "-D NOISE_SEGMENT"
-            include_flags = " ".join([f"-I {p}" for p in all_includes])
+            include_flags = " ".join([f"-I {p}" for p in shared_includes])
             compile_commands = [
                 f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/bnm_tmp.o {cuda_dir}/bnm.cu "
                     f"{include_flags} {add_flags}",
