@@ -1,4 +1,3 @@
-
 #define PY_SSIZE_T_CLEAN
 #define UMALLOC(var, type, size) var = (type *)malloc(sizeof(type) * size)
 #ifdef OMP_ENABLED
@@ -257,8 +256,76 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
 
 
 static PyMethodDef methods[] = {
-    //TODO: add proper function docs
-    {"run_simulations", run_simulations_interface, METH_VARARGS, "runs simulations"},
+    {"run_simulations", run_simulations_interface, METH_VARARGS, 
+    "run_simulations(SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, \n"
+    "v_list, do_fic, extended_output, do_delay, force_reinit, use_cpu, \n"
+    "N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
+    "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
+    "Parameters:\n"
+    "-----------\n"
+    "SC (np.ndarray) (nodes*nodes,)\n\tflattened strucutral connectivity matrix\n"
+    "SC_dist (np.ndarray) (nodes*nodes,)\n"
+        "\tflattened edge length matrix\n"
+        "\twill be ignored if do_delay is False\n"
+    "G_list (np.ndarray) (N_SIMS,)\n"
+        "\tarray of global coupling values\n"
+    "w_EE_list (np.ndarray) (N_SIMS*nodes,)\n"
+        "\tflattened array of regional E-E synaptic weights\n"
+    "w_EI_list (np.ndarray) (N_SIMS*nodes,)\n"
+        "\tflattened array of regional E-I synaptic weights\n"
+    "w_IE_list (np.ndarray) (N_SIMS*nodes,)\n"
+        "\tflattened array of regional I-E synaptic weights\n"
+    "v_list (np.ndarray) (N_SIMS,)\n"
+        "\tarray of conduction velocity values\n"
+        "\twill be ignored if do_delay is False\n"
+    "do_fic (bool)\n"
+        "\twhether to do feedback inhibition control\n"
+    "extended_output (bool)\n"
+        "\twhether to return extended output\n"
+    "do_delay (bool)\n"
+        "\twhether to consider inter-regional conduction delay \n"
+    "force_reinit (bool)\n"
+        "\twhether to force reinitialization of the session\n"
+    "use_cpu (bool)\n"
+        "\twhether to use CPU instead of GPU\n"
+    "N_SIMS (int)\n"
+        "\tnumber of simulations to run\n"
+    "nodes (int)\n"
+        "\tnumber of nodes in the network\n"
+    "time_steps (int)\n"
+        "\tduration of simulations (ms)\n"
+    "BOLD_TR (int)\n"
+        "\tBOLD repetition time (ms)\n"
+        "\talso used as the sampling interval of extended output\n"
+    "window_size (int)\n"
+        "\tdynamic FC window size (number of TRs)\n"
+    "window_step (int)\n"
+        "\tdynamic FC window step (number of TRs)\n"
+    "rand_seed (int)\n"
+        "\tseed for random number generator\n\n"
+    "Returns:\n"
+    "--------\n"
+    "sim_bold (np.ndarray) (N_SIMS, TRs*nodes)\n"
+        "\tsimulated BOLD time series\n"
+    "sim_fc (np.ndarray) (N_SIMS, edges)\n"
+        "\tsimulated functional connectivity matrices\n"
+    "sim_fcd (np.ndarray) (N_SIMS, n_window_pairs)\n"
+        "\tsimulated functional connectivity dynamics matrices\n"
+    "If extended_output is True, the function also returns "
+    "the time-averaged model state variables, including:\n"
+    "S_E (np.ndarray) (N_SIMS, nodes)\n"
+    "S_I (np.ndarray) (N_SIMS, nodes)\n"
+    "S_ratio (np.ndarray) (N_SIMS, nodes)\n"
+    "r_E (np.ndarray) (N_SIMS, nodes)\n"
+    "r_I (np.ndarray) (N_SIMS, nodes)\n"
+    "r_ratio (np.ndarray) (N_SIMS, nodes)\n"
+    "I_E (np.ndarray) (N_SIMS, nodes)\n"
+    "I_I (np.ndarray) (N_SIMS, nodes)\n"
+    "I_ratio (np.ndarray) (N_SIMS, nodes)\n"
+    "fic_unstable (np.ndarray) (N_SIMS,)\n"
+        "\tindicates whether analytical FIC led to unstable solution\n"
+        "\tNote: if extended_output is True but do_fic is False," 
+        "this array is still returned but will be empty\n"},
     {NULL, NULL, 0, NULL}
 };
 
