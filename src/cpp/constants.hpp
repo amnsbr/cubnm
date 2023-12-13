@@ -8,12 +8,14 @@
     typedef float u_real;
     #define EXP expf
     #define POW powf
+    #define SQRT sqrtf
     #define CUDA_MAX fmaxf
     #define CUDA_MIN fminf
 #else
     typedef double u_real;
     #define EXP exp
     #define POW pow
+    #define SQRT sqrt
     #define CUDA_MAX max
     #define CUDA_MIN min
 #endif

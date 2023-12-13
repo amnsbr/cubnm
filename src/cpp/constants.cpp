@@ -27,7 +27,7 @@ struct ModelConfigs conf;
 void init_constants(struct ModelConstants* mc) {
     mc->dt                  = 0.1;      // Integration step length dt = 0.1 ms
     mc->model_dt            = 0.001;    // Time-step of model (sampling-rate=1000 Hz)
-    mc->sqrt_dt             = sqrt(mc->dt); 
+    mc->sqrt_dt             = SQRT(mc->dt); 
     /*
     Local model: DMF-Parameters from Deco et al. JNeuro 2014
     */

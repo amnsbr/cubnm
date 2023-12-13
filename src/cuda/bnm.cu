@@ -539,7 +539,7 @@ __global__ void bnm(
     for (vol=n_vols_remove; vol<BOLD_len_i; vol++) {
         _ssd_bold += POW(BOLD_ex[sim_idx][vol*nodes+j] - _mean_bold, 2);
     }
-    ssd_bold[sim_idx][j] = sqrtf(_ssd_bold);
+    ssd_bold[sim_idx][j] = SQRT(_ssd_bold);
 }
 
 __global__ void window_bold_stats(
@@ -569,7 +569,7 @@ __global__ void window_bold_stats(
         }
         // save to memory
         windows_mean_bold[sim_idx][w*nodes+j] = _mean_bold;
-        windows_ssd_bold[sim_idx][w*nodes+j] = sqrtf(_ssd_bold);
+        windows_ssd_bold[sim_idx][w*nodes+j] = SQRT(_ssd_bold);
 }
 
 __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
@@ -669,13 +669,13 @@ __global__ void window_fc_stats(
         // save to memory
         if (hemi == 0) {
             windows_mean_fc[sim_idx][w] = _mean_fc;
-            windows_ssd_fc[sim_idx][w] = sqrtf(_ssd_fc);
+            windows_ssd_fc[sim_idx][w] = SQRT(_ssd_fc);
         } else if (hemi == 1) {
             L_windows_mean_fc[sim_idx][w] = _mean_fc;
-            L_windows_ssd_fc[sim_idx][w] = sqrtf(_ssd_fc);
+            L_windows_ssd_fc[sim_idx][w] = SQRT(_ssd_fc);
         } else if (hemi == 2) {
             R_windows_mean_fc[sim_idx][w] = _mean_fc;
-            R_windows_ssd_fc[sim_idx][w] = sqrtf(_ssd_fc);
+            R_windows_ssd_fc[sim_idx][w] = SQRT(_ssd_fc);
         }
     }
 
