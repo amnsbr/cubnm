@@ -491,9 +491,12 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     memcpy(fc_tril_out, gsl_vector_ptr(fc_tril, 0), sizeof(double) * n_pairs);
     memcpy(fcd_tril_out, gsl_vector_ptr(fcd_tril, 0), sizeof(double) * n_window_pairs);
 
-    // Free memory
+    // Free memory (last to first)
     gsl_vector_free(fcd_tril); gsl_vector_free(fc_tril); gsl_matrix_free(bold_gsl);
-    free(delta); free(mean_I_E); free(S_i_1_E);
+    if (adjust_fic) {
+        free(delta); free(mean_I_E); 
+    }
+    free(S_i_1_E);
     if (extended_output && conf.extended_output_ts) {
         free(I_I_ts); free(I_E_ts); free(r_I_ts);  
         free(r_E_ts); free(S_I_ts); free(S_E_ts); 
