@@ -20,6 +20,15 @@
     #define CUDA_MIN min
 #endif
 
+#ifndef MANY_NODES
+    #define MAX_NODES 500
+#else
+    // this is just an arbitrary number
+    // and it is not guaranteed that the code will work 
+    // with this many nodes or won't work with more nodes
+    #define MAX_NODES 10000
+#endif
+
 extern float get_env_or_default(std::string key, double value_default = 0.0);
 extern int get_env_or_default(std::string key, int value_default = 0);
 

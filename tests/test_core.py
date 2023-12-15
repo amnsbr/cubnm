@@ -19,6 +19,7 @@ EXTENDED_OUTPUT = True
 # it is important to force reinit across tests because N_SIMS might be different
 FORCE_REINIT = True
 SC = datasets.load_sc('strength', 'schaefer-100').flatten()
+os.environ["BNM_MAX_FIC_TRIALS_CMAES"] = str(5) # expected values are based on 5 trials
 
 def no_gpu():
     # to skip GPU-dependent tests

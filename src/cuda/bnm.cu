@@ -181,13 +181,13 @@ __global__ void bnm(
     }
 
     // set initial values
-    u_real S_i_E, S_i_I, bw_x_ex, bw_f_ex, bw_nu_ex, bw_q_ex;
+    u_real S_i_E, S_i_I, bw_x, bw_f, bw_nu, bw_q;
     S_i_E = 0.001;
     S_i_I = 0.001;
-    bw_x_ex = 0.0;
-    bw_f_ex = 1.0;
-    bw_nu_ex = 1.0;
-    bw_q_ex = 1.0;
+    bw_x = 0.0;
+    bw_f = 1.0;
+    bw_nu = 1.0;
+    bw_q = 1.0;
     // initialization of extended output sums
     if (extended_output) {
         S_ratio[sim_idx][j] = 0;
@@ -225,14 +225,25 @@ __global__ void bnm(
     // history can be stored on shared memory
     // the memory is allocated dynamically based on the number of nodes
     // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
-    extern __shared__ u_real S_i_1_E[];
-    #define S_1_E S_i_1_E
+    extern __shared__ u_real S_1_E[];
     #else
     // when many nodes are simulated there will be not enough room
     // on shared memory for the history. In that case use device memory
-    #define S_1_E S_i_E_hist[sim_idx]
+    u_real *S_1_E = &(S_i_E_hist[sim_idx]);
     #endif
     S_1_E[j] = 0.001;
+
+    #ifndef MANY_NODES
+    // copy SC to thread memory to make it faster
+    // (especially with lower N of simulations)
+    u_real _SC[MAX_NODES];
+    for (int k=0; k<nodes; k++) {
+        _SC[k] = SC[j*nodes+k];
+    }
+    #else
+    // use global memory for SC
+    u_real *_SC = &(SC[j*nodes]);
+    #endif
 
     // initializations for FIC numerical adjustment
     u_real mean_I_E, delta, I_E_ba_diff;
@@ -277,11 +288,11 @@ __global__ void bnm(
                 for (k=0; k<nodes; k++) {
                     // calculate correct index of the other region in the buffer based on j-k delay
                     k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
-                    tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
+                    tmp_globalinput += _SC[k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
                 }
             } else {
                 for (k=0; k<nodes; k++) {
-                    tmp_globalinput += SC[j*nodes+k] * S_1_E[k];
+                    tmp_globalinput += _SC[k] * S_1_E[k];
                 }            
             }
         }
@@ -294,11 +305,11 @@ __global__ void bnm(
                     for (k=0; k<nodes; k++) {
                         // calculate correct index of the other region in the buffer based on j-k delay
                         k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
-                        tmp_globalinput += SC[j*nodes+k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
+                        tmp_globalinput += _SC[k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
                     }
                 } else {
                     for (k=0; k<nodes; k++) {
-                        tmp_globalinput += SC[j*nodes+k] * S_1_E[k];
+                        tmp_globalinput += _SC[k] * S_1_E[k];
                     }            
                 }
             }
@@ -364,11 +375,11 @@ __global__ void bnm(
 
         // Balloon-Windkessel model equations here since its
         // dt is 1 msec
-        bw_x_ex  = bw_x_ex  +  d_mc.model_dt * (S_i_E - d_mc.kappa * bw_x_ex - d_mc.y * (bw_f_ex - 1.0));
-        tmp_f    = bw_f_ex  +  d_mc.model_dt * bw_x_ex;
-        bw_nu_ex = bw_nu_ex +  d_mc.model_dt * d_mc.itau * (bw_f_ex - POW(bw_nu_ex, d_mc.ialpha));
-        bw_q_ex  = bw_q_ex  +  d_mc.model_dt * d_mc.itau * (bw_f_ex * (1.0 - POW(d_mc.oneminrho,(1.0/bw_f_ex))) / d_mc.rho  - POW(bw_nu_ex,d_mc.ialpha) * bw_q_ex / bw_nu_ex);
-        bw_f_ex  = tmp_f;
+        bw_x  = bw_x  +  d_mc.model_dt * (S_i_E - d_mc.kappa * bw_x - d_mc.y * (bw_f - 1.0));
+        tmp_f    = bw_f  +  d_mc.model_dt * bw_x;
+        bw_nu = bw_nu +  d_mc.model_dt * d_mc.itau * (bw_f - POW(bw_nu, d_mc.ialpha));
+        bw_q  = bw_q  +  d_mc.model_dt * d_mc.itau * (bw_f * (1.0 - POW(d_mc.oneminrho,(1.0/bw_f))) / d_mc.rho  - POW(bw_nu,d_mc.ialpha) * bw_q / bw_nu);
+        bw_f  = tmp_f;
 
         // Save BOLD and extended output to managed memory
         // every TR
@@ -376,7 +387,7 @@ __global__ void bnm(
         // for BOLD and extended output
         // TODO: add option to return time series of extended output
         if (ts_bold % BOLD_TR == 0) {
-            BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = 100 / d_mc.rho * d_mc.V_0 * (d_mc.k1 * (1 - bw_q_ex) + d_mc.k2 * (1 - bw_q_ex/bw_nu_ex) + d_mc.k3 * (1 - bw_nu_ex));
+            BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = 100 / d_mc.rho * d_mc.V_0 * (d_mc.k1 * (1 - bw_q) + d_mc.k2 * (1 - bw_q/bw_nu) + d_mc.k3 * (1 - bw_nu));
             if ((BOLD_len_i>=n_vols_remove)) {
                 // update sum (later mean) of BOLD and extended
                 // output only after the simulation has stabilized
@@ -457,10 +468,10 @@ __global__ void bnm(
                         S_1_E[j] = 0.001;
                         S_i_E = 0.001;
                         S_i_I = 0.001;
-                        bw_x_ex = 0.0;
-                        bw_f_ex = 1.0;
-                        bw_nu_ex = 1.0;
-                        bw_q_ex = 1.0;
+                        bw_x = 0.0;
+                        bw_f = 1.0;
+                        bw_nu = 1.0;
+                        bw_q = 1.0;
                         mean_I_E = 0;
                         // reset mean and ssd bold + extended output
                         // normally this isn't needed because by default

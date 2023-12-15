@@ -149,13 +149,13 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     u_real *r_i_I                    = (u_real *)malloc(nodes * sizeof(u_real));
     u_real *I_i_E                    = (u_real *)malloc(nodes * sizeof(u_real));
     u_real *I_i_I                    = (u_real *)malloc(nodes * sizeof(u_real));
-    u_real *bw_x_ex                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 1 of BW-model (exc. pop.)
-    u_real *bw_f_ex                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 2 of BW-model (exc. pop.)
-    u_real *bw_nu_ex                 = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 3 of BW-model (exc. pop.)
-    u_real *bw_q_ex                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 4 of BW-model (exc. pop.)
+    u_real *bw_x                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 1 of BW-model
+    u_real *bw_f                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 2 of BW-model
+    u_real *bw_nu                 = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 3 of BW-model
+    u_real *bw_q                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 4 of BW-model
 
     if (S_i_E == NULL || S_i_I == NULL || _w_EE == NULL || _w_EI == NULL || _w_IE == NULL || 
-        bw_x_ex == NULL || bw_f_ex == NULL || bw_nu_ex == NULL || bw_q_ex == NULL ||
+        bw_x == NULL || bw_f == NULL || bw_nu == NULL || bw_q == NULL ||
         r_i_E == NULL || r_i_I == NULL || I_i_E == NULL || I_i_I == NULL) {
         printf("Error: Failed to allocate memory to internal simulation variables\n");
         exit(1);
@@ -171,10 +171,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         r_i_I[j] = 0;
         I_i_E[j] = 0;
         I_i_I[j] = 0;
-        bw_x_ex[j] = 0.0;
-        bw_f_ex[j] = 1.0;
-        bw_nu_ex[j] = 1.0;
-        bw_q_ex[j] = 1.0;
+        bw_x[j] = 0.0;
+        bw_f[j] = 1.0;
+        bw_nu[j] = 1.0;
+        bw_q[j] = 1.0;
         if (_extended_output) {
             S_E_mean[j] = 0; // initialize sum (mean) of extended output to 0
             S_I_mean[j] = 0;
@@ -349,16 +349,16 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         save BOLD in addition to S_E, S_I, and r_E, r_I if requested
         */
         for (j=0; j<nodes; j++) {
-            bw_x_ex[j]  = bw_x_ex[j]  +  mc.model_dt * (S_i_E[j] - mc.kappa * bw_x_ex[j] - mc.y * (bw_f_ex[j] - 1.0));
-            tmp_f       = bw_f_ex[j]  +  mc.model_dt * bw_x_ex[j];
-            bw_nu_ex[j] = bw_nu_ex[j] +  mc.model_dt * mc.itau * (bw_f_ex[j] - POW(bw_nu_ex[j], mc.ialpha));
-            bw_q_ex[j]  = bw_q_ex[j]  +  mc.model_dt * mc.itau * (bw_f_ex[j] * (1.0 - POW(mc.oneminrho,(1.0/bw_f_ex[j]))) / mc.rho  - POW(bw_nu_ex[j],mc.ialpha) * bw_q_ex[j] / bw_nu_ex[j]);
-            bw_f_ex[j]  = tmp_f;   
+            bw_x[j]  = bw_x[j]  +  mc.model_dt * (S_i_E[j] - mc.kappa * bw_x[j] - mc.y * (bw_f[j] - 1.0));
+            tmp_f       = bw_f[j]  +  mc.model_dt * bw_x[j];
+            bw_nu[j] = bw_nu[j] +  mc.model_dt * mc.itau * (bw_f[j] - POW(bw_nu[j], mc.ialpha));
+            bw_q[j]  = bw_q[j]  +  mc.model_dt * mc.itau * (bw_f[j] * (1.0 - POW(mc.oneminrho,(1.0/bw_f[j]))) / mc.rho  - POW(bw_nu[j],mc.ialpha) * bw_q[j] / bw_nu[j]);
+            bw_f[j]  = tmp_f;   
         }
         if (ts_bold % BOLD_TR == 0) {
             for (j = 0; j<nodes; j++) {
                 bold_idx = BOLD_len_i*nodes+j;
-                BOLD_ex[bold_idx] = 100 / mc.rho * mc.V_0 * (mc.k1 * (1 - bw_q_ex[j]) + mc.k2 * (1 - bw_q_ex[j]/bw_nu_ex[j]) + mc.k3 * (1 - bw_nu_ex[j]));
+                BOLD_ex[bold_idx] = 100 / mc.rho * mc.V_0 * (mc.k1 * (1 - bw_q[j]) + mc.k2 * (1 - bw_q[j]/bw_nu[j]) + mc.k3 * (1 - bw_nu[j]));
                 gsl_matrix_set(bold_gsl, BOLD_len_i, j, BOLD_ex[bold_idx]);
                 if (conf.extended_output_ts) {
                     S_E_ts[bold_idx] = S_i_E[j];
@@ -443,10 +443,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                         for (j = 0; j < nodes; j++) {
                             S_i_E[j] = 0.001;
                             S_i_I[j] = 0.001;
-                            bw_x_ex[j] = 0.0;
-                            bw_f_ex[j] = 1.0;
-                            bw_nu_ex[j] = 1.0;
-                            bw_q_ex[j] = 1.0;
+                            bw_x[j] = 0.0;
+                            bw_f[j] = 1.0;
+                            bw_nu[j] = 1.0;
+                            bw_q[j] = 1.0;
                             mean_I_E[j] = 0;
                             if (extended_output) {
                                 S_E_mean[j] = 0;
@@ -499,7 +499,7 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         free(r_E_ts); free(S_I_ts); free(S_E_ts); 
     }
     free(I_i_I); free(I_i_E); free(r_i_I); free(r_i_E);
-    free(bw_q_ex); free(bw_nu_ex); free(bw_f_ex); free(bw_x_ex); 
+    free(bw_q); free(bw_nu); free(bw_f); free(bw_x); 
     free(_w_IE); free(_w_EI); free(_w_EE); 
     free(S_i_I); free(S_i_E); 
 }

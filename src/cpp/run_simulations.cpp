@@ -111,6 +111,14 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         PyErr_SetString(PyExc_ValueError, "arrays must be one-dimensional and of type float");
         return NULL;
     }
+
+    if (nodes > MAX_NODES) {
+        printf("nodes must be less than %d\n", MAX_NODES);
+        #ifndef MANY_NODES
+        printf("To use more nodes, recompile the library with MANY_NODES flag.\n");
+        #endif
+        return NULL;
+    }
    
     printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d do_delay %d use_cpu %d\n", 
         do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, do_delay, use_cpu);
@@ -149,7 +157,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
         // TODO: write a proper warning + instructions on what to do
         // if the system does have a CUDA-enabled GPU
         printf("Library not compiled with GPU support and cannot use GPU.\n");
-        return Py_None;
+        return NULL;
         #endif
     }
 
