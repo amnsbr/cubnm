@@ -34,12 +34,10 @@ extern int get_env_or_default(std::string key, int value_default = 0);
 
 struct ModelConstants {
     u_real dt;
-    u_real model_dt;
     u_real sqrt_dt;
     u_real J_NMDA;
     u_real a_E;
     u_real b_E;
-    u_real b_a_ratio_E;
     u_real d_E;
     u_real a_I;
     u_real b_I;
@@ -48,8 +46,6 @@ struct ModelConstants {
     u_real gamma_I;
     u_real tau_E;
     u_real tau_I;
-    u_real itau_E;
-    u_real itau_I;
     u_real sigma_model;
     u_real I_0;
     u_real w_E;
@@ -58,6 +54,14 @@ struct ModelConstants {
     u_real I_ext;
     u_real w_E__I_0;
     u_real w_I__I_0;
+    u_real b_a_ratio_E;
+    u_real itau_E;
+    u_real itau_I;
+    u_real sigma_model_sqrt_dt;
+    u_real dt_itau_E;
+    u_real dt_gamma_E;
+    u_real dt_itau_I;
+    u_real dt_gamma_I;
     double tau_E_s;
     double tau_I_s;
     double gamma_E_s;
@@ -68,6 +72,7 @@ struct ModelConstants {
     double I_E_ss;
     double S_I_ss;
     double S_E_ss;
+    u_real bw_dt;
     u_real rho;
     u_real alpha;
     u_real tau;
@@ -80,6 +85,10 @@ struct ModelConstants {
     u_real ialpha;
     u_real itau;
     u_real oneminrho;
+    u_real bw_dt_itau;
+    u_real V_0_k1;
+    u_real V_0_k2;
+    u_real V_0_k3;
 };
 
 

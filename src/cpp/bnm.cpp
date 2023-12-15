@@ -349,16 +349,16 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         save BOLD in addition to S_E, S_I, and r_E, r_I if requested
         */
         for (j=0; j<nodes; j++) {
-            bw_x[j]  = bw_x[j]  +  mc.model_dt * (S_i_E[j] - mc.kappa * bw_x[j] - mc.y * (bw_f[j] - 1.0));
-            tmp_f       = bw_f[j]  +  mc.model_dt * bw_x[j];
-            bw_nu[j] = bw_nu[j] +  mc.model_dt * mc.itau * (bw_f[j] - POW(bw_nu[j], mc.ialpha));
-            bw_q[j]  = bw_q[j]  +  mc.model_dt * mc.itau * (bw_f[j] * (1.0 - POW(mc.oneminrho,(1.0/bw_f[j]))) / mc.rho  - POW(bw_nu[j],mc.ialpha) * bw_q[j] / bw_nu[j]);
+            bw_x[j]  = bw_x[j]  +  mc.bw_dt * (S_i_E[j] - mc.kappa * bw_x[j] - mc.y * (bw_f[j] - 1.0));
+            tmp_f       = bw_f[j]  +  mc.bw_dt * bw_x[j];
+            bw_nu[j] = bw_nu[j] +  mc.bw_dt * mc.itau * (bw_f[j] - POW(bw_nu[j], mc.ialpha));
+            bw_q[j]  = bw_q[j]  +  mc.bw_dt * mc.itau * (bw_f[j] * (1.0 - POW(mc.oneminrho,(1.0/bw_f[j]))) / mc.rho  - POW(bw_nu[j],mc.ialpha) * bw_q[j] / bw_nu[j]);
             bw_f[j]  = tmp_f;   
         }
         if (ts_bold % BOLD_TR == 0) {
             for (j = 0; j<nodes; j++) {
                 bold_idx = BOLD_len_i*nodes+j;
-                BOLD_ex[bold_idx] = 100 / mc.rho * mc.V_0 * (mc.k1 * (1 - bw_q[j]) + mc.k2 * (1 - bw_q[j]/bw_nu[j]) + mc.k3 * (1 - bw_nu[j]));
+                BOLD_ex[bold_idx] = mc.V_0 * (mc.k1 * (1 - bw_q[j]) + mc.k2 * (1 - bw_q[j]/bw_nu[j]) + mc.k3 * (1 - bw_nu[j]));
                 gsl_matrix_set(bold_gsl, BOLD_len_i, j, BOLD_ex[bold_idx]);
                 if (conf.extended_output_ts) {
                     S_E_ts[bold_idx] = S_i_E[j];
@@ -617,7 +617,7 @@ void init_cpu(
     // calculate bold size for properly allocating parts
     // of BOLD_ex_out to the simulations
     u_real TR = (u_real)BOLD_TR / 1000; // (s) TR of fMRI data
-    output_ts = (time_steps / (TR / mc.model_dt))+1; // Length of BOLD time-series written to HDD
+    output_ts = (time_steps / (TR / mc.bw_dt))+1; // Length of BOLD time-series written to HDD
     bold_size = nodes * output_ts;
     // specify n_vols_remove (for extended output and FC calculations)
     n_vols_remove = conf.bold_remove_s * 1000 / BOLD_TR; // 30 seconds

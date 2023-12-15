@@ -162,6 +162,7 @@ __global__ void bnm(
     __shared__ u_real G;
     u_real w_IE, w_EE, w_EI;
     G = G_list[sim_idx];
+    u_real G_J_NMDA = G * d_mc.J_NMDA; // precalculate G * J_NMDA
     if (regional_params) {
         w_EE = w_EE_list[sim_idx*nodes+j];
         w_EI = w_EI_list[sim_idx*nodes+j];
@@ -266,7 +267,7 @@ __global__ void bnm(
 
     // integration loop
     u_real tmp_globalinput, tmp_I_E, tmp_I_I, tmp_r_E, tmp_r_I, dSdt_E, dSdt_I, tmp_f,
-        tmp_aIb_E, tmp_aIb_I, tmp_rand_E, tmp_rand_I;
+        tmp_aIb_E, tmp_aIb_I;
     int ts_bold, int_i, k;
     long noise_idx = 0;
     int BOLD_len_i = 0;
@@ -314,7 +315,7 @@ __global__ void bnm(
                 }
             }
             // equations
-            tmp_I_E = d_mc.w_E__I_0 + w_EE * S_i_E + tmp_globalinput * G * d_mc.J_NMDA - w_IE*S_i_I;
+            tmp_I_E = d_mc.w_E__I_0 + w_EE * S_i_E + tmp_globalinput * G_J_NMDA - w_IE*S_i_I;
             tmp_I_I = d_mc.w_I__I_0 + w_EI * S_i_E - S_i_I;
             tmp_aIb_E = d_mc.a_E * tmp_I_E - d_mc.b_E;
             tmp_aIb_I = d_mc.a_I * tmp_I_I - d_mc.b_I;
@@ -331,10 +332,10 @@ __global__ void bnm(
             #else
             noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
             #endif
-            tmp_rand_E = noise[noise_idx];
-            tmp_rand_I = noise[noise_idx+1];
-            dSdt_E = tmp_rand_E * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * ((1 - S_i_E) * d_mc.gamma_E * tmp_r_E - S_i_E * d_mc.itau_E);
-            dSdt_I = tmp_rand_I * d_mc.sigma_model * d_mc.sqrt_dt + d_mc.dt * (d_mc.gamma_I * tmp_r_I - S_i_I * d_mc.itau_I);
+            // dSdt_E = noise[noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt * ((1 - S_i_E) * d_mc.gamma_E * tmp_r_E - S_i_E * d_mc.itau_E);
+            dSdt_E = noise[noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - S_i_E) * tmp_r_E) - d_mc.dt_itau_E * S_i_E;
+            // dSdt_I = noise[noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt * (d_mc.gamma_I * tmp_r_I - S_i_I * d_mc.itau_I);
+            dSdt_I = noise[noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * tmp_r_I - d_mc.dt_itau_I * S_i_I;
             S_i_E += dSdt_E;
             S_i_I += dSdt_I;
             // clip S to 0-1
@@ -375,10 +376,10 @@ __global__ void bnm(
 
         // Balloon-Windkessel model equations here since its
         // dt is 1 msec
-        bw_x  = bw_x  +  d_mc.model_dt * (S_i_E - d_mc.kappa * bw_x - d_mc.y * (bw_f - 1.0));
-        tmp_f    = bw_f  +  d_mc.model_dt * bw_x;
-        bw_nu = bw_nu +  d_mc.model_dt * d_mc.itau * (bw_f - POW(bw_nu, d_mc.ialpha));
-        bw_q  = bw_q  +  d_mc.model_dt * d_mc.itau * (bw_f * (1.0 - POW(d_mc.oneminrho,(1.0/bw_f))) / d_mc.rho  - POW(bw_nu,d_mc.ialpha) * bw_q / bw_nu);
+        bw_x  = bw_x  +  d_mc.bw_dt * (S_i_E - d_mc.kappa * bw_x - d_mc.y * (bw_f - 1.0));
+        tmp_f = bw_f  +  d_mc.bw_dt * bw_x;
+        bw_nu = bw_nu +  d_mc.bw_dt_itau * (bw_f - POW(bw_nu, d_mc.ialpha));
+        bw_q  = bw_q  +  d_mc.bw_dt_itau * (bw_f * (1.0 - POW(d_mc.oneminrho,(1.0/bw_f))) / d_mc.rho  - POW(bw_nu,d_mc.ialpha) * bw_q / bw_nu);
         bw_f  = tmp_f;
 
         // Save BOLD and extended output to managed memory
@@ -387,7 +388,8 @@ __global__ void bnm(
         // for BOLD and extended output
         // TODO: add option to return time series of extended output
         if (ts_bold % BOLD_TR == 0) {
-            BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = 100 / d_mc.rho * d_mc.V_0 * (d_mc.k1 * (1 - bw_q) + d_mc.k2 * (1 - bw_q/bw_nu) + d_mc.k3 * (1 - bw_nu));
+            // BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0 * (d_mc.k1 * (1 - bw_q) + d_mc.k2 * (1 - bw_q/bw_nu) + d_mc.k3 * (1 - bw_nu));
+            BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0_k1 * (1 - bw_q) + d_mc.V_0_k2 * (1 - bw_q/bw_nu) + d_mc.V_0_k3 * (1 - bw_nu);
             if ((BOLD_len_i>=n_vols_remove)) {
                 // update sum (later mean) of BOLD and extended
                 // output only after the simulation has stabilized
@@ -1135,7 +1137,7 @@ void init_gpu(
     // allocated memory for BOLD time-series of all simulations
     // BOLD_ex will be a 2D array of size N_SIMS x (nodes x output_ts)
     u_real TR        = (u_real)BOLD_TR / 1000; // (s) TR of fMRI data
-    output_ts = (time_steps / (TR / mc.model_dt))+1; // Length of BOLD time-series written to HDD
+    output_ts = (time_steps / (TR / mc.bw_dt))+1; // Length of BOLD time-series written to HDD
     size_t bold_size = nodes * output_ts;
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&BOLD_ex, sizeof(u_real*) * N_SIMS));
 

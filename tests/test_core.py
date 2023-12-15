@@ -28,11 +28,11 @@ def no_gpu():
 @pytest.mark.parametrize(
     "opts, expected", 
     [
-        pytest.param('use_gpu:1,do_delay:0,do_fic:1', {'bold': 0.7420394211841863, 'fc': 0.1522881886810883, 'fcd': 0.05361760521411114}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
-        pytest.param('use_gpu:1,do_delay:0,do_fic:0', {'bold': 1.6425122468959044, 'fc': 0.13219002758619677, 'fcd': 0.06140883019133118}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
-        pytest.param('use_gpu:1,do_delay:1,do_fic:1', {'bold': 0.7447943858098247, 'fc': 0.15932362134671932, 'fcd': 0.05324494338900664}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
-        pytest.param('use_gpu:1,do_delay:1,do_fic:0', {'bold': 1.6491297435614538, 'fc': 0.1298055398225281, 'fcd': 0.0600431676259622}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
-        pytest.param('use_gpu:0,do_delay:0,do_fic:1', {'bold': 0.7420394211841863, 'fc': 0.15228818488966733, 'fcd': 0.053617605632309974}),
+        pytest.param('use_gpu:1,do_delay:0,do_fic:1', {'bold': 0.25229340320262333, 'fc': 0.15228818488965185, 'fcd': 0.053617605632305304}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
+        pytest.param('use_gpu:1,do_delay:0,do_fic:0', {'bold': 0.5584541639446075, 'fc': 0.13219002265346044, 'fcd': 0.06140882888975842}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
+        pytest.param('use_gpu:1,do_delay:1,do_fic:1', {'bold': 0.2532300911753404, 'fc': 0.15932360699106757, 'fcd': 0.05324493950679656}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
+        pytest.param('use_gpu:1,do_delay:1,do_fic:0', {'bold': 0.5607041128108943, 'fc': 0.12980554063007843, 'fcd': 0.06004315998040354}, marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
+        pytest.param('use_gpu:0,do_delay:0,do_fic:1', {'bold': 0.25229340320262333, 'fc': 0.1522881848896672, 'fcd': 0.05361760563230998}),
         pytest.param('use_gpu:0,do_delay:0,do_fic:0', {}, marks=pytest.mark.skip(reason="bug causing segmentation fault")),
         pytest.param('use_gpu:0,do_delay:1,do_fic:1', {}, marks=pytest.mark.skip(reason="not implemented")),
         pytest.param('use_gpu:0,do_delay:1,do_fic:0', {}, marks=pytest.mark.skip(reason="not implemented")),
@@ -68,7 +68,7 @@ def test_single_sim(opts, expected):
     else:
         w_IE_list = np.repeat(1.0, NODES*N_SIMS)
     if opts['do_delay']:
-        v_list = np.linspace(0.5, 4.0, N_SIMS)
+        v_list = np.repeat(0.5, N_SIMS)
         SC_dist = datasets.load_sc('length', 'schaefer-100').flatten()
         os.environ['BNM_SYNC_MSEC'] = '1'
     else:
