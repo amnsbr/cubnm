@@ -757,7 +757,7 @@ __global__ void float2double(double **dst, float **src, size_t rows, size_t cols
     dst[row][col] = (float)(src[row][col]);
 }
 
-cudaDeviceProp get_device_prop(bool verbose = true) {
+cudaDeviceProp get_device_prop(int verbose = 1) {
     /*
         Gets GPU device properties and prints them to the console.
         Also exits the program if no GPU is found.
@@ -768,9 +768,10 @@ cudaDeviceProp get_device_prop(bool verbose = true) {
     if (error == cudaSuccess) {
         int device = 0;
         CUDA_CHECK_RETURN( cudaGetDeviceProperties(&prop, device) );
-        if (verbose) {
-            std::cout << "\nDevice # " << device << ", PROPERTIES: " << std::endl;
-            std::cout << "Name: " << prop.name << std::endl;
+        if (verbose > 0) {
+            std::cout << std::endl << "CUDA device #" << device << ": " << prop.name << std::endl;
+        }
+        if (verbose > 1) {
             std::cout << "totalGlobalMem: " << prop.totalGlobalMem << ", sharedMemPerBlock: " << prop.sharedMemPerBlock; 
             std::cout << ", regsPerBlock: " << prop.regsPerBlock << ", warpSize: " << prop.warpSize << ", memPitch: " << prop.memPitch << std::endl;
             std::cout << "maxThreadsPerBlock: " << prop.maxThreadsPerBlock << ", maxThreadsDim[0]: " << prop.maxThreadsDim[0] 
