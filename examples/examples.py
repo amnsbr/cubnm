@@ -291,8 +291,8 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    # run_sims()
-    gs, scores = run_grid()
+    run_sims()
+    # gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()

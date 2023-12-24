@@ -183,7 +183,31 @@ static PyObject* set_conf(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
-static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
+static PyObject* get_conf(PyObject* self, PyObject* args) {
+    // Create a Python dictionary to store the configuration values
+    PyObject* conf_dict = PyDict_New();
+    if (conf_dict == NULL) {
+        return NULL;
+    }
+
+    // Add the configuration values to the dictionary
+    PyDict_SetItemString(conf_dict, "bold_remove_s", PyLong_FromLong(conf.bold_remove_s));
+    PyDict_SetItemString(conf_dict, "I_SAMPLING_START", PyLong_FromLong(conf.I_SAMPLING_START));
+    PyDict_SetItemString(conf_dict, "I_SAMPLING_END", PyLong_FromLong(conf.I_SAMPLING_END));
+    PyDict_SetItemString(conf_dict, "numerical_fic", PyBool_FromLong(conf.numerical_fic));
+    PyDict_SetItemString(conf_dict, "max_fic_trials", PyLong_FromLong(conf.max_fic_trials));
+    PyDict_SetItemString(conf_dict, "init_delta", PyFloat_FromDouble(conf.init_delta));
+    PyDict_SetItemString(conf_dict, "exc_interhemispheric", PyBool_FromLong(conf.exc_interhemispheric));
+    PyDict_SetItemString(conf_dict, "drop_edges", PyBool_FromLong(conf.drop_edges));
+    PyDict_SetItemString(conf_dict, "sync_msec", PyBool_FromLong(conf.sync_msec));
+    PyDict_SetItemString(conf_dict, "extended_output_ts", PyBool_FromLong(conf.extended_output_ts));
+    PyDict_SetItemString(conf_dict, "sim_verbose", PyBool_FromLong(conf.sim_verbose));
+    PyDict_SetItemString(conf_dict, "fic_verbose", PyBool_FromLong(conf.fic_verbose));
+
+    return conf_dict;
+}
+
+static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list, *v_list;
     bool do_fic, extended_output, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
@@ -375,7 +399,7 @@ static PyObject* run_simulations_interface(PyObject* self, PyObject* args) {
 
 
 static PyMethodDef methods[] = {
-    {"run_simulations", run_simulations_interface, METH_VARARGS, 
+    {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, \n"
         "v_list, do_fic, extended_output, do_delay, force_reinit, use_cpu, \n"
         "N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
@@ -474,6 +498,14 @@ static PyMethodDef methods[] = {
             "\tname of the constant to set\n"
         "value (float)\n"
             "\tvalue of the constant to set\n\n"
+    },
+    {"get_conf", get_conf, METH_NOARGS, 
+        "get_conf()\n"
+        "Get the session configs.\n"
+        "Returns:\n"
+        "--------\n"
+        "conf (dict)\n"
+            "\tdictionary of session configs\n\n"
     },
     {NULL, NULL, 0, NULL}
 };

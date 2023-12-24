@@ -18,5 +18,5 @@ except ImportError as e:
     else:
         raise(e)
 else:
-    from cuBNM.core import init, set_const, set_conf
+    from cuBNM.core import init, set_const, set_conf, get_conf
     init()
