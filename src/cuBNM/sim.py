@@ -290,7 +290,7 @@ class SimGroup:
                 if (diff_r_E > 1).sum() > 1:
                     diff_r_E[diff_r_E <= 1] = np.NaN
                     scores.loc[idx, "-fic_penalty"] = (
-                        -np.nanmean(1 - np.exp(-0.05 * diff_r_E)) * fic_penalty_scale
+                        -np.nanmean(1 - np.exp(-0.05 * (diff_r_E-1))) * fic_penalty_scale
                     )
                 else:
                     scores.loc[idx, "-fic_penalty"] = 0
