@@ -954,7 +954,7 @@ void run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     // calculate FC and window FCs
     int maxThreadsPerBlock = prop.maxThreadsPerBlock;
-    numBlocks.y = ceil(n_pairs / maxThreadsPerBlock) + 1;
+    numBlocks.y = ceil((float)n_pairs / (float)maxThreadsPerBlock);
     numBlocks.z = n_windows + 1; // +1 for total FC
     if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
         printf("Error: Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]\n");
@@ -988,7 +988,7 @@ void run_simulations_gpu(
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     // calculate FCD
-    numBlocks.y = ceil(n_window_pairs / maxThreadsPerBlock) + 1;
+    numBlocks.y = ceil((float)n_window_pairs / (float)maxThreadsPerBlock);
     numBlocks.z = 1;
     if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
         printf("Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]\n");
