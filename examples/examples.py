@@ -1,6 +1,6 @@
 import numpy as np
 import cuBNM
-from cuBNM._run_simulations import run_simulations
+from cuBNM._core import run_simulations, set_conf, set_const
 from cuBNM import optimize, sim, utils, datasets
 from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
 
@@ -13,7 +13,6 @@ from pymoo.termination import get_termination
 import cma
 
 def run_sims(N_SIMS=2, v=0.5, force_cpu=False):
-    # os.environ['BNM_MAX_FIC_TRIALS_CMAES'] = '0'
     # run identical simulations and check if BOLD is the same
     nodes = 100
     time_steps = 60000
@@ -48,7 +47,7 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False):
         # with delay it is recommended to do
         # the syncing of nodes every 1 msec instead
         # of every 0.1 msec. Otherwise it'll be very slow
-        os.environ['BNM_SYNC_MSEC'] = '1'
+        set_conf('sync_msec', True)
         # TODO: add a function to do bnm.set_conf('sync_msec', True)
     else:
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
@@ -292,8 +291,8 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    run_sims()
-    # gs, scores = run_grid()
+    # run_sims()
+    gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()

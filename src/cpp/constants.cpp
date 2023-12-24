@@ -97,39 +97,23 @@ void init_constants(struct ModelConstants* mc) {
 }
 
 void init_conf(struct ModelConfigs* conf) {
-    // simulations config
+    // TODO: consider making some variables (e.g. bold_remove_s) inputs to
+    // run_simulation() instead
     conf->bold_remove_s = get_env_or_default("BNM_BOLD_REMOVE", 30); // length of BOLD to remove before FC(D) calculation, in seconds
-    conf->MAX_COST = get_env_or_default("BNM_MAX_COST", 2); // max cost returned if simulation/fitting is not feasible for set of parameters
     conf->I_SAMPLING_START = get_env_or_default("BNM_I_SAMPLING_START", 1000);
     conf->I_SAMPLING_END = get_env_or_default("BNM_I_SAMPLING_END", 10000);
     conf->I_SAMPLING_DURATION = conf->I_SAMPLING_END - conf->I_SAMPLING_START + 1;
     conf->numerical_fic = get_env_or_default("BNM_NUMERICAL_FIC", 1);
-    conf->max_fic_trials_cmaes = get_env_or_default("BNM_MAX_FIC_TRIALS_CMAES", 5);
-    conf->max_fic_trials = get_env_or_default("BNM_MAX_FIC_TRIALS", 150);
+    conf->max_fic_trials = get_env_or_default("BNM_MAX_FIC_TRIALS", 5);
     conf->init_delta = get_env_or_default("BNM_INIT_DELTA", 0.02); // initial delta in numerical adjustment of FIC
-    conf->use_fc_ks = get_env_or_default("BNM_USE_FC_KS", 0);
-    conf->use_fc_diff = get_env_or_default("BNM_USE_FC_DIFF", 1);
     conf->exc_interhemispheric = get_env_or_default("BNM_EXC_INTERHEM", 1); // exclude interhemispheric connections from FC(D) calculation and fitting
     conf->drop_edges = get_env_or_default("BNM_DROP_EDGES", 1); // drop the edges of the signal in dFC calculation
     conf->sync_msec = get_env_or_default("BNM_SYNC_MSEC", 0); // sync nodes every msec vs every 0.1 msec
-    // TODO: extended_output_ts option is not implemented in GPU and Python and is assumed to be Fasle
-    conf->extended_output_ts = get_env_or_default("BNM_EXT_OUT_TS", 0); // record time series of extended output instead of their means
-    conf->sim_verbose = get_env_or_default("BNM_SIM_VERBOSE", 0);
-    conf->fic_verbose = get_env_or_default("BNM_FIC_VERBOSE", 0);
-    // CMAES config
-    conf->sigma = get_env_or_default("BNM_CMAES_SIGMA", 0.5); // is updated during CMAES, should not be const
-    conf->alphacov = get_env_or_default("BNM_CMAES_ALPHACOV", 2);
-    conf->Variante = get_env_or_default("BNM_CMAES_VARIANTE", 6);
-    conf->gamma_scale = get_env_or_default("BNM_CMAES_GAMMA_SCALE", 2.0);
-    conf->bound_soft_edge = get_env_or_default("BNM_CMAES_BOUND_SOFT_EDGE", 0.0);
-    conf->early_stop_gens = get_env_or_default("BNM_CMAES_EARLY_STOP_GENS", 30);
-    conf->early_stop_tol = get_env_or_default("BNM_CMAES_EARLY_STOP_TOL", 1e-3);
-    conf->fic_penalty_scale = get_env_or_default("BNM_CMAES_FIC_PENALTY_SCALE", 2.0);
-    conf->fic_reject_failed = get_env_or_default("BNM_CMAES_FIC_REJECT_FAILED", 0);
-    conf->scale_max_minmax = get_env_or_default("BNM_SCALE_MAX_MINMAX", 1.0);
-    // GPU config
-    conf->grid_save_hemis = get_env_or_default("BNM_GPU_SAVE_HEMIS", 1);
-    conf->grid_save_dfc = get_env_or_default("BNM_GPU_SAVE_DFC", 0);
+    conf->extended_output_ts = get_env_or_default("BNM_EXT_OUT_TS", 0); // record time series of extended output instead of their means; only in CPU
+    conf->sim_verbose = get_env_or_default("BNM_SIM_VERBOSE", 0); // only in CPU
+    conf->fic_verbose = get_env_or_default("BNM_FIC_VERBOSE", 0); // currently is not used
+    conf->grid_save_hemis = get_env_or_default("BNM_GPU_SAVE_HEMIS", 1); // currently is not used
+    conf->grid_save_dfc = get_env_or_default("BNM_GPU_SAVE_DFC", 0); // currently is not used
     conf->w_IE_1 = false; // set initial w_IE to 1 in all nodes (similar to Deco 2014; ignores w_IE_fic)
 }
 

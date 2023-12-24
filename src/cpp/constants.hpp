@@ -97,34 +97,18 @@ extern void init_constants(struct ModelConstants* mc);
 struct ModelConfigs {
     // Simulation config
     int bold_remove_s;
-    u_real MAX_COST;
     unsigned int I_SAMPLING_START;
     unsigned int I_SAMPLING_END;
     unsigned int I_SAMPLING_DURATION;
     bool numerical_fic;
-    int max_fic_trials_cmaes;
     int max_fic_trials;
     u_real init_delta;
-    bool use_fc_ks;
-    bool use_fc_diff;
     bool exc_interhemispheric;
     bool drop_edges;
     bool sync_msec;
     bool extended_output_ts;
     bool sim_verbose;
     bool fic_verbose;
-
-    // CMAES config
-    double sigma;
-    double alphacov;
-    int Variante;
-    double gamma_scale;
-    double bound_soft_edge;
-    int early_stop_gens;
-    double early_stop_tol;
-    double fic_penalty_scale;
-    bool fic_reject_failed;
-    u_real scale_max_minmax;
 
     // GPU config
     bool grid_save_hemis;

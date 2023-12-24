@@ -18,3 +18,29 @@ def fc_norm_euclidean(x, y):
     euclidean = scipy.spatial.distance.euclidean(x, y)
     max_euclidean = 2 * np.sqrt(x.size)
     return euclidean / max_euclidean
+
+def get_bw_params(src):
+    """
+    Get Balloon-Windkessel model parameters
+
+    Parameters
+    ----------
+    src: (str)
+        - 'friston2003': Friston et al. 2003
+        - 'heinzle2016-3T': Heinzle et al. 2016, 3T parameters
+    """
+    if src == 'friston2003':
+        rho = 0.34
+        return {
+            'k1': 7*rho,
+            'k2': 2.0,
+            'k3': 2*rho - 0.2,
+        }
+    elif src == 'heinzle2016-3T':
+        return {
+            'k1': 3.72,
+            'k2': 0.527,
+            'k3': 0.53,
+        }
+    else:
+        raise ValueError(f'Unknown BW parameters source: {src}')

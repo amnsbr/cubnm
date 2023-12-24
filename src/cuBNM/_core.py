@@ -1,6 +1,7 @@
 """
-This simply imports run_simulations extension but
-handles some known issues that may occur during import
+This imports run_simulations extension while
+handling some known issues that may occur during import
+in addition to initializing the extension
 """
 try:
     from cuBNM.core import run_simulations
@@ -16,3 +17,6 @@ except ImportError as e:
         exit(1)
     else:
         raise(e)
+else:
+    from cuBNM.core import init, set_const, set_conf
+    init()

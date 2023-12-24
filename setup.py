@@ -92,7 +92,7 @@ if gpu_enabled:
     libraries += ["bnm", "cudart_static"]
     bnm_ext = Extension(
         "cuBNM.core",
-        [os.path.join("src","cpp", "run_simulations.cpp")],
+        [os.path.join("src","cpp", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args+["-D GPU_ENABLED"],
         libraries=libraries,
@@ -107,7 +107,7 @@ else:
     print("Compiling for CPU")
     bnm_ext = Extension(
         "cuBNM.core",
-        [os.path.join("src","cpp", "run_simulations.cpp")],
+        [os.path.join("src","cpp", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args,
         libraries=libraries,

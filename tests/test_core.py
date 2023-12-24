@@ -2,7 +2,7 @@
 Tests for the core run_simulations function
 """
 import pytest
-from cuBNM._run_simulations import run_simulations
+from cuBNM._core import run_simulations, set_conf, set_const
 from cuBNM import datasets
 from cuBNM.utils import avail_gpus
 import numpy as np
@@ -19,7 +19,7 @@ EXTENDED_OUTPUT = True
 # it is important to force reinit across tests because N_SIMS might be different
 FORCE_REINIT = True
 SC = datasets.load_sc('strength', 'schaefer-100').flatten()
-os.environ["BNM_MAX_FIC_TRIALS_CMAES"] = str(5) # expected values are based on 5 trials
+set_conf("max_fic_trials", 5)
 
 def no_gpu():
     # to skip GPU-dependent tests
@@ -36,7 +36,7 @@ def no_gpu():
         pytest.param('use_gpu:0,do_delay:0,do_fic:0', {'bold': 0.5584541639446068, 'fc': 0.13219002265345683, 'fcd': 0.06140882888975444}),
         pytest.param('use_gpu:0,do_delay:1,do_fic:1', {}, marks=pytest.mark.skip(reason="not implemented")),
         pytest.param('use_gpu:0,do_delay:1,do_fic:0', {}, marks=pytest.mark.skip(reason="not implemented")),
-    ]) # the expected values based on tests run on gpu1.htc.inm7.de using commit 70f164667a275bca75f373234344b96f495aa781
+    ]) # the expected values based on tests run on gpu1.htc.inm7.de using commit fa4250f29dd6546480382ae5db2429a62634eda4
 def test_single_sim(opts, expected):
     """
     Tests if BOLD, FC and FCD of a specific simulation
@@ -70,7 +70,7 @@ def test_single_sim(opts, expected):
     if opts['do_delay']:
         v_list = np.repeat(0.5, N_SIMS)
         SC_dist = datasets.load_sc('length', 'schaefer-100').flatten()
-        os.environ['BNM_SYNC_MSEC'] = '1'
+        set_conf("sync_msec", True)
     else:
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(NODES*NODES, dtype=float) # doesn't matter what it is!
@@ -82,7 +82,7 @@ def test_single_sim(opts, expected):
     )
     sim_bolds , sim_fc_trils, sim_fcd_trils = out[:3]
     if opts['do_delay']:
-        del os.environ['BNM_SYNC_MSEC'] # remove it so it's not done for next tests
+        set_conf('sync_msec', False) # set to False for next tests
     # TODO: consider comparing the entire arrays
     assert np.isclose(sim_bolds[0, 500], expected['bold'], atol=1e-12)
     assert np.isclose(sim_fc_trils[0, 30], expected['fc'], atol=1e-12)
@@ -122,7 +122,7 @@ def test_identical_sims(opts):
     if opts['do_delay']:
         v_list = np.repeat(1.0, N_SIMS)
         SC_dist = datasets.load_sc('length', 'schaefer-100').flatten()
-        os.environ['BNM_SYNC_MSEC'] = '1'
+        set_conf('sync_msec', True)
     else:
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(NODES*NODES, dtype=float) # doesn't matter what it is!
@@ -134,7 +134,7 @@ def test_identical_sims(opts):
     )
     sim_bolds , sim_fc_trils, sim_fcd_trils = out[:3]
     if opts['do_delay']:
-        del os.environ['BNM_SYNC_MSEC'] # remove it so it's not done for next tests
+        set_conf('sync_msec', False) # set to False for next tests
 
     assert (sim_bolds[0] == sim_bolds[1]).all() # consider using np.isclose
     assert (sim_fc_trils[0] == sim_fc_trils[1]).all()

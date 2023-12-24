@@ -3,7 +3,7 @@ import scipy.stats
 import pandas as pd
 import os
 
-from cuBNM._run_simulations import run_simulations
+from cuBNM._core import run_simulations, set_const, set_conf
 from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
 from cuBNM import utils
 
@@ -25,6 +25,7 @@ class SimGroup:
         force_cpu=False,
         gof_terms=["+fc_corr", "-fc_diff", "-fcd_ks"],
         fic_penalty=True,
+        bw_params="friston2003"
     ):
         """
         Group of simulations that will be executed in parallel
@@ -67,6 +68,8 @@ class SimGroup:
             - '-fc_normec': Euclidean distance of FCs divided by max EC [sqrt(n_pairs*4)]
         fic_penalty: (bool)
             penalize deviation from FIC target mean rE of 3 Hz
+        bw_params: (str)
+            see utils.get_bw_params
         """
         self.duration = duration
         self.TR = TR  # in msec
@@ -88,7 +91,6 @@ class SimGroup:
         # get time and TR in msec
         self.duration_msec = int(duration * 1000)  # in msec
         self.TR_msec = int(TR * 1000)
-        os.environ["BNM_EXC_INTERHEMISPHERIC"] = str(int(self.exc_interhemispheric))
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
         if (self.nodes > 500) & (not many_nodes_flag):
@@ -115,9 +117,8 @@ class SimGroup:
         else:
             self.sc_dist = np.zeros_like(self.sc, dtype=float)
             self.do_delay = False
-        os.environ["BNM_SYNC_MSEC"] = str(int(self.do_delay))
-        # TODO: get other model configs (see constants.hpp) from user and
-        # change BNM_ env variables accordingly
+        # set Ballon-Windkessel parameters
+        self.bw_params = bw_params
         # initialze w_IE_list as all 0s if do_fic
         self.param_lists = dict([(k, None) for k in ["G", "wEE", "wEI", "wIE", "v"]])
         # determine and create output directory
@@ -146,6 +147,49 @@ class SimGroup:
             self.param_lists["wIE"] = np.zeros((self._N, self.nodes), dtype=float)
         if not self.do_delay:
             self.param_lists["v"] = np.zeros(self._N, dtype=float)
+
+    @property
+    def bw_params(self):
+        return self._bw_params
+    
+    @bw_params.setter
+    def bw_params(self, bw_params):
+        self._bw_params = bw_params
+        params = utils.get_bw_params(self._bw_params)
+        set_const("k1", params["k1"])
+        set_const("k2", params["k2"])
+        set_const("k3", params["k3"])
+
+    @property
+    def exc_interhemispheric(self):
+        return self._exc_interhemispheric
+
+    @exc_interhemispheric.setter
+    def exc_interhemispheric(self, exc_interhemispheric):
+        self._exc_interhemispheric = exc_interhemispheric
+        set_conf("exc_interhemispheric", self._exc_interhemispheric)  
+    
+    @property
+    def do_delay(self):
+        return self._do_delay
+    
+    @do_delay.setter
+    def do_delay(self, do_delay):
+        self._do_delay = do_delay
+        self.sync_msec = self._do_delay
+        if self._do_delay:
+            print("Delay is enabled...will sync nodes every 1 msec\n"
+                  "to do syncing every 0.1 msec set self.sync_msec to False\n"
+                  "but note that this will increase the simulation time\n")
+
+    @property
+    def sync_msec(self):
+        return self._sync_msec
+
+    @sync_msec.setter
+    def sync_msec(self, sync_msec):
+        self._sync_msec = sync_msec
+        set_conf("sync_msec", self._sync_msec)
 
     def get_config(self, include_N=False):
         config = {
