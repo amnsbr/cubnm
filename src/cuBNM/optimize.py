@@ -312,7 +312,6 @@ class RWWProblem(Problem):
                     self.sim_group.param_lists[param][sim_idx, :] *= param_scalers
                     # fix/reject negatives
                     if self.sim_group.param_lists[param][sim_idx, :].min() < 0.001:
-                        print("Found negative local parameter...Shifting min to 0.001")
                         if self.reject_negative:
                             # TODO
                             raise NotImplementedError(
