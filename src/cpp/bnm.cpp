@@ -476,6 +476,23 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         }
     }
 
+    // divide sum of extended output by number of time points
+    // to calculate the mean
+    if (_extended_output) {
+        int extended_output_time_points = BOLD_len_i - n_vols_remove;
+        for (int j=0; j<nodes; j++) {
+            S_E_mean[j] /= extended_output_time_points;
+            S_I_mean[j] /= extended_output_time_points;
+            S_ratio_mean[j] /= extended_output_time_points;
+            r_E_mean[j] /= extended_output_time_points;
+            r_I_mean[j] /= extended_output_time_points;
+            r_ratio_mean[j] /= extended_output_time_points;
+            I_E_mean[j] /= extended_output_time_points;
+            I_I_mean[j] /= extended_output_time_points;
+            I_ratio_mean[j] /= extended_output_time_points;
+        }
+    }
+
     // Calculate FC and FCD
     // for FC discard first n_vols_remove of BOLD
     // (for FCD this is not needed as window_starts
