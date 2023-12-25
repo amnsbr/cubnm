@@ -335,11 +335,11 @@ class SimGroup:
         if self.do_fic & self.fic_penalty:
             for idx in range(self.N):
                 diff_r_E = np.abs(self.ext_out["r_E"][idx, :] - 3)
-                if (diff_r_E > 1).sum() > 1:
+                if (diff_r_E > 1).sum() > 0:
                     diff_r_E[diff_r_E <= 1] = np.NaN
                     scores.loc[idx, "-fic_penalty"] = (
-                        -np.nanmean(1 - np.exp(-0.05 * (diff_r_E - 1)))
-                        * fic_penalty_scale
+                        -np.nansum(1 - np.exp(-0.05 * (diff_r_E - 1)))
+                        * fic_penalty_scale / self.nodes
                     )
                 else:
                     scores.loc[idx, "-fic_penalty"] = 0
