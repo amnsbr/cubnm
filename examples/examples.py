@@ -186,7 +186,7 @@ def run_bayes_optimizer():
     bo.optimize()
     return bo
 
-def run_cmaes_optimizer_het(force_cpu=False):
+def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.RWWProblem(
@@ -206,7 +206,9 @@ def run_cmaes_optimizer_het(force_cpu=False):
         sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True),
         force_cpu = force_cpu 
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1, 
+                                    use_bound_penalty=use_bound_penalty,
+                                    algorithm_kws=dict(tolfun=5e-3))
     cmaes.setup_problem(problem)
     cmaes.optimize()
     cmaes.save()
@@ -291,9 +293,9 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    run_sims()
+    # run_sims()
     # gs, scores = run_grid()
     # problem, out = run_problem()
-    # cmaes = run_cmaes_optimizer_het()
+    cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()
     # nsga2 = run_nsga2_optimizer_het()

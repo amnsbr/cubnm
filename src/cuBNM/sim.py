@@ -25,7 +25,7 @@ class SimGroup:
         force_cpu=False,
         gof_terms=["+fc_corr", "-fc_diff", "-fcd_ks"],
         fic_penalty=True,
-        bw_params="friston2003"
+        bw_params="friston2003",
     ):
         """
         Group of simulations that will be executed in parallel
@@ -151,7 +151,7 @@ class SimGroup:
     @property
     def bw_params(self):
         return self._bw_params
-    
+
     @bw_params.setter
     def bw_params(self, bw_params):
         self._bw_params = bw_params
@@ -167,20 +167,22 @@ class SimGroup:
     @exc_interhemispheric.setter
     def exc_interhemispheric(self, exc_interhemispheric):
         self._exc_interhemispheric = exc_interhemispheric
-        set_conf("exc_interhemispheric", self._exc_interhemispheric)  
-    
+        set_conf("exc_interhemispheric", self._exc_interhemispheric)
+
     @property
     def do_delay(self):
         return self._do_delay
-    
+
     @do_delay.setter
     def do_delay(self, do_delay):
         self._do_delay = do_delay
         self.sync_msec = self._do_delay
         if self._do_delay:
-            print("Delay is enabled...will sync nodes every 1 msec\n"
-                  "to do syncing every 0.1 msec set self.sync_msec to False\n"
-                  "but note that this will increase the simulation time\n")
+            print(
+                "Delay is enabled...will sync nodes every 1 msec\n"
+                "to do syncing every 0.1 msec set self.sync_msec to False\n"
+                "but note that this will increase the simulation time\n"
+            )
 
     @property
     def sync_msec(self):
@@ -205,6 +207,8 @@ class SimGroup:
             "rand_seed": self.rand_seed,
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
+            "gof_terms": self.gof_terms,
+            "bw_params": self.bw_params,
         }
         if include_N:
             config["N"] = self.N
@@ -221,7 +225,7 @@ class SimGroup:
             | (self.duration != self.last_duration)
             | (self.nodes != self.last_nodes)
         )
-        use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus()==0)
+        use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)
         # set wIE to its flattened copy and pass this
         # array to run_simulations so that in the case
         # of do_fic it is overwritten with the actual wIE
@@ -334,7 +338,8 @@ class SimGroup:
                 if (diff_r_E > 1).sum() > 1:
                     diff_r_E[diff_r_E <= 1] = np.NaN
                     scores.loc[idx, "-fic_penalty"] = (
-                        -np.nanmean(1 - np.exp(-0.05 * (diff_r_E-1))) * fic_penalty_scale
+                        -np.nanmean(1 - np.exp(-0.05 * (diff_r_E - 1)))
+                        * fic_penalty_scale
                     )
                 else:
                     scores.loc[idx, "-fic_penalty"] = 0

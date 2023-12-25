@@ -445,24 +445,50 @@ class PymooOptimizer(Optimizer):
     General purpose wrapper for pymoo and other optimizers
     """
 
-    def __init__(self, termination=None, n_iter=2, seed=0, **kwargs):
+    def __init__(
+        self, termination=None, n_iter=2, seed=0, print_history=True, **kwargs
+    ):
         """
-        Initialize pymoo optimizers by setting up the
-        termination rule based on `n_iter` or `termination`
+        Initialize pymoo optimizers by setting up the termination rule based on `n_iter` or `termination`
+
+        Parameters:
+        ----------
+        termination : object, optional
+            The termination object that defines the stopping criteria for the optimization process.
+            If not provided, the termination criteria will be based on the number of iterations (`n_iter`).
+        n_iter : int, optional
+            The maximum number of iterations for the optimization process.
+            This parameter is only used if `termination` is not provided.
+        seed : int, optional
+            The seed value for the random number generator used by the optimizer.
+        print_history : bool, optional
+            Flag indicating whether to print the optimization history during the optimization process.
+        **kwargs : dict, optional
+            Additional keyword arguments that can be passed to the optimizer.
         """
         # set optimizer seed
         self.seed = seed
         # set termination and n_iter (aka n_max_gen)
-        self.termination = kwargs.pop("termination", None)
+        self.termination = termination
         if self.termination:
             self.n_iter = self.termination.n_max_gen
         else:
             self.n_iter = n_iter
             self.termination = get_termination("n_iter", self.n_iter)
+        self.print_history = print_history
 
     def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
         """
-        Sets up the problem with the algorithm
+        Sets up the problem with the algorithm.
+
+        Parameters
+        ----------
+        problem : object
+            The problem to be set up with the algorithm.
+        pymoo_verbose : bool, optional
+            Flag indicating whether to enable verbose output from pymoo. Default is False.
+        **kwargs : dict
+            Additional keyword arguments to be passed to the algorithm setup method.
         """
         # setup the algorithm with the problem
         self.problem = problem
@@ -505,7 +531,8 @@ class PymooOptimizer(Optimizer):
             else:
                 res = pd.concat([Xt, F, scores[0]], axis=1)
             res["gen"] = self.algorithm.n_gen - 1
-            print(res)
+            if self.print_history:
+                print(res.to_string())
             self.history.append(res)
             if self.problem.n_obj == 1:
                 # a single optimum can be defined from each population
@@ -529,13 +556,29 @@ class CMAESOptimizer(PymooOptimizer):
     ):
         """
         Sets up a CMAES optimizer with some defaults
+
+        Parameters
+        ----------
+        popsize : int
+            The population size for the optimizer
+        x0 : array-like, optional
+            The initial guess for the optimization.
+            If None (default), the initial guess will be estimated based on
+            20 random samples as the first generation
+        sigma : float, optional
+            The initial step size for the optimization
+        use_bound_penalty : bool, optional
+            Whether to use a bound penalty for the optimization
+        algorithm_kws : dict, optional
+            Additional keyword arguments for the CMAES algorithm
+        kwargs : dict
+            Additional keyword arguments
         """
         super().__init__(**kwargs)
         self.max_obj = 1
-        if use_bound_penalty:
-            bound_penalty = cma.constraints_handler.BoundPenalty([0, 1])
-            kwargs["BoundaryHandler"] = bound_penalty
-        kwargs["eval_initial_x"] = False
+        self.use_bound_penalty = (
+            use_bound_penalty  # this option will be set after problem is set up
+        )
         self.popsize = popsize
         self.algorithm = CMAES(
             x0=x0,  # will estimate the initial guess based on 20 random samples
@@ -546,17 +589,17 @@ class CMAESOptimizer(PymooOptimizer):
 
     def setup_problem(self, problem, **kwargs):
         super().setup_problem(problem, **kwargs)
-        if self.algorithm.options.get("BoundaryHandler") is not None:
-            # the following is to avoid an error caused by pymoo interfering with cma
-            # after problem is registered with the algorithm
-            # the bounds will be enforced by bound_penalty
-            self.algorithm.options["bounds"] = None
+        self.algorithm.options["bounds"] = [0, 1]
+        if self.use_bound_penalty:
+            self.algorithm.options["BoundaryHandler"] = cma.BoundPenalty
+        else:
+            self.algorithm.options["BoundaryHandler"] = cma.BoundTransform
 
 
 class NSGA2Optimizer(PymooOptimizer):
     def __init__(self, popsize, algorithm_kws={}, **kwargs):
         """
-        Sets up a CMAES optimizer with some defaults
+        Sets up a NSGA-II optimizer with some defaults
         """
         super().__init__(**kwargs)
         self.max_obj = 3
