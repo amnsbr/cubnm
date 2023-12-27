@@ -22,6 +22,7 @@ namespace bnm_cpu {
     int noise_time_steps = 30001; 
     int noise_repeats; // number of noise segment repeats
     #endif
+    int noise_size;
     u_real *noise;
     int n_pairs, n_window_pairs, n_windows, output_ts, corr_len, n_vols_remove;
     size_t bold_size;
@@ -205,9 +206,6 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
             #define _dw_EI _w_EI
         #endif
         *fic_unstable_p = false;
-        #ifdef OMP_ENABLED
-        #pragma omp critical
-        #endif
         analytical_fic_het(
             SC_gsl, G, _dw_EE, _dw_EI,
             _w_IE_vector, fic_unstable_p);
@@ -226,6 +224,32 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         }
         gsl_vector_free(_w_IE_vector);
     }
+
+    // make a local copy of SC and noise specific to this thread
+    u_real *_SC = (u_real *)malloc(nodes * nodes * sizeof(u_real));
+    u_real *_noise = (u_real *)malloc(noise_size * sizeof(u_real));
+    #ifdef NOISE_SEGMENT
+    int *_shuffled_nodes = (int *)malloc(sizeof(int) * noise_repeats * nodes);
+    int *_shuffled_ts = (int *)malloc(sizeof(int) * noise_repeats * noise_time_steps);
+    #endif
+
+    if (_SC == NULL || _noise == NULL
+    #ifdef NOISE_SEGMENT
+        || _shuffled_nodes == NULL || _shuffled_ts == NULL
+    #endif
+    ) {
+        printf("Error: Failed to allocate memory\n");
+        exit(1);
+    }
+    memcpy(_SC, SC, nodes * nodes * sizeof(u_real));
+    memcpy(_noise, noise, noise_size * sizeof(u_real));
+    #ifdef NOISE_SEGMENT
+    memcpy(_shuffled_nodes, shuffled_nodes, sizeof(int) * noise_repeats * nodes);
+    memcpy(_shuffled_ts, shuffled_ts, sizeof(int) * noise_repeats * noise_time_steps);
+    #endif
+    // make a local copy of mc
+    struct ModelConstants _mc = mc;
+    memcpy(&_mc, &mc, sizeof(struct ModelConstants));
 
     u_real *S_E_ts, *S_I_ts, *r_E_ts, *r_I_ts, *I_E_ts, *I_I_ts;
     if (_extended_output && conf.extended_output_ts) {
@@ -292,10 +316,11 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     // current node, ts
     int sh_j, sh_ts_noise;
     #endif
+    bool _sim_verbose = conf.sim_verbose;
     while (ts_bold <= time_steps) {
-        if (conf.sim_verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)time_steps) * 100.0f );
+        if (_sim_verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)time_steps) * 100.0f );
         #ifdef NOISE_SEGMENT
-        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
+        sh_ts_noise = _shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
         #endif
         for (int int_i = 0; int_i < 10; int_i++) {
             // copy S_E of previous time point to S_i_1_E
@@ -306,31 +331,31 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                 // calculate global input
                 tmp_globalinput = 0;
                 for (k=0; k<nodes; k++) {
-                    tmp_globalinput += SC[j*nodes+k] * S_i_1_E[k];
+                    tmp_globalinput += _SC[j*nodes+k] * S_i_1_E[k];
                 }
                 // equations
-                I_i_E[j] = mc.w_E__I_0 + _w_EE[j] * S_i_E[j] + tmp_globalinput * G * mc.J_NMDA - _w_IE[j]*S_i_I[j];
-                I_i_I[j] = mc.w_I__I_0 + _w_EI[j] * S_i_E[j] - S_i_I[j];
-                tmp_aIb_E = mc.a_E * I_i_E[j] - mc.b_E;
-                tmp_aIb_I = mc.a_I * I_i_I[j] - mc.b_I;
+                I_i_E[j] = _mc.w_E__I_0 + _w_EE[j] * S_i_E[j] + tmp_globalinput * G * _mc.J_NMDA - _w_IE[j]*S_i_I[j];
+                I_i_I[j] = _mc.w_I__I_0 + _w_EI[j] * S_i_E[j] - S_i_I[j];
+                tmp_aIb_E = _mc.a_E * I_i_E[j] - _mc.b_E;
+                tmp_aIb_I = _mc.a_I * I_i_I[j] - _mc.b_I;
                 #ifdef USE_FLOATS
                 // to avoid firing rate approaching infinity near I = b/a
                 if (abs(tmp_aIb_E) < 1e-4) tmp_aIb_E = 1e-4;
                 if (abs(tmp_aIb_I) < 1e-4) tmp_aIb_I = 1e-4;
                 #endif
-                r_i_E[j] = tmp_aIb_E / (1 - EXP(-mc.d_E * tmp_aIb_E));
-                r_i_I[j] = tmp_aIb_I / (1 - EXP(-mc.d_I * tmp_aIb_I));
+                r_i_E[j] = tmp_aIb_E / (1 - EXP(-_mc.d_E * tmp_aIb_E));
+                r_i_I[j] = tmp_aIb_I / (1 - EXP(-_mc.d_I * tmp_aIb_I));
                 #ifdef NOISE_SEGMENT
                 // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
-                sh_j = shuffled_nodes[curr_noise_repeat*nodes+j];
+                sh_j = _shuffled_nodes[curr_noise_repeat*nodes+j];
                 noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * 2) + (sh_j * 2));
                 #else
                 noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
                 #endif
-                tmp_rand_E = noise[noise_idx];
-                tmp_rand_I = noise[noise_idx+1];
-                dSdt_E = tmp_rand_E * mc.sigma_model * mc.sqrt_dt + mc.dt * ((1 - S_i_E[j]) * mc.gamma_E * r_i_E[j] - (S_i_E[j] * mc.itau_E));
-                dSdt_I = tmp_rand_I * mc.sigma_model * mc.sqrt_dt + mc.dt * (mc.gamma_I * r_i_I[j] - (S_i_I[j] * mc.itau_I));
+                tmp_rand_E = _noise[noise_idx];
+                tmp_rand_I = _noise[noise_idx+1];
+                dSdt_E = tmp_rand_E * _mc.sigma_model * _mc.sqrt_dt + _mc.dt * ((1 - S_i_E[j]) * _mc.gamma_E * r_i_E[j] - (S_i_E[j] * _mc.itau_E));
+                dSdt_I = tmp_rand_I * _mc.sigma_model * _mc.sqrt_dt + _mc.dt * (_mc.gamma_I * r_i_I[j] - (S_i_I[j] * _mc.itau_I));
                 S_i_E[j] += dSdt_E;
                 S_i_I[j] += dSdt_I;
                 // clip S to 0-1
@@ -349,16 +374,16 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         save BOLD in addition to S_E, S_I, and r_E, r_I if requested
         */
         for (j=0; j<nodes; j++) {
-            bw_x[j]  = bw_x[j]  +  mc.bw_dt * (S_i_E[j] - mc.kappa * bw_x[j] - mc.y * (bw_f[j] - 1.0));
-            tmp_f       = bw_f[j]  +  mc.bw_dt * bw_x[j];
-            bw_nu[j] = bw_nu[j] +  mc.bw_dt * mc.itau * (bw_f[j] - POW(bw_nu[j], mc.ialpha));
-            bw_q[j]  = bw_q[j]  +  mc.bw_dt * mc.itau * (bw_f[j] * (1.0 - POW(mc.oneminrho,(1.0/bw_f[j]))) / mc.rho  - POW(bw_nu[j],mc.ialpha) * bw_q[j] / bw_nu[j]);
+            bw_x[j]  = bw_x[j]  +  _mc.bw_dt * (S_i_E[j] - _mc.kappa * bw_x[j] - _mc.y * (bw_f[j] - 1.0));
+            tmp_f       = bw_f[j]  +  _mc.bw_dt * bw_x[j];
+            bw_nu[j] = bw_nu[j] +  _mc.bw_dt * _mc.itau * (bw_f[j] - POW(bw_nu[j], _mc.ialpha));
+            bw_q[j]  = bw_q[j]  +  _mc.bw_dt * _mc.itau * (bw_f[j] * (1.0 - POW(_mc.oneminrho,(1.0/bw_f[j]))) / _mc.rho  - POW(bw_nu[j],_mc.ialpha) * bw_q[j] / bw_nu[j]);
             bw_f[j]  = tmp_f;   
         }
         if (ts_bold % BOLD_TR == 0) {
             for (j = 0; j<nodes; j++) {
                 bold_idx = BOLD_len_i*nodes+j;
-                BOLD_ex[bold_idx] = mc.V_0 * (mc.k1 * (1 - bw_q[j]) + mc.k2 * (1 - bw_q[j]/bw_nu[j]) + mc.k3 * (1 - bw_nu[j]));
+                BOLD_ex[bold_idx] = _mc.V_0 * (_mc.k1 * (1 - bw_q[j]) + _mc.k2 * (1 - bw_q[j]/bw_nu[j]) + _mc.k3 * (1 - bw_nu[j]));
                 gsl_matrix_set(bold_gsl, BOLD_len_i, j, BOLD_ex[bold_idx]);
                 if (conf.extended_output_ts) {
                     S_E_ts[bold_idx] = S_i_E[j];
@@ -412,7 +437,7 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                 if (conf.fic_verbose) printf("FIC adjustment trial %d\nnode\tIE_ba_diff\tdelta\tnew_w_IE\n", fic_trial);
                 for (j = 0; j<nodes; j++) {
                     mean_I_E[j] /= conf.I_SAMPLING_DURATION;
-                    I_E_ba_diff = mean_I_E[j] - mc.b_a_ratio_E;
+                    I_E_ba_diff = mean_I_E[j] - _mc.b_a_ratio_E;
                     if (abs(I_E_ba_diff + 0.026) > 0.005) {
                         needs_fic_adjustment = true;
                         if (fic_trial < _max_fic_trials) { // only do the adjustment if max trials is not exceeded
@@ -514,6 +539,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         free(delta); free(mean_I_E); 
     }
     free(S_i_1_E);
+    free(_SC); free(_noise);
+    #ifdef NOISE_SEGMENT
+    free(_shuffled_nodes); free(_shuffled_ts);
+    #endif
     if (extended_output && conf.extended_output_ts) {
         free(I_I_ts); free(I_E_ts); free(r_I_ts);  
         free(r_E_ts); free(S_I_ts); free(S_E_ts); 
@@ -597,12 +626,12 @@ void init_cpu(
     #ifndef NOISE_SEGMENT
     // precalculate the entire noise needed; can use up a lot of memory
     // with high N of nodes and longer durations leads maxes out the memory
-    int noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
+    noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
     #else
     // otherwise precalculate a noise segment and arrays of shuffled
     // nodes and time points and reuse-shuffle the noise segment
     // throughout the simulation for `noise_repeats`
-    int noise_size = nodes * (noise_time_steps) * 10 * 2;
+    noise_size = nodes * (noise_time_steps) * 10 * 2;
     noise_repeats = ceil((float)(time_steps+1) / (float)noise_time_steps); // +1 for inclusive last time point
     #endif
     if ((time_steps != last_time_steps) || (nodes != last_nodes)) {

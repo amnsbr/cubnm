@@ -12,44 +12,32 @@ Author: Amin Saberi, Feb 2023
 
 // helper functions
 void repeat(gsl_vector ** dest, double a, int size) {
-    if (*dest == NULL || (*dest)->size != size) {
-        *dest = gsl_vector_alloc(size);
-    }
+    *dest = gsl_vector_alloc(size);
     gsl_vector_set_all(*dest, a);
 }
 
 void copy_array_to_vector(gsl_vector ** dest, double * src, int size) {
-    if (*dest == NULL || (*dest)->size != size) {
-        *dest = gsl_vector_alloc(size);
-    }
+    *dest = gsl_vector_alloc(size);
     for (int i=0; i<size; i++) {
         gsl_vector_set(*dest, i, src[i]);
     }
 }
 
 void vector_scale(gsl_vector ** dest, gsl_vector * src, double a) {
-    if (*dest == NULL || (*dest)->size != src->size) {
-        *dest = gsl_vector_alloc(src->size);
-    }
+    *dest = gsl_vector_alloc(src->size);
     gsl_vector_memcpy(*dest, src);
     gsl_vector_scale(*dest, a);
 }
 
 void mul_eye(gsl_matrix ** dest, double a, int size) {
-    if (*dest == NULL || (*dest)->size1 != size) {
-        *dest = gsl_matrix_alloc(size, size);
-    }
+    *dest = gsl_matrix_alloc(size, size);
     gsl_matrix_set_identity(*dest);
     gsl_matrix_scale(*dest, a);
 }
 
 void make_diag(gsl_matrix ** dest, gsl_vector * v) {
     int size = v->size;
-    if (*dest == NULL || (*dest)->size1 != size) {
-        *dest = gsl_matrix_calloc(size, size);
-    } else {
-        gsl_matrix_set_zero(*dest);
-    }
+    *dest = gsl_matrix_calloc(size, size);
     for (int i=0; i<size; i++) {
         gsl_matrix_set(*dest, i, i, gsl_vector_get(v, i));
     }
@@ -123,20 +111,16 @@ double _inh_curr_fixed_pts(double x, void * params) {
             p->_w_II * p->gamma_I_s * p->tau_I_s * phi_I(x) - x;
 }
 
-// making most variables global to avoid re-allocation when calling from
-// CMAES or grid search
-// They are only allocated in the first call by checking if they are NULL
-gsl_matrix *_K_EE, *_K_EI, *_w_EE_matrix, *sc;
-gsl_vector *_w_II, *_w_IE, *_w_EI, *_w_EE, *_I0, *_I_ext,
-            *_I0_E, *_I0_I, *_I_E_ss, *_I_I_ss, *_S_E_ss, *_S_I_ss,
-            *_r_I_ss, *_K_EE_row, *w_IE_out;
-
 
 void analytical_fic_het(
         gsl_matrix * sc, double G, double * w_EE, double * w_EI,
         gsl_vector * w_IE_out, bool * _unstable) {
-    // TODO: integrate anyltical_fic and analytical_fic_het into one function
     int nodes = sc->size1;
+
+    gsl_matrix *_K_EE, *_K_EI, *_w_EE_matrix;
+    gsl_vector *_w_II, *_w_IE, *_w_EI, *_w_EE, *_I0, *_I_ext,
+                *_I0_E, *_I0_I, *_I_E_ss, *_I_I_ss, *_S_E_ss, *_S_I_ss,
+                *_r_I_ss, *_K_EE_row;
 
     // specify regional parameters
     repeat(&_w_II, mc.w_II, nodes);
@@ -160,9 +144,8 @@ void analytical_fic_het(
     repeat(&_r_I_ss, mc.r_I_ss, nodes);
     
     // set K_EE and K_EI
-    if (_K_EE==NULL) {
-        _K_EE = gsl_matrix_alloc(nodes, nodes);
-    }
+    _K_EE = gsl_matrix_alloc(nodes, nodes);
+
     gsl_matrix_memcpy(_K_EE, sc);
     gsl_matrix_scale(_K_EE, G * mc.J_NMDA);
     make_diag(&_w_EE_matrix, _w_EE);
@@ -174,9 +157,9 @@ void analytical_fic_het(
     // analytic FIC
     gsl_function F;
     double curr_I_I, curr_r_I, _K_EE_dot_S_E_ss, w_IE;
-    if (_K_EE_row==NULL) {
-        _K_EE_row = gsl_vector_alloc(nodes);
-    }
+
+    _K_EE_row = gsl_vector_alloc(nodes);
+
     for (int j=0; j<nodes; j++) {
         struct inh_curr_params params = {
             _I0_I->data[j], _w_EI->data[j],
@@ -212,6 +195,12 @@ void analytical_fic_het(
     }    
 
     gsl_vector_memcpy(w_IE_out, _w_IE);
+
+    gsl_matrix_free(_K_EE); gsl_matrix_free(_K_EI); gsl_matrix_free(_w_EE_matrix);
+    gsl_vector_free(_w_II); gsl_vector_free(_w_IE); gsl_vector_free(_w_EI); gsl_vector_free(_w_EE);
+    gsl_vector_free(_I0); gsl_vector_free(_I_ext);
+    gsl_vector_free(_I0_E); gsl_vector_free(_I0_I); gsl_vector_free(_I_E_ss); gsl_vector_free(_I_I_ss);
+    gsl_vector_free(_S_E_ss); gsl_vector_free(_S_I_ss); gsl_vector_free(_r_I_ss); gsl_vector_free(_K_EE_row);
 }
 
 #endif
