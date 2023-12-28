@@ -445,7 +445,8 @@ class PymooOptimizer(Optimizer):
     """
 
     def __init__(
-        self, termination=None, n_iter=2, seed=0, print_history=True, **kwargs
+        self, termination=None, n_iter=2, seed=0, print_history=True, 
+        save_history_sim=False, **kwargs
     ):
         """
         Initialize pymoo optimizers by setting up the termination rule based on `n_iter` or `termination`
@@ -462,6 +463,9 @@ class PymooOptimizer(Optimizer):
             The seed value for the random number generator used by the optimizer.
         print_history : bool, optional
             Flag indicating whether to print the optimization history during the optimization process.
+        save_history_sim : bool, optional
+            Flag indicating whether to save the simulation data of each iteration.
+            Default is False to avoid consuming too much memory across iterations.
         **kwargs : dict, optional
             Additional keyword arguments that can be passed to the optimizer.
         """
@@ -475,6 +479,7 @@ class PymooOptimizer(Optimizer):
             self.n_iter = n_iter
             self.termination = get_termination("n_iter", self.n_iter)
         self.print_history = print_history
+        self.save_history_sim = save_history_sim
 
     def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
         """
@@ -513,6 +518,10 @@ class PymooOptimizer(Optimizer):
             # evaluate the individuals using the algorithm's evaluator (necessary to count evaluations for termination)
             scores = []  # pass on an empty scores list to the evaluator to store the individual GOF measures
             self.algorithm.evaluator.eval(self.problem, pop, scores=scores)
+            if not self.save_history_sim:
+                # clear current simulation data
+                # it has to be here before .tell
+                self.problem.sim_group.clear()
             # returned the evaluated individuals which have been evaluated or even modified
             self.algorithm.tell(infills=pop)
             # TODO: do same more things, printing, logging, storing or even modifying the algorithm object
@@ -609,6 +618,7 @@ class NSGA2Optimizer(PymooOptimizer):
 class BayesOptimizer(Optimizer):
     # this does not have the mechanics of PymooOptimizer but
     # uses similar API as much as possible
+    save_history_sim=False # currently saving history of simulations is not implemented
     def __init__(self, popsize, n_iter, seed=0):
         """
         Sets up a Bayesian optimizer

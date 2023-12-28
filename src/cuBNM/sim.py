@@ -2,6 +2,7 @@ import numpy as np
 import scipy.stats
 import pandas as pd
 import os
+import gc
 
 from cuBNM._core import run_simulations, set_const, set_conf
 from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
@@ -292,6 +293,15 @@ class SimGroup:
         self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
         self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)
         self.param_lists["wIE"] = self.param_lists["wIE"].reshape(self.N, -1)
+
+    def clear(self):
+        """
+        Clear the simulation outputs
+        """
+        for attr in ["sim_bold", "sim_fc_trils", "sim_fcd_trils", "ext_out", "fic_unstable"]:
+            if hasattr(self, attr):
+                delattr(self, attr)
+        gc.collect()
 
     def score(self, emp_fc_tril, emp_fcd_tril, fic_penalty_scale=2):
         """
