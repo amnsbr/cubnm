@@ -39,3 +39,12 @@ autoapi_options = [
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+html_theme_options = {
+    'logo_only': True,
+    'display_version': True,
+    'style_nav_header_background': 'black',
+}
+html_logo = '_static/logo_text_white.png'
+html_css_files = [
+    'css/custom.css',
+]

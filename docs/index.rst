@@ -3,13 +3,14 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to cuBNM's documentation!
-=================================
+.. include:: overview.rst
 
 .. toctree::
    :maxdepth: 3
    :caption: Contents:
 
+   Installation <install>
+   Quickstart <quickstart>
    API References <autoapi/cuBNM/index>
 
 
