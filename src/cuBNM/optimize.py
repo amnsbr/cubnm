@@ -1,3 +1,6 @@
+"""
+Optimizers of the model free parameters
+"""
 import os
 import itertools
 from abc import ABC, abstractmethod
@@ -16,19 +19,38 @@ from cuBNM import sim
 
 
 class GridSearch:
-    """
-    Simple grid search
-    """
-
     # TODO: GridSearch should also be an Optimizer
     def __init__(self, params, **kwargs):
         """
+        Grid search of model free parameters
+
         Parameters
         ---------
-        params: (dict)
+        params : :obj:`dict` of :obj:`tuple` or :obj:`float`
             a dictionary with G, wEE and wEI (+- wIE, v) keys of
             floats (fixed values) or tuples (min, max, n)
-        **kwargs to SimGroup
+        **kwargs
+            Keyword arguments passed to :class:`cuBNM.sim.SimGroup`
+
+        Example
+        -------
+        Run a 10x10 grid search of G, wEE with fixed wEI: ::
+
+            from cuBNM import datasets, optimize
+        
+            gs = optimize.GridSearch(
+                params = {
+                    'G': (0.5, 2.5, 10),
+                    'wEE': (0.05, 0.75, 10),
+                    'wEI': 0.21
+                },
+                duration = 60,
+                TR = 1,
+                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True)
+            )
+            emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+            emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+            scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
         """
         self.sim_group = sim.SimGroup(**kwargs)
         param_ranges = {}
@@ -62,14 +84,27 @@ class GridSearch:
             )
 
     def evaluate(self, emp_fc_tril, emp_fcd_tril):
+        """
+        Runs the grid simulations and evaluates their
+        goodness of fit to the empirical FC and FCD
+
+        Parameters
+        ----------
+        emp_fc_tril : :obj:`np.ndarray`
+            lower triangular part of empirical FC. Shape: (edges,)
+        emp_fcd_tril : :obj:`np.ndarray`
+            lower triangular part of empirical FCD. Shape: (window_pairs,)
+
+        Returns
+        -------
+        :obj:`pd.DataFrame`
+            The goodness of fit measures (columns) of each simulation (rows)
+        """
         self.sim_group.run()
         return self.sim_group.score(emp_fc_tril, emp_fcd_tril)
 
 
 class RWWProblem(Problem):
-    global_params = ["G", "v"]
-    local_params = ["wEE", "wEI", "wIE"]
-
     def __init__(
         self,
         params,
@@ -77,41 +112,47 @@ class RWWProblem(Problem):
         emp_fcd_tril,
         het_params=[],
         maps_path=None,
-        reject_negative=False,
         node_grouping=None,
         multiobj=False,
         **kwargs,
     ):
         """
-        The "Problem" of reduced Wong-Wang model optimal parameters fitted
-        to the provided empirical FC and FCDs
+        Reduced Wong Wang model problem. A :class:`pymoo.core.problem.Problem` 
+        that defines the free parameters and their ranges, and target empirical
+        data (FC and FCD), and the simulation configurations (through 
+        :class:`cuBNM.sim.SimGroup`). 
+        :class:`cuBNM.optimize.Optimizer` classes can be
+        used to optimize the free parameters of this problem.
 
-        params: (dict)
+        Parameters
+        ----------
+        params : :obj:`dict` of :obj:`tuple` or :obj:`float`
             a dictionary with G, wEE and wEI (+- wIE, v) keys of
             floats (fixed values) or tuples (min, max)
-        emp_fc_tril, emp_fcd_tril: (np.ndarrray) (n_pairs,)
-            target empirical FC and FCD
-        het_params: (list of str)
-            which local parameters of 'wEE', 'wEI' and 'wIE' should be regionally variable
-            wIE must not be used when do_fic is true
-        maps_path: (str)
-            path to heterogeneity maps. If provided one free parameter
-            per map-localparam combination will be added
-            it is expected to have (n_maps, nodes) dimension (for historical reasons)
-        reject_negative: (bool)
-            rejects particles with negative (or actually < 0.001) local parameters
-            after applying heterogeneity. If False, instead of rejecting shifts the parameter map to
-            have a min of 0.001
-        node_grouping: (str)
+        emp_fc_tril : :obj:`np.ndarray`
+            lower triangular part of empirical FC. Shape: (edges,)
+        emp_fcd_tril : :obj:`np.ndarray`
+            lower triangular part of empirical FCD. Shape: (window_pairs,)
+        het_params : :obj:`list` of :obj:`str`, optional
+            which local parameters of 'wEE', 'wEI' and 'wIE' are heterogeneous
+            across nodes
+        maps_path : :obj:`str`, optional
+            path to heterogeneity maps as a text file (Shape: (n_maps, nodes)).
+            If provided one free parameter per local parameter per 
+            each map will be added.
+        node_grouping : {None, 'node', 'sym', :obj:`str`}, optional
             - None: does not use region-/group-specific parameters
-            - 'node'
-            - 'sym'
-            - path to node grouping array
-        multiobj: (bool)
+            - 'node': each node has its own local free parameters
+            - 'sym': uses the same local free parameters for each pair of symmetric nodes \
+                (e.g. L and R hemispheres). Assumes symmetry  of parcels between L and R \
+                    hemispheres.
+            - :obj:`str`: path to a text file including node grouping array. Shape: (nodes,)
+        multiobj : :obj:`bool`, optional
             instead of combining the objectives into a single objective function
             (via summation) defines each objective separately. This must not be used
             with single-objective optimizers
-        **kwargs to sim.SimGroup
+        **kwargs
+            Keyword arguments passed to :class:`cuBNM.sim.SimGroup`
         """
         # set opts
         self.params = params
@@ -119,7 +160,7 @@ class RWWProblem(Problem):
         self.emp_fcd_tril = emp_fcd_tril
         self.het_params = kwargs.pop("het_params", het_params)
         self.maps_path = kwargs.pop("maps_path", maps_path)
-        self.reject_negative = kwargs.pop("reject_negative", reject_negative)
+        self.reject_negative = False # not implemented yet
         self.node_grouping = kwargs.pop("node_grouping", node_grouping)
         self.multiobj = kwargs.pop("multiobj", multiobj)
         # initialize sim_group (N not known yet)
@@ -135,6 +176,8 @@ class RWWProblem(Problem):
         self.free_params = []
         self.lb = []
         self.ub = []
+        self.global_params = ["G", "v"]
+        self.local_params = ["wEE", "wEI", "wIE"]
         # decide if parameters can be variable across nodes/groups
         # note that this is different from map-based heterogeneity
         self.is_regional = self.node_grouping is not None
@@ -247,11 +290,27 @@ class RWWProblem(Problem):
         )
 
     def get_config(self, include_sim_group=True, include_N=False):
+        """
+        Get the problem configuration
+
+        Parameters
+        ----------
+        include_sim_group : :obj:`bool`, optional
+            whether to include the configuration of the
+            associated :class:`cuBNM.sim.SimGroup`
+        include_N : :obj:`bool`, optional
+            whether to include the current population size
+            in the configuration
+
+        Returns
+        -------
+        :obj:`dict`
+            the configuration of the problem
+        """
         config = {
             "params": self.params,
             "het_params": self.het_params,
             "maps_path": self.maps_path,
-            "reject_negative": self.reject_negative,
             "node_grouping": self.node_grouping,
         }
         if include_N:
@@ -262,17 +321,54 @@ class RWWProblem(Problem):
 
     def _get_Xt(self, X):
         """
-        Transforms X from normalized [0, 1] range to [self.lb, self.ub]
+        Transforms normalized parameters in range [0, 1] to
+        the actual parameter ranges
+
+        Parameters
+        ----------
+        X : :obj:`np.ndarray`
+            the normalized parameters of current population. 
+            Shape: (N, ndim)
+
+        Returns
+        -------
+        :obj:`np.ndarray`
+            the transformed parameters of current population. 
+            Shape: (N, ndim)
         """
         return (X * (self.ub - self.lb)) + self.lb
 
     def _get_X(self, Xt):
         """
-        Transforms Xt from [self.lb, self.ub] to [0, 1]
+        Normalizes parameters to range [0, 1]
+
+        Parameters
+        ----------
+        Xt : :obj:`np.ndarray`
+            the parameters of current population. 
+            Shape: (N, ndim)
+
+        Returns
+        -------
+        :obj:`np.ndarray`
+            the normalized parameters current population. 
+            Shape: (N, ndim)
         """
         return (Xt - self.lb) / (self.ub - self.lb)
 
     def _set_sim_params(self, X):
+        """
+        Sets the global (`G`, `v`) and local parameters (`wEE`, `wEI`, 
+        `wIE`) of the problem's :class:`cuBNM.sim.SimGroup` based on the
+        problem free and fixed parameters and type of local parameter
+        heterogeneity (map-based, group-based or none).
+
+        Parameters
+        ----------
+        X : :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        """
         # transform X from [0, 1] range to the actual
         # parameter range and label them
         Xt = pd.DataFrame(self._get_Xt(X), columns=self.free_params, dtype=float)
@@ -334,9 +430,6 @@ class RWWProblem(Problem):
                 self.sim_group.param_lists[param] = curr_param_maps
 
     def _evaluate(self, X, out, *args, **kwargs):
-        """
-        This is used by PyMoo optimizers
-        """
         scores = self.eval(X)
         if "scores" in kwargs:
             kwargs["scores"].append(scores)
@@ -356,6 +449,22 @@ class RWWProblem(Problem):
             # out["G"] = ... # TODO: consider using this for enforcing FIC success
 
     def eval(self, X):
+        """
+        Runs the simulations based on normalized candidate free
+        parameters `X` and evaluates their goodness of fit to
+        the empirical FC and FCD of the problem.
+
+        Parameters
+        ----------
+        X : :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        
+        Returns
+        -------
+        :obj:`pd.DataFrame`
+            The goodness of fit measures (columns) of each simulation (rows)
+        """
         # set N to current iteration population size
         # which might be variable, e.g. from evaluating
         # CMAES initial guess to its next iterations
@@ -366,6 +475,15 @@ class RWWProblem(Problem):
 
 
 class Optimizer(ABC):
+    @abstractmethod
+    def __init__(self, **kwargs):
+        # defining __init__ as abstractmethod
+        # for the docs to conform with subclasses
+        """
+        Base class for evolutionary optimizers
+        """
+        pass
+
     @abstractmethod
     def setup_problem(self, problem, **kwargs):
         pass
@@ -378,13 +496,17 @@ class Optimizer(ABC):
         """
         Saves the output of the optimizer, including history
         of particles, history of optima, the optimal point,
-        and its simulation data
+        and its simulation data. The output will be saved
+        to `out_dir` of the problem's :class:`cuBNM.sim.SimGroup`.
+        If a directory with the same type of optimizer already
+        exists, a new directory with a new index will be created.
 
         Parameters
         ---------
-        save_obj: (bool)
+        save_obj : :obj:`bool`, optional
             saves the optimizer object which also includes the simulation
-            data of all simulations and therefore can be large file
+            data of all simulations and therefore can be large file.
+            Warning: this file is very large.
         """
         # specify the directory
         run_idx = 0
@@ -435,39 +557,46 @@ class Optimizer(ABC):
         # SimGroup's of the different iterations
 
     def get_config(self):
+        """
+        Get the optimizer configuration
+
+        Returns
+        -------
+        :obj:`dict`
+            the configuration of the optimizer
+        """
         # TODO: add optimizer-specific get_config funcitons
         return {"n_iter": self.n_iter, "popsize": self.popsize, "seed": self.seed}
 
 
 class PymooOptimizer(Optimizer):
-    """
-    General purpose wrapper for pymoo and other optimizers
-    """
-
     def __init__(
         self, termination=None, n_iter=2, seed=0, print_history=True, 
         save_history_sim=False, **kwargs
     ):
         """
-        Initialize pymoo optimizers by setting up the termination rule based on `n_iter` or `termination`
+        Generic wrapper for `pymoo` optimizers.
 
         Parameters:
         ----------
-        termination : object, optional
-            The termination object that defines the stopping criteria for the optimization process.
-            If not provided, the termination criteria will be based on the number of iterations (`n_iter`).
-        n_iter : int, optional
+        termination : :obj:`pymoo.termination.Termination`, optional
+            The termination object that defines the stopping criteria for 
+            the optimization process.
+            If not provided, the termination criteria will be based on the 
+            number of iterations (`n_iter`).
+        n_iter : :obj:`int`, optional
             The maximum number of iterations for the optimization process.
             This parameter is only used if `termination` is not provided.
-        seed : int, optional
+        seed : :obj:`int`, optional
             The seed value for the random number generator used by the optimizer.
-        print_history : bool, optional
-            Flag indicating whether to print the optimization history during the optimization process.
-        save_history_sim : bool, optional
+        print_history : :obj:`bool`, optional
+            Flag indicating whether to print the optimization history during the 
+            optimization process.
+        save_history_sim : :obj:`bool`, optional
             Flag indicating whether to save the simulation data of each iteration.
             Default is False to avoid consuming too much memory across iterations.
-        **kwargs : dict, optional
-            Additional keyword arguments that can be passed to the optimizer.
+        **kwargs
+            Additional keyword arguments that can be passed to the `pymoo` optimizer.        
         """
         # set optimizer seed
         self.seed = seed
@@ -483,15 +612,17 @@ class PymooOptimizer(Optimizer):
 
     def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
         """
-        Sets up the problem with the algorithm.
+        Registers a :class:`cuBNM.optimizer.RWWProblem` 
+        with the optimizer, so that the optimizer can optimize
+        its free parameters.
 
         Parameters
         ----------
-        problem : object
+        problem : :obj:`cuBNM.optimizer.RWWProblem`
             The problem to be set up with the algorithm.
-        pymoo_verbose : bool, optional
+        pymoo_verbose : :obj:`bool`, optional
             Flag indicating whether to enable verbose output from pymoo. Default is False.
-        **kwargs : dict
+        **kwargs
             Additional keyword arguments to be passed to the algorithm setup method.
         """
         # setup the algorithm with the problem
@@ -510,6 +641,12 @@ class PymooOptimizer(Optimizer):
         )
 
     def optimize(self):
+        """
+        Optimizes the associated :class:`cuBNM.optimizer.RWWProblem`
+        free parameters through an evolutionary optimization approach by
+        running multiple generations of parallel simulations until the
+        termination criteria is met or maximum number of iterations is reached.
+        """
         self.history = []
         self.opt_history = []
         while self.algorithm.has_next():
@@ -563,24 +700,47 @@ class CMAESOptimizer(PymooOptimizer):
         **kwargs,
     ):
         """
-        Sets up a CMAES optimizer with some defaults
+        Covariance Matrix Adaptation Evolution Strategy (CMA-ES) optimizer
 
         Parameters
         ----------
-        popsize : int
+        popsize : :obj:`int`
             The population size for the optimizer
         x0 : array-like, optional
             The initial guess for the optimization.
             If None (default), the initial guess will be estimated based on
             20 random samples as the first generation
-        sigma : float, optional
+        sigma : :obj:`float`, optional
             The initial step size for the optimization
-        use_bound_penalty : bool, optional
+        use_bound_penalty : :obj:`bool`, optional
             Whether to use a bound penalty for the optimization
-        algorithm_kws : dict, optional
+        algorithm_kws : :obj:`dict`, optional
             Additional keyword arguments for the CMAES algorithm
-        kwargs : dict
+        **kwargs
             Additional keyword arguments
+
+        Example
+        -------
+        Run a CMAES optimization for 10 iterations with 
+        a population size of 20: ::
+
+            from cuBNM import datasets, optimize
+
+            problem = optimize.RWWProblem(
+                params = {
+                    'G': (0.5, 2.5),
+                    'wEE': (0.05, 0.75),
+                    'wEI': 0.15,
+                },
+                emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True),
+                emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True),
+                duration = 60,
+                TR = 1,
+                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+            )
+            cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=10, seed=1)
+            cmaes.setup_problem(problem)
+            cmaes.optimize()
         """
         super().__init__(**kwargs)
         self.max_obj = 1
@@ -596,6 +756,19 @@ class CMAESOptimizer(PymooOptimizer):
         )
 
     def setup_problem(self, problem, **kwargs):
+        """
+        Extends :meth:`cuBNM.optimizer.PymooOptimizer.setup_problem` to
+        set up the optimizer with the problem and set the bound penalty
+        option based on the optimizer's `use_bound_penalty` attribute.
+
+        Parameters
+        ----------
+        problem : :obj:`cuBNM.optimizer.RWWProblem`
+            The problem to be set up with the algorithm.
+        **kwargs
+            Additional keyword arguments to be passed to 
+            :meth:`cuBNM.optimizer.PymooOptimizer.setup_problem`
+        """
         super().setup_problem(problem, **kwargs)
         self.algorithm.options["bounds"] = [0, 1]
         if self.use_bound_penalty:
@@ -607,7 +780,16 @@ class CMAESOptimizer(PymooOptimizer):
 class NSGA2Optimizer(PymooOptimizer):
     def __init__(self, popsize, algorithm_kws={}, **kwargs):
         """
-        Sets up a NSGA-II optimizer with some defaults
+        Non-dominated Sorting Genetic Algorithm II (NSGA-II) optimizer
+
+        Parameters
+        ----------
+        popsize : int
+            The population size for the optimizer
+        algorithm_kws : dict, optional
+            Additional keyword arguments for the NSGA2 algorithm
+        kwargs : dict
+            Additional keyword arguments for the base class
         """
         super().__init__(**kwargs)
         self.max_obj = 3
@@ -616,12 +798,18 @@ class NSGA2Optimizer(PymooOptimizer):
 
 
 class BayesOptimizer(Optimizer):
-    # this does not have the mechanics of PymooOptimizer but
-    # uses similar API as much as possible
-    save_history_sim=False # currently saving history of simulations is not implemented
     def __init__(self, popsize, n_iter, seed=0):
         """
-        Sets up a Bayesian optimizer
+        Bayesian optimizer
+
+        Parameters
+        ----------
+        popsize : :obj:`int`
+            The population size for the optimizer
+        n_iter : :obj:`int`
+            The number of iterations for the optimization process
+        seed : :obj:`int`, optional
+            The seed value for the random number generator used by the optimizer.
         """
         # does not initialize the optimizer yet because
         # the number of dimensions are not known yet
@@ -631,10 +819,19 @@ class BayesOptimizer(Optimizer):
         self.popsize = popsize
         self.n_iter = n_iter
         self.seed = seed
+        self.save_history_sim=False # currently saving history of simulations is not implemented
+
 
     def setup_problem(self, problem, **kwargs):
         """
-        Initializes the algorithm based on problem ndim
+        Sets up the optimizer with the problem
+
+        Parameters
+        ----------
+        problem : :obj:`cuBNM.optimizer.RWWProblem`
+            The problem to be set up with the algorithm.
+        **kwargs
+            Additional keyword arguments to be passed to :class:`skopt.Optimizer`
         """
         self.problem = problem
         self.algorithm = skopt.Optimizer(
@@ -646,6 +843,12 @@ class BayesOptimizer(Optimizer):
         )
 
     def optimize(self):
+        """
+        Optimizes the associated :class:`cuBNM.optimizer.RWWProblem`
+        free parameters through an evolutionary optimization approach by
+        running multiple generations of parallel simulations until the
+        termination criteria is met or maximum number of iterations is reached.
+        """
         self.history = []
         self.opt_history = []
         for it in range(self.n_iter):

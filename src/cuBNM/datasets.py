@@ -1,3 +1,6 @@
+"""
+Example datasets
+"""
 import sys
 import numpy as np
 
@@ -9,19 +12,24 @@ else:
 
 def load_sc(what, parc, return_path=False):
     """
-    Loads example structural connectivity matrix
+    Load example structural connectivity matrix
 
     Parameters
-    --------
-    what: (str)
-        'strength' or 'length'
-    parc: (str)
-        'schaefer-N', 'aparc', or 'glasser-360'
-    return_path: (bool)
+    ----------
+    what : {'strength', 'length'}
+        - 'strength': SC strength (normalized tract counts)
+        - 'length': SC tracts length
+    parc : {'schaefer-[100, 200, 400, 600]', 'aparc', 'glasser-360'}
+        parcellation. For Schaefer, specify number of parcels.
+    return_path : :obj:`bool`, optional
+        If True, returns path to the file
+        Otherwise, returns the matrix
 
     Returns
     -------
-    mat: (np.ndarray) (nodes, nodes) | (str)
+    :obj:`np.ndarray` or :obj:`str`
+        Structural connectivity matrix or path to its
+        text file. Shape: (nodes, nodes)
     """
     filename = f"ctx_parc-{parc}_approach-median_mean001_desc-{what}.txt"
     path = files("cuBNM.data").joinpath(filename).as_posix()
@@ -37,20 +45,27 @@ def load_sc(what, parc, return_path=False):
 
 def load_functional(what, parc, exc_interhemispheric=True, return_path=False):
     """
-    Loads example lower triangle of FC/FCD
+    Load example lower triangle of FC/FCD
 
     Parameters
     --------
-    what: (str)
-        'FC' or 'FCD'
-    parc: (str)
-        'schaefer-N', 'aparc', or 'glasser-360'
-    exc_interhemispheric: (bool)
-    return_path: (bool)
+    what: {'FC', 'FCD'}
+        - 'FC': functional connectivity
+        - 'FCD': functional connectivity dynamics
+    parc: {'schaefer-[100, 200, 400, 600]', 'aparc', 'glasser-360'}
+        parcellation. For Schaefer, specify number of parcels.
+    exc_interhemispheric: :obj:`bool`, optional
+        whether to exclude interhemispheric connections
+    return_path : :obj:`bool`, optional
+        If True, returns path to the file
+        Otherwise, returns the matrix
+        
 
     Returns
     --------
-    tril: (np.ndarray) (pairs,) | (str)
+    :obj:`np.ndarray` or :obj:`str`
+        Lower triangle of FC/FCD matrix or path to its
+        text file. Shape: (n_pairs,)
     """
     filename = f"ctx_parc-{parc}_hemi-LR"
     if exc_interhemispheric:
@@ -74,18 +89,24 @@ def load_maps(what, parc, norm="minmax", return_path=False):
     Loads example heterogeneity maps
 
     Parameters
-    --------
-    what: (str)
-        '6maps', 'yeo7'
-    parc: (str)
-        'schaefer-N', 'aparc', or 'glasser-360'
-    norm: (str | None)
-        how maps are normalized: 'zscore', 'minmax'
-    return_path: (bool)
+    ----------
+    what: {'6maps', 'yeo7'}
+        - '6maps': including 'myelinmap', 'thickness', 'fcgradient01', 'genepc1', 'nmda', 'gabaa'
+        - 'yeo7': Yeo 7 networks
+    parc: {'schaefer-[100, 200, 400, 600]', 'aparc', 'glasser-360'}
+        parcellation. For Schaefer, specify number of parcels.
+    norm: {'zscore', 'minmax'}
+        - 'zscore': maps are z-score normalized
+        - 'minmax': maps are min-max normalized to [0, 1]
+    return_path : :obj:`bool`, optional
+        If True, returns path to the file
+        Otherwise, returns the matrix
 
     Returns
-    -------
-    maps: (np.ndarray) (maps, nodes) | (str)
+    --------
+    :obj:`np.ndarray` or :obj:`str`
+        Maps arrays or path to their
+        text file. Shape: (maps, nodes)
     """
     # TODO: construct the maps in this function based on
     # a list

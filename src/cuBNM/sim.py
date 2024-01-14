@@ -1,3 +1,6 @@
+"""
+Simulation of the model
+"""
 import numpy as np
 import scipy.stats
 import pandas as pd
@@ -29,48 +32,86 @@ class SimGroup:
         bw_params="friston2003",
     ):
         """
-        Group of simulations that will be executed in parallel
+        Group of simulations that are executed in parallel
+        (as possible depending on the available hardware)
+        on GPU/CPU.
 
         Parameters
         ---------
-        duration: (float)
+        duration: :obj:`float`
             simulation duration (in seconds)
-        TR: (float)
+        TR: :obj:`float`
             BOLD TR and sampling rate of extended output (in seconds)
-        sc_path: (str)
+        sc_path: :obj:`str`
             path to structural connectome strengths (as an unlabled .txt)
-        sc_dist_path: (str)
-            path to structural connectome distances
-            if provided v (velocity) will be a free parameter and there
+            Shape: (nodes, nodes)
+        sc_dist_path: :obj:`str`, optional
+            path to structural connectome distances (as an unlabled .txt)
+            Shape: (nodes, nodes)
+            If provided v (velocity) will be a free parameter and there
             will be delay in inter-regional connections
-        out_dir: (str)
-            if 'same' will create a directory named based on sc_path
-        do_fic: (bool)
+        out_dir: {'same' or :obj:`str`}, optional
+            - 'same': will create a directory named based on sc_path
+            - :obj:`str`: will create a directory in the provided path
+        do_fic: :obj:`bool`, optional
             do analytical-numerical Feedback Inhibition Control
             if provided wIE parameters will be ignored
-        extended_output: (bool)
+        extended_output: :obj:`bool`, optional
             return mean internal model variables to self.ext_out
-        window_size: (int)
+        window_size: :obj:`int`, optional
             dynamic FC window size (in TR)
-        window_step: (int)
+        window_step: :obj:`int`, optional
             dynamic FC window step (in TR)
-        rand_seed: (int)
+        rand_seed: :obj:`int`, optional
             seed used for the noise simulation
-        exc_interhemispheric: (bool)
+        exc_interhemispheric: :obj:`bool`, optional
             excluded interhemispheric connections from sim FC and FCD calculations
-        force_cpu: (bool)
+        force_cpu: :obj:`bool`, optional
             use CPU for the simulations (even if GPU is available). If set
             to False the program might use GPU or CPU depending on GPU
             availability
-        gof_terms: (list of str)
-            - '-fcd_ks'
-            - '+fc_corr'
-            - '-fc_diff'
-            - '-fc_normec': Euclidean distance of FCs divided by max EC [sqrt(n_pairs*4)]
-        fic_penalty: (bool)
+        gof_terms: :obj:`list` of :obj:`str`, optional
+            list of goodness-of-fit terms to be used for scoring. May include:
+            - '-fcd_ks': negative Kolmogorov-Smirnov distance of FCDs
+            - '+fc_corr': Pearson correlation of FCs
+            - '-fc_diff': negative absolute difference of FC means
+            - '-fc_normec': negative Euclidean distance of FCs \
+                divided by max EC [sqrt(n_pairs*4)]
+        fic_penalty: :obj:`bool`, optional
             penalize deviation from FIC target mean rE of 3 Hz
-        bw_params: (str)
-            see utils.get_bw_params
+        bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}, optional
+            see :func:`cuBNM.utils.get_bw_params` for details
+
+        Attributes
+        ---------
+        param_lists: :obj:`dict` of :obj:`np.ndarray`
+            dictionary of parameter lists, including
+                - 'G': global coupling strength. Shape: (N_SIMS,)
+                - 'wEE': local excitatory self-connection strength. Shape: (N_SIMS, nodes)
+                - 'wEI': local inhibitory self-connection strength. Shape: (N_SIMS, nodes)
+                - 'wIE': local excitatory to inhibitory connection strength. Shape: (N_SIMS, nodes)
+                - 'v': conduction velocity. Shape: (N_SIMS,)
+
+        Example
+        -------
+        To see example usage in grid search and evolutionary algorithms
+        see :mod:`cuBNM.optimize`.
+
+        Here, as an example on how to use SimGroup independently, we
+        will run a single simulation and save the outputs to disk. ::
+
+            from cuBNM import sim, datasets
+
+            sim_group = sim.SimGroup(
+                duration=60,
+                TR=1,
+                sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+            )
+            sim_group.N = 1
+            sim_group.param_lists['G'] = np.array([0.5])
+            sim_group.param_lists['wEE'] = np.repeat(0.21, nodes*N_SIMS)
+            sim_group.param_lists['wEI'] = np.repeat(0.15, nodes*N_SIMS)
+            sim_group.run()
         """
         self.duration = duration
         self.TR = TR  # in msec
@@ -195,6 +236,19 @@ class SimGroup:
         set_conf("sync_msec", self._sync_msec)
 
     def get_config(self, include_N=False):
+        """
+        Get the configuration of the simulation group
+
+        Parameters
+        ----------
+        include_N: :obj:`bool`, optional
+            include N in the output config
+
+        Returns
+        -------
+        config: :obj:`dict`
+            dictionary of simulation group configuration
+        """
         config = {
             "duration": self.duration,
             "TR": self.TR,
@@ -217,7 +271,36 @@ class SimGroup:
 
     def run(self, force_reinit=False):
         """
-        Run the simulations in parallel on GPU
+        Run the simulations in parallel (as possible) on GPU/CPU
+        through the :func:`cuBNM._core.run_simulations` function which runs
+        compiled C++/CUDA code.
+
+        Parameters
+        ----------
+        force_reinit: :obj:`bool`, optional
+            force reinitialization of the session.
+            At the beginning of each session (when `cuBNM` is imported)
+            some variables are initialized on CPU/GPU and reused in
+            every run. Set this to True if you want to reinitialize
+            these variables. This is rarely needed.
+
+        Notes
+        -----
+        The simulation outputs are assigned to the following object attributes:
+            - sim_bold : :obj:`np.ndarray`
+                simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
+            - sim_fc_trils : :obj:`np.ndarray`
+                simulated FC lower triangle. Shape: (N_SIMS, n_pairs)
+            - sim_fcd_trils : :obj:`np.ndarray`
+                simulated FCD lower triangle. Shape: (N_SIMS, n_pairs)
+            - ext_out: :obj:`dict` of :obj:`np.ndarray`
+                dictionary of time-averaged model state variables.
+                Shape of each array: (N_SIMS, nodes)
+                Only available if `extended_output` or `do_fic` is True.
+            - fic_unstable: :obj:`np.ndarray`
+                boolean array indicating if the FIC analytical solution
+                was unstable. Shape: (N_SIMS,)
+                Only available if `do_fic` is True.
         """
         # TODO: add assertions to make sure all the data is complete
         force_reinit = (
@@ -305,17 +388,25 @@ class SimGroup:
 
     def score(self, emp_fc_tril, emp_fcd_tril, fic_penalty_scale=2):
         """
-        Calcualates gof term and aggregates them as indicated.
-        In FIC models also calculates fic_penalty. To ignore fic_penalty
-        set `fic_penalty_scale` to 0.
+        Calcualates individual goodness-of-fit terms and aggregates them.
+        In FIC models also calculates fic_penalty.
 
         Parameters
         --------
-        emp_fc_tril: (np.array)
-            1D array of empirical FC lower triangle
-        emp_fcd_tril: (np.array)
-            1D array of empirical FCD lower triangle
-        fic_penalty_scale: (float)
+        emp_fc_tril: :obj:`np.ndarray`
+            1D array of empirical FC lower triangle. Shape: (edges,)
+        emp_fcd_tril: :obj:`np.ndarray`
+            1D array of empirical FCD lower triangle. Shape: (window_pairs,)
+        fic_penalty_scale: :obj:`float`, optional
+            scale of the FIC penalty term.
+            Set to 0 to disable the FIC penalty term.
+            Note that while it is included in the cost function of
+            optimizer, it is not included in the aggregate GOF
+
+        Returns
+        -------
+        scores: :obj:`pd.DataFrame`
+            The goodness of fit measures (columns) of each simulation (rows)
         """
         # + => aim to maximize; - => aim to minimize
         # TODO: add the option to provide empirical BOLD as input
@@ -357,13 +448,13 @@ class SimGroup:
 
     def save(self, save_as="npz"):
         """
-        Save current simulation outputs to disk
+        Save simulation outputs to disk.
 
         Parameters
         ---------
-        save_as: (str)
-            - npz: all the output of all sims will be written to a npz file
-            - txt: outputs of simulations will be written to separate files,
+        save_as: {'npz' or 'txt'}, optional
+            - 'npz': all the output of all sims will be written to a npz file
+            - 'txt': outputs of simulations will be written to separate files,\
                 recommended when N = 1 (e.g. rerunning the best simulation)
         """
         sims_dir = self.out_dir
