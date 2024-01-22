@@ -11,10 +11,6 @@ import GPUtil
 
 PROJECT = os.path.abspath(os.path.dirname(__file__))
 
-# specify installation options
-many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
-
-
 def find_file(file_name, search_path):
     result = []
     for root, dirs, files in os.walk(search_path):
@@ -35,8 +31,11 @@ def has_gpus(method='nvcc'):
         else:
             return False
 
+# specify installation options
+many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
 gpu_enabled = has_gpus()
 omp_enabled = not (('CIBUILDWHEEL' in os.environ) or ('CUBNM_NO_OMP' in os.environ))
+noise_segment = os.environ.get("CUBNM_NOISE_WHOLE") is None
 
 # Write the flags to a temporary _flags.py file
 with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_flags.py"), "w") as flag_file:
@@ -44,7 +43,8 @@ with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_flags.py"), "w") as flag
         "\n".join(
             [f"many_nodes_flag = {many_nodes}", 
              f"gpu_enabled_flag = {gpu_enabled}",
-             f"omp_enabled_flag = {omp_enabled}", # not currently used
+             f"omp_enabled_flag = {omp_enabled}",
+             f"noise_segment_flag = {noise_segment}"
             ]
         )
     )
@@ -79,8 +79,9 @@ extra_compile_args = [
     "-std=c++11",
     "-O3",
     "-m64",
-    "-D NOISE_SEGMENT",
 ]
+if noise_segment:
+    extra_compile_args.append("-D NOISE_SEGMENT")
 if omp_enabled:
     extra_compile_args += [
         "-fopenmp",
@@ -172,15 +173,16 @@ class build_ext_gsl_cuda(build_ext):
         # Compile CUDA code into libbnm.a
         if gpu_enabled:
             cuda_dir = os.path.join(PROJECT, 'src', 'cuda')
-
-            if 'CUBNM_MANY_NODES' in os.environ:
-                add_flags = "-D NOISE_SEGMENT MANY_NODES"
-            else:
-                add_flags = "-D NOISE_SEGMENT"
+            conf_flags = []
+            if noise_segment:
+                conf_flags.append("NOISE_SEGMENT")
+            if many_nodes:
+                conf_flags.append("MANY_NODES")
+            conf_flags = " ".join([f"-D {f}" for f in conf_flags])
             include_flags = " ".join([f"-I {p}" for p in shared_includes])
             compile_commands = [
                 f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/bnm_tmp.o {cuda_dir}/bnm.cu "
-                    f"{include_flags} {add_flags}",
+                    f"{include_flags} {conf_flags}",
                 f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o "
                     f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
                 f"rm -f {cuda_dir}/libbnm.a",  # remove the previously created .a

@@ -36,7 +36,7 @@ def no_gpu():
         pytest.param('use_gpu:0,do_delay:0,do_fic:0', {'bold': 0.5584541639446068, 'fc': 0.13219002265345683, 'fcd': 0.06140882888975444}),
         pytest.param('use_gpu:0,do_delay:1,do_fic:1', {}, marks=pytest.mark.skip(reason="not implemented")),
         pytest.param('use_gpu:0,do_delay:1,do_fic:0', {}, marks=pytest.mark.skip(reason="not implemented")),
-    ]) # the expected values based on tests run on gpu1.htc.inm7.de using commit fa4250f29dd6546480382ae5db2429a62634eda4
+    ]) # the expected values based on tests run on gpu1.htc.inm7.de using commit fa4250f29dd6546480382ae5db2429a62634eda4 with noise segmenting
 def test_single_sim(opts, expected):
     """
     Tests if BOLD, FC and FCD of a specific simulation
