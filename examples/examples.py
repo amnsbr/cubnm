@@ -12,7 +12,7 @@ from pymoo.core.termination import Termination
 from pymoo.termination import get_termination
 import cma
 
-def run_sims(N_SIMS=2, v=0.5, force_cpu=False):
+def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False):
     # run identical simulations and check if BOLD is the same
     nodes = 100
     time_steps = 60000
@@ -21,9 +21,7 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False):
     # BOLD_TR = 3000
     window_size = 10
     window_step = 2
-    rand_seed = 410
     extended_output = True
-    force_reinit = False
 
     np.random.seed(0)
 
@@ -293,9 +291,9 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    # run_sims()
+    run_sims()
     # gs, scores = run_grid()
     # problem, out = run_problem()
-    cmaes = run_cmaes_optimizer_het()
+    # cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()
     # nsga2 = run_nsga2_optimizer_het()

@@ -13,6 +13,7 @@ namespace bnm_cpu {
     bool is_initialized = false;
     int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
     int last_nodes = 0;
+    int last_rand_seed = 0;
     #ifdef NOISE_SEGMENT
     int *shuffled_nodes, *shuffled_ts;
     // set a default length of noise (msec)
@@ -634,10 +635,11 @@ void init_cpu(
     noise_size = nodes * (noise_time_steps) * 10 * 2;
     noise_repeats = ceil((float)(time_steps+1) / (float)noise_time_steps); // +1 for inclusive last time point
     #endif
-    if ((time_steps != last_time_steps) || (nodes != last_nodes)) {
+    if ((rand_seed != last_rand_seed) || (time_steps != last_time_steps) || (nodes != last_nodes)) {
         printf("Precalculating %d noise elements...\n", noise_size);
         last_time_steps = time_steps;
         last_nodes = nodes;
+        last_rand_seed = rand_seed;
         std::mt19937 rand_gen(rand_seed);
         // generating random numbers as floats regardless of USE_FLOATS
         // for better performance and consistency of the noise for the same
