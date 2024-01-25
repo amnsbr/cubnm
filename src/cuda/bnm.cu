@@ -1290,6 +1290,14 @@ void init_gpu(
     #endif
     if ((rand_seed != last_rand_seed) || (time_steps != last_time_steps) || (nodes != last_nodes)) {
         printf("Precalculating %d noise elements...\n", noise_size);
+        if (last_nodes != 0) {
+            // noise is being recalculated, free the previous one
+            CUDA_CHECK_RETURN(cudaFree(noise));
+            #ifdef NOISE_SEGMENT
+            CUDA_CHECK_RETURN(cudaFree(shuffled_nodes));
+            CUDA_CHECK_RETURN(cudaFree(shuffled_ts));
+            #endif
+        }
         last_time_steps = time_steps;
         last_nodes = nodes;
         last_rand_seed = rand_seed;
