@@ -81,7 +81,7 @@ int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_
 bool adjust_fic, has_delay;
 cudaDeviceProp prop;
 bool *fic_failed, *fic_unstable;
-u_real **S_ratio, **I_ratio, **r_ratio, **S_E, **I_E, **r_E, **S_I, **I_I, **r_I,
+u_real **S_E, **I_E, **r_E, **S_I, **I_I, **r_I,
     **BOLD_ex, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
     **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise, **w_IE_fic,
     *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list;
@@ -199,7 +199,6 @@ __device__ void fic_adjust(
     int* sh_ts_noise, bool* extended_output, bool* has_delay,
     u_real* S_1_E, u_real* S_i_E, u_real* S_i_I, u_real* bw_x,
     u_real* bw_f, u_real* bw_nu, u_real* bw_q,
-    u_real** S_ratio, u_real** I_ratio, u_real** r_ratio,
     u_real** S_E, u_real** I_E, u_real** r_E, u_real** S_I, u_real** I_I,
     u_real** r_I, u_real** S_i_E_hist
 ) {
@@ -252,9 +251,6 @@ __device__ void fic_adjust(
                 // bold_remove_s is 30s and FIC adjustment happens < 10s
                 // so these variables have not been updated so far
                 if (*extended_output) {
-                    S_ratio[*sim_idx][*j] = 0.0;
-                    I_ratio[*sim_idx][*j] = 0.0;
-                    r_ratio[*sim_idx][*j] = 0.0;
                     S_E[*sim_idx][*j] = 0.0;
                     I_E[*sim_idx][*j] = 0.0;
                     r_E[*sim_idx][*j] = 0.0;
@@ -293,7 +289,7 @@ __device__ void fic_adjust(
 }
 
 __global__ void bnm(
-    u_real **BOLD_ex, u_real **S_ratio, u_real **I_ratio, u_real **r_ratio,
+    u_real **BOLD_ex,
     u_real **S_E, u_real **I_E, u_real **r_E, u_real **S_I, u_real **I_I, 
     u_real **r_I, int n_vols_remove,
     u_real *SC, u_real *G_list, u_real *w_EE_list, u_real *w_EI_list, u_real *w_IE_list,
@@ -375,9 +371,6 @@ __global__ void bnm(
     bw_q = 1.0;
     // initialization of extended output sums
     if (extended_output) {
-        S_ratio[sim_idx][j] = 0;
-        I_ratio[sim_idx][j] = 0;
-        r_ratio[sim_idx][j] = 0;
         S_E[sim_idx][j] = 0;
         I_E[sim_idx][j] = 0;
         r_E[sim_idx][j] = 0;
@@ -541,10 +534,6 @@ __global__ void bnm(
                 // update extended output only after the simulation has stabilized
                 // (default > 30s)
                 if (extended_output) {
-                    // TODO: consider removing ratios
-                    S_ratio[sim_idx][j] += (S_i_E / S_i_I);
-                    I_ratio[sim_idx][j] += (tmp_I_E / tmp_I_I);
-                    r_ratio[sim_idx][j] += (tmp_r_E / tmp_r_I);
                     S_E[sim_idx][j] += S_i_E;
                     I_E[sim_idx][j] += tmp_I_E;
                     r_E[sim_idx][j] += tmp_r_E;
@@ -593,7 +582,6 @@ __global__ void bnm(
                 &sh_ts_noise, &extended_output, &has_delay,
                 S_1_E, &S_i_E, &S_i_I, &bw_x,
                 &bw_f, &bw_nu, &bw_q, 
-                S_ratio, I_ratio, r_ratio,
                 S_E, I_E, r_E, S_I, I_I,
                 r_I, S_i_E_hist
             );
@@ -608,9 +596,6 @@ __global__ void bnm(
     if (extended_output) {
         // take average
         int extended_output_time_points = BOLD_len_i - n_vols_remove;
-        S_ratio[sim_idx][j] /= extended_output_time_points;
-        I_ratio[sim_idx][j] /= extended_output_time_points;
-        r_ratio[sim_idx][j] /= extended_output_time_points;
         S_E[sim_idx][j] /= extended_output_time_points;
         I_E[sim_idx][j] /= extended_output_time_points;
         r_E[sim_idx][j] /= extended_output_time_points;
@@ -888,9 +873,9 @@ cudaDeviceProp get_device_prop(int verbose = 1) {
 
 void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
-    double * S_E_out, double * S_I_out, double * S_ratio_out,
-    double * r_E_out, double * r_I_out, double * r_ratio_out,
-    double * I_E_out, double * I_I_out, double * I_ratio_out,
+    double * S_E_out, double * S_I_out,
+    double * r_E_out, double * r_I_out,
+    double * I_E_out, double * I_I_out,
     bool * fic_unstable_out, bool * fic_failed_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
@@ -1022,7 +1007,6 @@ void run_simulations_gpu(
     #endif
     bnm<<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
         BOLD_ex, 
-        S_ratio, I_ratio, r_ratio,
         S_E, I_E, r_E, 
         S_I, I_I, r_I,
         n_vols_remove,
@@ -1137,20 +1121,14 @@ void run_simulations_gpu(
             S_E_out+=nodes;
             memcpy(S_I_out, S_I[sim_idx], sizeof(u_real) * nodes);
             S_I_out+=nodes;
-            memcpy(S_ratio_out, S_ratio[sim_idx], sizeof(u_real) * nodes);
-            S_ratio_out+=nodes;
             memcpy(r_E_out, r_E[sim_idx], sizeof(u_real) * nodes);
             r_E_out+=nodes;
             memcpy(r_I_out, r_I[sim_idx], sizeof(u_real) * nodes);
             r_I_out+=nodes;
-            memcpy(r_ratio_out, r_ratio[sim_idx], sizeof(u_real) * nodes);
-            r_ratio_out+=nodes;
             memcpy(I_E_out, I_E[sim_idx], sizeof(u_real) * nodes);
             I_E_out+=nodes;
             memcpy(I_I_out, I_I[sim_idx], sizeof(u_real) * nodes);
             I_I_out+=nodes;
-            memcpy(I_ratio_out, I_ratio[sim_idx], sizeof(u_real) * nodes);
-            I_ratio_out+=nodes;
         }
         if (do_fic) {
             memcpy(w_IE_list, w_IE_fic[sim_idx], sizeof(u_real) * nodes);
@@ -1224,9 +1202,6 @@ void init_gpu(
     CUDA_CHECK_RETURN(cudaMallocManaged(&fic_n_trials, sizeof(int) * N_SIMS));
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic, sizeof(u_real*) * N_SIMS));
     if (_extended_output) {
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_ratio, sizeof(u_real*) * N_SIMS));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_ratio, sizeof(u_real*) * N_SIMS));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_ratio, sizeof(u_real*) * N_SIMS));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_E, sizeof(u_real*) * N_SIMS));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_E, sizeof(u_real*) * N_SIMS));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_E, sizeof(u_real*) * N_SIMS));
@@ -1361,9 +1336,6 @@ void init_gpu(
             // allocate a chunk of w_IE_fic to current simulation and copy w_IE array to it
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic[sim_idx], sizeof(u_real) * nodes));
             // also need to allocate memory for all internal variables (but only r_E is used)
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_ratio[sim_idx], sizeof(u_real) * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_ratio[sim_idx], sizeof(u_real) * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_ratio[sim_idx], sizeof(u_real) * nodes));
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_E[sim_idx], sizeof(u_real) * nodes));
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_E[sim_idx], sizeof(u_real) * nodes));
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_E[sim_idx], sizeof(u_real) * nodes));

@@ -358,13 +358,10 @@ class SimGroup:
                 sim_fcd_trils,
                 ext_out["S_E"],
                 ext_out["S_I"],
-                ext_out["S_ratio"],
                 ext_out["r_E"],
                 ext_out["r_I"],
-                ext_out["r_ratio"],
                 ext_out["I_E"],
                 ext_out["I_I"],
-                ext_out["I_ratio"],
                 self.fic_unstable,
             ) = out
             self.ext_out = ext_out

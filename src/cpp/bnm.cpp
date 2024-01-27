@@ -125,9 +125,9 @@ gsl_vector * calculate_fcd_tril(gsl_matrix * bold) {
 }
 
 void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
-        double * S_E_mean, double * S_I_mean, double * S_ratio_mean,
-        double * r_E_mean, double * r_I_mean, double * r_ratio_mean,
-        double * I_E_mean, double * I_I_mean, double * I_ratio_mean,
+        double * S_E_mean, double * S_I_mean,
+        double * r_E_mean, double * r_I_mean,
+        double * I_E_mean, double * I_I_mean,
         bool * fic_unstable_p, bool * fic_failed_p,
         int nodes, u_real * SC, gsl_matrix * SC_gsl,
         u_real G, u_real * w_EE,  u_real * w_EI, u_real * w_IE,
@@ -180,13 +180,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         if (_extended_output) {
             S_E_mean[j] = 0; // initialize sum (mean) of extended output to 0
             S_I_mean[j] = 0;
-            S_ratio_mean[j] = 0;
             r_E_mean[j] = 0;
             r_I_mean[j] = 0;
-            r_ratio_mean[j] = 0;
             I_E_mean[j] = 0;
             I_I_mean[j] = 0;
-            I_ratio_mean[j] = 0;
         }
     }
     // do FIC if indicated
@@ -400,13 +397,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                     if (_extended_output) {
                         S_E_mean[j] += S_i_E[j];
                         S_I_mean[j] += S_i_I[j];
-                        S_ratio_mean[j] += S_i_E[j]/S_i_I[j];
                         r_E_mean[j] += r_i_E[j];
                         r_I_mean[j] += r_i_I[j];
-                        r_ratio_mean[j] += r_i_E[j]/r_i_I[j];
                         I_E_mean[j] += I_i_E[j];
                         I_I_mean[j] += I_i_I[j];
-                        I_ratio_mean[j] += I_i_E[j]/I_i_I[j];
                     }
                 }
             }
@@ -477,13 +471,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                             if (extended_output) {
                                 S_E_mean[j] = 0;
                                 S_I_mean[j] = 0;
-                                S_ratio_mean[j] = 0;
                                 r_E_mean[j] = 0;
                                 r_I_mean[j] = 0;
-                                r_ratio_mean[j] = 0;
                                 I_E_mean[j] = 0;
                                 I_I_mean[j] = 0;
-                                I_ratio_mean[j] = 0;
                             }
                         }
                     } else {
@@ -509,13 +500,10 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         for (int j=0; j<nodes; j++) {
             S_E_mean[j] /= extended_output_time_points;
             S_I_mean[j] /= extended_output_time_points;
-            S_ratio_mean[j] /= extended_output_time_points;
             r_E_mean[j] /= extended_output_time_points;
             r_I_mean[j] /= extended_output_time_points;
-            r_ratio_mean[j] /= extended_output_time_points;
             I_E_mean[j] /= extended_output_time_points;
             I_I_mean[j] /= extended_output_time_points;
-            I_ratio_mean[j] /= extended_output_time_points;
         }
     }
 
@@ -556,9 +544,9 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
 
 void run_simulations_cpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
-    double * S_E_out, double * S_I_out, double * S_ratio_out,
-    double * r_E_out, double * r_I_out, double * r_ratio_out,
-    double * I_E_out, double * I_I_out, double * I_ratio_out,
+    double * S_E_out, double * S_I_out,
+    double * r_E_out, double * r_I_out,
+    double * I_E_out, double * I_I_out,
     bool * fic_unstable_out, bool * fic_failed_out,
     u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
@@ -594,13 +582,10 @@ void run_simulations_cpu(
             fcd_trils_out+(sim_idx*n_window_pairs),
             S_E_out+(sim_idx*nodes),
             S_I_out+(sim_idx*nodes),
-            S_ratio_out+(sim_idx*nodes),
             r_E_out+(sim_idx*nodes),
             r_I_out+(sim_idx*nodes),
-            r_ratio_out+(sim_idx*nodes),
             I_E_out+(sim_idx*nodes),
             I_I_out+(sim_idx*nodes),
-            I_ratio_out+(sim_idx*nodes),
             fic_unstable_out+sim_idx,
             fic_failed_out+sim_idx,
             nodes, SC, SC_gsl,
