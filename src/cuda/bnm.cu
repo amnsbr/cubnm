@@ -108,6 +108,192 @@ double **d_fc_trils, **d_fcd_trils;
 #endif
 gsl_vector * emp_FCD_tril_copy;
 
+__device__ void calculateGlobalInput(
+        u_real* tmp_globalinput, int* k_buff_idx,
+        int* nodes, int* sim_idx, int* j, int *k, 
+        int* buff_idx, int* max_delay, u_real* _SC, 
+        int** delay, u_real** S_i_E_hist, u_real* S_1_E, 
+        bool* has_delay) {
+    // calculates global input from other nodes `k` to current node `j`
+    // In this and other device kernels I use a call by pointer design
+    // which I hope in most cases will use up less memory + makes all
+    // variables of bnm updatable in __device__ kernels
+    // (though we don't need to update all)
+    // TODO: consider passing some of the variables by value
+    // (e.g. int and bool variables that are not updated)
+    *tmp_globalinput = 0;
+    if (*has_delay) {
+        for (*k=0; *k<*nodes; (*k)++) {
+            // calculate correct index of the other region in the buffer based on j-k delay
+            *k_buff_idx = (*buff_idx + delay[*sim_idx][(*j)*(*nodes)+(*k)]) % *max_delay;
+            *tmp_globalinput += _SC[*k] * S_i_E_hist[*sim_idx][(*k_buff_idx)*(*nodes)+(*k)];
+        }
+    } else {
+        for (*k=0; *k<*nodes; (*k)++) {
+            *tmp_globalinput += _SC[*k] * S_1_E[*k];
+        }            
+    }
+}
+
+__device__ void step(
+        u_real* tmp_I_E, u_real* tmp_I_I, u_real* tmp_aIb_E, 
+        u_real* tmp_aIb_I, u_real* tmp_r_E, u_real* tmp_r_I, 
+        long* noise_idx, u_real* dSdt_E, u_real* dSdt_I, 
+        u_real* S_i_E, u_real* S_i_I, u_real* w_EE, 
+        u_real* tmp_globalinput, u_real* G_J_NMDA, 
+        u_real* w_IE, u_real* w_EI, 
+        int* sh_ts_noise, int* int_i, 
+        int* nodes, int* sh_j, int* ts_bold, 
+        int* j, u_real* noise
+        ) {
+    *tmp_I_E = d_mc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
+    *tmp_I_I = d_mc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I);
+    *tmp_aIb_E = d_mc.a_E * (*tmp_I_E) - d_mc.b_E;
+    *tmp_aIb_I = d_mc.a_I * (*tmp_I_I) - d_mc.b_I;
+    #ifdef USE_FLOATS
+    // to avoid firing rate approaching infinity near I = b/a
+    if (abs(*tmp_aIb_E) < 1e-4) *tmp_aIb_E = 1e-4;
+    if (abs(*tmp_aIb_I) < 1e-4) *tmp_aIb_I = 1e-4;
+    #endif
+    *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_mc.d_E * (*tmp_aIb_E)));
+    *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_mc.d_I * (*tmp_aIb_I)));
+    #ifdef NOISE_SEGMENT
+    // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
+    *noise_idx = ((((*sh_ts_noise) * 10 + (*int_i)) * (*nodes) * 2) + ((*sh_j) * 2));
+    #else
+    *noise_idx = ((((*ts_bold) * 10 + (*int_i)) * (*nodes) * 2) + ((*j) * 2));
+    #endif
+    *dSdt_E = noise[*noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_mc.dt_itau_E * (*S_i_E);
+    *dSdt_I = noise[*noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * (*tmp_r_I) - d_mc.dt_itau_I * (*S_i_I);
+    *S_i_E += *dSdt_E;
+    *S_i_I += *dSdt_I;
+    // clip S to 0-1
+    *S_i_E = max(0.0f, min(1.0f, *S_i_E));
+    *S_i_I = max(0.0f, min(1.0f, *S_i_I));
+}
+
+__device__ void bw_step(
+        u_real* bw_x, u_real* bw_f, u_real* bw_nu, 
+        u_real* bw_q, u_real* tmp_f,
+        u_real* S_i_E 
+) {
+    // Balloon-Windkessel model integration step
+    *bw_x  = (*bw_x)  +  d_mc.bw_dt * ((*S_i_E) - d_mc.kappa * (*bw_x) - d_mc.y * ((*bw_f) - 1.0));
+    *tmp_f = (*bw_f)  +  d_mc.bw_dt * (*bw_x);
+    *bw_nu = (*bw_nu) +  d_mc.bw_dt_itau * ((*bw_f) - pow((*bw_nu), d_mc.ialpha));
+    *bw_q  = (*bw_q)  +  d_mc.bw_dt_itau * ((*bw_f) * (1.0 - pow(d_mc.oneminrho,(1.0/ (*bw_f)))) / d_mc.rho  - pow(*bw_nu,d_mc.ialpha) * (*bw_q) / (*bw_nu));
+    *bw_f  = *tmp_f;
+}
+
+__device__ void fic_adjust(
+    u_real* mean_I_E, u_real* tmp_I_E, u_real* I_E_ba_diff,
+    u_real* w_IE, u_real* delta,
+    int* ts_bold, int* fic_trial, int* max_fic_trials,
+    bool* needs_fic_adjustment, bool* _adjust_fic,
+    bool* fic_failed, cg::thread_block* b, 
+    // following variables are needed for the reset
+    int* BOLD_len_i, int* nodes, int* sim_idx, int* j,
+    int* buff_idx, int* max_delay, int** delay, int* sh_j,
+    int* shuffled_nodes, int* shuffled_ts, 
+    int* curr_noise_repeat, int* ts_noise,
+    int* sh_ts_noise, bool* extended_output, bool* has_delay,
+    u_real* S_1_E, u_real* S_i_E, u_real* S_i_I, u_real* bw_x,
+    u_real* bw_f, u_real* bw_nu, u_real* bw_q, u_real** mean_bold,
+    u_real** ssd_bold, u_real** S_ratio, u_real** I_ratio, u_real** r_ratio,
+    u_real** S_E, u_real** I_E, u_real** r_E, u_real** S_I, u_real** I_I,
+    u_real** r_I, u_real** S_i_E_hist
+) {
+    if ((*ts_bold >= d_conf.I_SAMPLING_START) & (*ts_bold <= d_conf.I_SAMPLING_END)) {
+        *mean_I_E += *tmp_I_E;
+    }
+    if (*ts_bold == d_conf.I_SAMPLING_END) {
+        *needs_fic_adjustment = false;
+        cg::sync(*b); // all threads must be at the same time point here given needs_fic_adjustment is shared
+        *mean_I_E /= d_conf.I_SAMPLING_DURATION;
+        *I_E_ba_diff = *mean_I_E - d_mc.b_a_ratio_E;
+        if (abs(*I_E_ba_diff + 0.026) > 0.005) {
+            *needs_fic_adjustment = true;
+            if (*fic_trial < *max_fic_trials) { // only do the adjustment if max trials is not exceeded
+                // up- or downregulate inhibition
+                if ((*I_E_ba_diff) < -0.026) {
+                    *w_IE -= *delta;
+                    // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
+                    *delta -= 0.001;
+                    *delta = CUDA_MAX(*delta, 0.001);
+                } else {
+                    *w_IE += *delta;
+                    // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
+                }
+            }
+        }
+        cg::sync(*b); // wait to see if needs_fic_adjustment in any node
+        // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
+        // the simulation until the end
+        if (*needs_fic_adjustment) {
+            if (*fic_trial < *max_fic_trials) {
+                // TODO: create a `init` kernel
+                // than will be used here and at
+                // the beginning of the simulation
+                // reset time
+                *ts_bold = 0;
+                *BOLD_len_i = 0;
+                *fic_trial++;
+                // reset states
+                S_1_E[*j] = 0.001;
+                *S_i_E = 0.001;
+                *S_i_I = 0.001;
+                *bw_x = 0.0;
+                *bw_f = 1.0;
+                *bw_nu = 1.0;
+                *bw_q = 1.0;
+                *mean_I_E = 0;
+                // reset mean and ssd bold + extended output
+                // normally this isn't needed because by default
+                // bold_remove_s is 30s and FIC adjustment happens < 10s
+                // so these variables have not been updated so far
+                mean_bold[*sim_idx][*j] = 0.0;
+                ssd_bold[*sim_idx][*j] = 0.0;
+                if (*extended_output) {
+                    S_ratio[*sim_idx][*j] = 0.0;
+                    I_ratio[*sim_idx][*j] = 0.0;
+                    r_ratio[*sim_idx][*j] = 0.0;
+                    S_E[*sim_idx][*j] = 0.0;
+                    I_E[*sim_idx][*j] = 0.0;
+                    r_E[*sim_idx][*j] = 0.0;
+                    S_I[*sim_idx][*j] = 0.0;
+                    I_I[*sim_idx][*j] = 0.0;
+                    r_I[*sim_idx][*j] = 0.0;
+                }
+                if (*has_delay) {
+                    // reset buffer
+                    // initialize S_i_E_hist in every time point at initial value
+                    for (*buff_idx=0; *buff_idx<*max_delay; (*buff_idx)++) {
+                        S_i_E_hist[*sim_idx][(*buff_idx)*(*nodes)+(*j)] = 0.001;
+                    }
+                    *buff_idx = *max_delay-1;
+                }
+                #ifdef NOISE_SEGMENT
+                // reset the node shuffling
+                *sh_j = shuffled_nodes[*j];
+                *curr_noise_repeat = 0;
+                *ts_noise = 0;
+                *sh_ts_noise = shuffled_ts[*ts_noise];
+                #endif
+            } else {
+                // continue the simulation but
+                // declare FIC failed
+                fic_failed[*sim_idx] = true;
+                *_adjust_fic = false;
+            }
+        } else {
+            // if no node needs fic adjustment don't run
+            // this block of code any more
+            *_adjust_fic = false;
+        }
+        cg::sync(*b);
+    }
+}
+
 __global__ void bnm(
     u_real **BOLD_ex, u_real **S_ratio, u_real **I_ratio, u_real **r_ratio,
     u_real **S_E, u_real **I_E, u_real **r_E, u_real **S_I, u_real **I_I, 
@@ -277,71 +463,41 @@ __global__ void bnm(
         if (d_conf.sync_msec) {
             // calculate global input every 1 ms
             // (will be fixed through 10 steps of the millisecond)
-            // TODO: consider using directives or separate kernels
-            // to avoid unnecessary repetitive if clauses
-            // wait for other nodes
             // note that a sync call is needed before using
             // and updating S_i_1_E, otherwise the current
             // thread might access S_E of other nodes at wrong
             // times (t or t-2 instead of t-1)
             cg::sync(b);
-            tmp_globalinput = 0;
-            if (has_delay) {
-                for (k=0; k<nodes; k++) {
-                    // calculate correct index of the other region in the buffer based on j-k delay
-                    k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
-                    tmp_globalinput += _SC[k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
-                }
-            } else {
-                for (k=0; k<nodes; k++) {
-                    tmp_globalinput += _SC[k] * S_1_E[k];
-                }            
-            }
+            calculateGlobalInput(
+                &tmp_globalinput, &k_buff_idx,
+                &nodes, &sim_idx, 
+                &j, &k, &buff_idx, &max_delay, 
+                _SC, delay, S_i_E_hist, S_1_E, &has_delay
+            );
         }
         for (int_i = 0; int_i < 10; int_i++) {
             if (!d_conf.sync_msec) {
                 // calculate global input every 0.1 ms
                 cg::sync(b);
-                tmp_globalinput = 0;
-                if (has_delay) {
-                    for (k=0; k<nodes; k++) {
-                        // calculate correct index of the other region in the buffer based on j-k delay
-                        k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
-                        tmp_globalinput += _SC[k] * S_i_E_hist[sim_idx][k_buff_idx*nodes+k];
-                    }
-                } else {
-                    for (k=0; k<nodes; k++) {
-                        tmp_globalinput += _SC[k] * S_1_E[k];
-                    }            
-                }
+                calculateGlobalInput(
+                    &tmp_globalinput, &k_buff_idx,
+                    &nodes, &sim_idx, 
+                    &j, &k, &buff_idx, &max_delay, 
+                    _SC, delay, S_i_E_hist, S_1_E, &has_delay
+                );
             }
             // equations
-            tmp_I_E = d_mc.w_E__I_0 + w_EE * S_i_E + tmp_globalinput * G_J_NMDA - w_IE*S_i_I;
-            tmp_I_I = d_mc.w_I__I_0 + w_EI * S_i_E - S_i_I;
-            tmp_aIb_E = d_mc.a_E * tmp_I_E - d_mc.b_E;
-            tmp_aIb_I = d_mc.a_I * tmp_I_I - d_mc.b_I;
-            #ifdef USE_FLOATS
-            // to avoid firing rate approaching infinity near I = b/a
-            if (abs(tmp_aIb_E) < 1e-4) tmp_aIb_E = 1e-4;
-            if (abs(tmp_aIb_I) < 1e-4) tmp_aIb_I = 1e-4;
-            #endif
-            tmp_r_E = tmp_aIb_E / (1 - EXP(-d_mc.d_E * tmp_aIb_E));
-            tmp_r_I = tmp_aIb_I / (1 - EXP(-d_mc.d_I * tmp_aIb_I));
-            #ifdef NOISE_SEGMENT
-            // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
-            noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * 2) + (sh_j * 2));
-            #else
-            noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
-            #endif
-            // dSdt_E = noise[noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt * ((1 - S_i_E) * d_mc.gamma_E * tmp_r_E - S_i_E * d_mc.itau_E);
-            dSdt_E = noise[noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - S_i_E) * tmp_r_E) - d_mc.dt_itau_E * S_i_E;
-            // dSdt_I = noise[noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt * (d_mc.gamma_I * tmp_r_I - S_i_I * d_mc.itau_I);
-            dSdt_I = noise[noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * tmp_r_I - d_mc.dt_itau_I * S_i_I;
-            S_i_E += dSdt_E;
-            S_i_I += dSdt_I;
-            // clip S to 0-1
-            S_i_E = CUDA_MAX(0.0, CUDA_MIN(1.0, S_i_E));
-            S_i_I = CUDA_MAX(0.0, CUDA_MIN(1.0, S_i_I));
+            step(
+                &tmp_I_E, &tmp_I_I, &tmp_aIb_E, 
+                &tmp_aIb_I, &tmp_r_E, &tmp_r_I, 
+                &noise_idx, &dSdt_E, &dSdt_I, 
+                &S_i_E, &S_i_I, &w_EE, 
+                &tmp_globalinput, &G_J_NMDA, 
+                &w_IE, &w_EI, 
+                &sh_ts_noise, &int_i, 
+                &nodes, &sh_j, &ts_bold, 
+                &j, noise
+            );
             if (!d_conf.sync_msec) {
                 if (has_delay) {
                     // go 0.1 ms backward in the buffer and save most recent S_i_E
@@ -377,11 +533,11 @@ __global__ void bnm(
 
         // Balloon-Windkessel model equations here since its
         // dt is 1 msec
-        bw_x  = bw_x  +  d_mc.bw_dt * (S_i_E - d_mc.kappa * bw_x - d_mc.y * (bw_f - 1.0));
-        tmp_f = bw_f  +  d_mc.bw_dt * bw_x;
-        bw_nu = bw_nu +  d_mc.bw_dt_itau * (bw_f - POW(bw_nu, d_mc.ialpha));
-        bw_q  = bw_q  +  d_mc.bw_dt_itau * (bw_f * (1.0 - POW(d_mc.oneminrho,(1.0/bw_f))) / d_mc.rho  - POW(bw_nu,d_mc.ialpha) * bw_q / bw_nu);
-        bw_f  = tmp_f;
+        bw_step(
+            &bw_x, &bw_f, &bw_nu, 
+            &bw_q, &tmp_f,
+            &S_i_E 
+        );
 
         // Save BOLD and extended output to managed memory
         // every TR
@@ -435,92 +591,24 @@ __global__ void bnm(
         #endif
 
         if (_adjust_fic) {
-            if ((ts_bold >= d_conf.I_SAMPLING_START) & (ts_bold <= d_conf.I_SAMPLING_END)) {
-                mean_I_E += tmp_I_E;
-            }
-            if (ts_bold == d_conf.I_SAMPLING_END) {
-                needs_fic_adjustment = false;
-                cg::sync(b); // all threads must be at the same time point here given needs_fic_adjustment is shared
-                mean_I_E /= d_conf.I_SAMPLING_DURATION;
-                I_E_ba_diff = mean_I_E - d_mc.b_a_ratio_E;
-                if (abs(I_E_ba_diff + 0.026) > 0.005) {
-                    needs_fic_adjustment = true;
-                    if (fic_trial < max_fic_trials) { // only do the adjustment if max trials is not exceeded
-                        // up- or downregulate inhibition
-                        if ((I_E_ba_diff) < -0.026) {
-                            w_IE -= delta;
-                            // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
-                            delta -= 0.001;
-                            delta = CUDA_MAX(delta, 0.001);
-                        } else {
-                            w_IE += delta;
-                            // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
-                        }
-                    }
-                }
-                cg::sync(b); // wait to see if needs_fic_adjustment in any node
-                // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
-                // the simulation until the end
-                if (needs_fic_adjustment) {
-                    if (fic_trial < max_fic_trials) {
-                        // reset time
-                        ts_bold = 0;
-                        BOLD_len_i = 0;
-                        fic_trial++;
-                        // reset states
-                        S_1_E[j] = 0.001;
-                        S_i_E = 0.001;
-                        S_i_I = 0.001;
-                        bw_x = 0.0;
-                        bw_f = 1.0;
-                        bw_nu = 1.0;
-                        bw_q = 1.0;
-                        mean_I_E = 0;
-                        // reset mean and ssd bold + extended output
-                        // normally this isn't needed because by default
-                        // bold_remove_s is 30s and FIC adjustment happens < 10s
-                        // so these variables have not been updated so far
-                        mean_bold[sim_idx][j] = 0;
-                        ssd_bold[sim_idx][j] = 0;
-                        if (extended_output) {
-                            S_ratio[sim_idx][j] = 0;
-                            I_ratio[sim_idx][j] = 0;
-                            r_ratio[sim_idx][j] = 0;
-                            S_E[sim_idx][j] = 0;
-                            I_E[sim_idx][j] = 0;
-                            r_E[sim_idx][j] = 0;
-                            S_I[sim_idx][j] = 0;
-                            I_I[sim_idx][j] = 0;
-                            r_I[sim_idx][j] = 0;
-                        }
-                        if (has_delay) {
-                            // reset buffer
-                            // initialize S_i_E_hist in every time point at initial value
-                            for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
-                                S_i_E_hist[sim_idx][buff_idx*nodes+j] = 0.001;
-                            }
-                            buff_idx = max_delay-1;
-                        }
-                        #ifdef NOISE_SEGMENT
-                        // reset the node shuffling
-                        sh_j = shuffled_nodes[j];
-                        curr_noise_repeat = 0;
-                        ts_noise = 0;
-                        sh_ts_noise = shuffled_ts[ts_noise];
-                        #endif
-                    } else {
-                        // continue the simulation but
-                        // declare FIC failed
-                        fic_failed[sim_idx] = true;
-                        _adjust_fic = false;
-                    }
-                } else {
-                    // if no node needs fic adjustment don't run
-                    // this block of code any more
-                    _adjust_fic = false;
-                }
-                cg::sync(b);
-            }
+            fic_adjust(
+                &mean_I_E, &tmp_I_E, &I_E_ba_diff,
+                &w_IE, &delta,
+                &ts_bold, &fic_trial, &max_fic_trials,
+                &needs_fic_adjustment, &_adjust_fic,
+                fic_failed, &b, 
+                // following variables are needed for the reset
+                &BOLD_len_i, &nodes, &sim_idx, &j,
+                &buff_idx, &max_delay, delay, &sh_j,
+                shuffled_nodes, shuffled_ts, 
+                &curr_noise_repeat, &ts_noise,
+                &sh_ts_noise, &extended_output, &has_delay,
+                S_1_E, &S_i_E, &S_i_I, &bw_x,
+                &bw_f, &bw_nu, &bw_q, mean_bold,
+                ssd_bold, S_ratio, I_ratio, r_ratio,
+                S_E, I_E, r_E, S_I, I_I,
+                r_I, S_i_E_hist
+            );
         }
     }
     if (adjust_fic) {
