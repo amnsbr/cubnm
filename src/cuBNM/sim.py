@@ -175,11 +175,10 @@ class SimGroup:
         else:
             self.out_dir = out_dir
         os.makedirs(out_dir, exist_ok=True)
-        # keep track of the last N, nodes and timesteps run to determine if force_reinit
-        # is needed (when last_N is different from current N)
+        # keep track of the last N and config to determine if force_reinit
+        # is needed in the next run if any are changed
         self.last_N = 0
-        self.last_nodes = 0
-        self.last_duration = 0
+        self.last_config = self.get_config(for_reinit=True)
         # keep track of the iterations for iterative algorithms
         self.it = 0
 
@@ -241,7 +240,7 @@ class SimGroup:
         self._sync_msec = sync_msec
         set_conf("sync_msec", self._sync_msec)
 
-    def get_config(self, include_N=False):
+    def get_config(self, include_N=False, for_reinit=False):
         """
         Get the configuration of the simulation group
 
@@ -249,6 +248,9 @@ class SimGroup:
         ----------
         include_N: :obj:`bool`, optional
             include N in the output config
+            is ignored when for_reinit is True
+        for_reinit: :obj:`bool`, optional
+            include the parameters that need reinitialization if changed
 
         Returns
         -------
@@ -260,19 +262,21 @@ class SimGroup:
             "TR": self.TR,
             "sc_path": self.sc_path,
             "sc_dist_path": self.sc_dist_path,
-            "out_dir": self.out_dir,
             "do_fic": self.do_fic,
             "extended_output": self.extended_output,
+            "extended_output_ts": self.extended_output_ts,
             "window_size": self.window_size,
             "window_step": self.window_step,
             "rand_seed": self.rand_seed,
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
-            "gof_terms": self.gof_terms,
             "bw_params": self.bw_params,
         }
-        if include_N:
-            config["N"] = self.N
+        if not for_reinit:
+            config["out_dir"] = self.out_dir
+            config["gof_terms"] = self.gof_terms
+            if include_N:
+                config["N"] = self.N
         return config
 
     def run(self, force_reinit=False):
@@ -308,12 +312,14 @@ class SimGroup:
                 was unstable. Shape: (N_SIMS,)
                 Only available if `do_fic` is True.
         """
-        # TODO: add assertions to make sure all the data is complete
+        # TODO: add assertions to make sure all the input data is complete
+        # check if reinitialization is needed (user request, change of N,
+        # of change of other config)
+        curr_config = self.get_config(for_reinit=True)
         force_reinit = (
             force_reinit
             | (self.N != self.last_N)
-            | (self.duration != self.last_duration)
-            | (self.nodes != self.last_nodes)
+            | (curr_config != self.last_config)
         )
         use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)
         # set wIE to its flattened copy and pass this
@@ -352,8 +358,7 @@ class SimGroup:
         # avoid reinitializing GPU in the next runs
         # of the same group
         self.last_N = self.N
-        self.last_nodes = self.nodes
-        self.last_duration = self.duration
+        self.last_config = curr_config
         self.it += 1
         # assign the output to object properties
         # and reshape them to (N_SIMS, ...)
