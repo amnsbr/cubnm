@@ -176,7 +176,7 @@ __device__ void bw_step(
         u_real* bw_x, u_real* bw_f, u_real* bw_nu, 
         u_real* bw_q, u_real* tmp_f,
         u_real* S_i_E 
-) {
+        ) {
     // Balloon-Windkessel model integration step
     *bw_x  = (*bw_x)  +  d_mc.bw_dt * ((*S_i_E) - d_mc.kappa * (*bw_x) - d_mc.y * ((*bw_f) - 1.0));
     *tmp_f = (*bw_f)  +  d_mc.bw_dt * (*bw_x);
@@ -198,8 +198,8 @@ __device__ void fic_adjust(
     int* curr_noise_repeat, int* ts_noise,
     int* sh_ts_noise, bool* extended_output, bool* has_delay,
     u_real* S_1_E, u_real* S_i_E, u_real* S_i_I, u_real* bw_x,
-    u_real* bw_f, u_real* bw_nu, u_real* bw_q, u_real** mean_bold,
-    u_real** ssd_bold, u_real** S_ratio, u_real** I_ratio, u_real** r_ratio,
+    u_real* bw_f, u_real* bw_nu, u_real* bw_q,
+    u_real** S_ratio, u_real** I_ratio, u_real** r_ratio,
     u_real** S_E, u_real** I_E, u_real** r_E, u_real** S_I, u_real** I_I,
     u_real** r_I, u_real** S_i_E_hist
 ) {
@@ -247,12 +247,10 @@ __device__ void fic_adjust(
                 *bw_nu = 1.0;
                 *bw_q = 1.0;
                 *mean_I_E = 0;
-                // reset mean and ssd bold + extended output
+                // reset extended output
                 // normally this isn't needed because by default
                 // bold_remove_s is 30s and FIC adjustment happens < 10s
                 // so these variables have not been updated so far
-                mean_bold[*sim_idx][*j] = 0.0;
-                ssd_bold[*sim_idx][*j] = 0.0;
                 if (*extended_output) {
                     S_ratio[*sim_idx][*j] = 0.0;
                     I_ratio[*sim_idx][*j] = 0.0;
@@ -303,8 +301,7 @@ __global__ void bnm(
     int N_SIMS, int nodes, int BOLD_TR, int time_steps, 
     u_real *noise, bool do_fic, u_real **w_IE_fic,
     bool adjust_fic, int max_fic_trials, bool *fic_unstable, bool *fic_failed, int *fic_n_trials,
-    bool extended_output,
-    int corr_len, u_real **mean_bold, u_real **ssd_bold,
+    bool extended_output, int corr_len,
 #ifdef NOISE_SEGMENT
     int *shuffled_nodes, int *shuffled_ts,
     int noise_time_steps, int noise_repeats,
@@ -448,10 +445,6 @@ __global__ void bnm(
     _adjust_fic = adjust_fic;
     __shared__ bool needs_fic_adjustment;
 
-    // initialization of corr calculations needed for FC
-    mean_bold[sim_idx][j] = 0;
-    ssd_bold[sim_idx][j] = 0;
-
     // integration loop
     u_real tmp_globalinput, tmp_I_E, tmp_I_I, tmp_r_E, tmp_r_I, dSdt_E, dSdt_I, tmp_f,
         tmp_aIb_E, tmp_aIb_I;
@@ -533,11 +526,8 @@ __global__ void bnm(
 
         // Balloon-Windkessel model equations here since its
         // dt is 1 msec
-        bw_step(
-            &bw_x, &bw_f, &bw_nu, 
-            &bw_q, &tmp_f,
-            &S_i_E 
-        );
+        bw_step(&bw_x, &bw_f, &bw_nu, 
+            &bw_q, &tmp_f, &S_i_E );
 
         // Save BOLD and extended output to managed memory
         // every TR
@@ -548,10 +538,8 @@ __global__ void bnm(
             // BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0 * (d_mc.k1 * (1 - bw_q) + d_mc.k2 * (1 - bw_q/bw_nu) + d_mc.k3 * (1 - bw_nu));
             BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0_k1 * (1 - bw_q) + d_mc.V_0_k2 * (1 - bw_q/bw_nu) + d_mc.V_0_k3 * (1 - bw_nu);
             if ((BOLD_len_i>=n_vols_remove)) {
-                // update sum (later mean) of BOLD and extended
-                // output only after the simulation has stabilized
+                // update extended output only after the simulation has stabilized
                 // (default > 30s)
-                mean_bold[sim_idx][j] += BOLD_ex[sim_idx][BOLD_len_i*nodes+j];
                 if (extended_output) {
                     // TODO: consider removing ratios
                     S_ratio[sim_idx][j] += (S_i_E / S_i_I);
@@ -604,8 +592,8 @@ __global__ void bnm(
                 &curr_noise_repeat, &ts_noise,
                 &sh_ts_noise, &extended_output, &has_delay,
                 S_1_E, &S_i_E, &S_i_I, &bw_x,
-                &bw_f, &bw_nu, &bw_q, mean_bold,
-                ssd_bold, S_ratio, I_ratio, r_ratio,
+                &bw_f, &bw_nu, &bw_q, 
+                S_ratio, I_ratio, r_ratio,
                 S_E, I_E, r_E, S_I, I_I,
                 r_I, S_i_E_hist
             );
@@ -630,17 +618,34 @@ __global__ void bnm(
         I_I[sim_idx][j] /= extended_output_time_points;
         r_I[sim_idx][j] /= extended_output_time_points;
     }
+}
 
-    // calculate correlation terms
+__global__ void bold_stats(
+    u_real **mean_bold, u_real **ssd_bold,
+    u_real **BOLD_ex, int N_SIMS, int nodes,
+    int output_ts, int corr_len, int n_vols_remove) {
+    // TODO: consider combining this with window_bold_stats
+    // get simulation index
+    int sim_idx = blockIdx.x;
+    if (sim_idx >= N_SIMS) return;
+    // get node index
+    int j = threadIdx.x;
+    if (j >= nodes) return;
+
     // mean
-    mean_bold[sim_idx][j] /= corr_len;
-    // sqrt((x_i - mean)**@)
-    u_real _ssd_bold = 0;
-    u_real _mean_bold = mean_bold[sim_idx][j];
+    u_real _mean_bold = 0;
     int vol;
-    for (vol=n_vols_remove; vol<BOLD_len_i; vol++) {
+    for (vol=n_vols_remove; vol<output_ts; vol++) {
+        _mean_bold += BOLD_ex[sim_idx][vol*nodes+j];
+    }
+    _mean_bold /= corr_len;
+    // ssd
+    u_real _ssd_bold = 0;
+    for (vol=n_vols_remove; vol<output_ts; vol++) {
         _ssd_bold += POW(BOLD_ex[sim_idx][vol*nodes+j] - _mean_bold, 2);
     }
+    // save to memory
+    mean_bold[sim_idx][j] = _mean_bold;
     ssd_bold[sim_idx][j] = SQRT(_ssd_bold);
 }
 
@@ -1026,12 +1031,18 @@ void run_simulations_gpu(
         N_SIMS, nodes, BOLD_TR, time_steps, 
         noise, do_fic, w_IE_fic, 
         adjust_fic, _max_fic_trials, fic_unstable, fic_failed, fic_n_trials,
-        _extended_output,
-        corr_len, mean_bold, ssd_bold, 
+        _extended_output, corr_len,
     #ifdef NOISE_SEGMENT
         shuffled_nodes, shuffled_ts, noise_time_steps, noise_repeats,
     #endif
         regional_params);
+    CUDA_CHECK_LAST_ERROR();
+    CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+    // calculate mean and sd bold for FC calculation
+    bold_stats<<<numBlocks, threadsPerBlock>>>(
+        mean_bold, ssd_bold,
+        BOLD_ex, N_SIMS, nodes,
+        output_ts, corr_len, n_vols_remove);
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     // calculate window mean and sd bold for FCD calculations
