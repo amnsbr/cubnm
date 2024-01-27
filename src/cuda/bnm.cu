@@ -191,7 +191,7 @@ __global__ void bnm(
     bw_nu = 1.0;
     bw_q = 1.0;
     // initialization of extended output sums
-    if (extended_output) {
+    if (extended_output & (!d_conf.extended_output_ts)) {
         S_E[sim_idx][j] = 0;
         I_E[sim_idx][j] = 0;
         r_E[sim_idx][j] = 0;
@@ -386,14 +386,22 @@ __global__ void bnm(
         // for BOLD and extended output
         // TODO: add option to return time series of extended output
         if (ts_bold % BOLD_TR == 0) {
-            // BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0 * (d_mc.k1 * (1 - bw_q) + d_mc.k2 * (1 - bw_q/bw_nu) + d_mc.k3 * (1 - bw_nu));
+            // calcualte and save BOLD
             BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0_k1 * (1 - bw_q) + d_mc.V_0_k2 * (1 - bw_q/bw_nu) + d_mc.V_0_k3 * (1 - bw_nu);
+            // save time series of extended output if indicated
+            if (extended_output & d_conf.extended_output_ts) {
+                S_E[sim_idx][BOLD_len_i*nodes+j] = S_i_E;
+                I_E[sim_idx][BOLD_len_i*nodes+j] = tmp_I_E;
+                r_E[sim_idx][BOLD_len_i*nodes+j] = tmp_r_E;
+                S_I[sim_idx][BOLD_len_i*nodes+j] = S_i_I;
+                I_I[sim_idx][BOLD_len_i*nodes+j] = tmp_I_I;
+                r_I[sim_idx][BOLD_len_i*nodes+j] = tmp_r_I;
+            }
+            // update sum (later mean) of BOLD and extended
+            // output only after n_vols_remove
             if ((BOLD_len_i>=n_vols_remove)) {
-                // update sum (later mean) of BOLD and extended
-                // output only after the simulation has stabilized
-                // (default > 30s)
                 mean_bold[sim_idx][j] += BOLD_ex[sim_idx][BOLD_len_i*nodes+j];
-                if (extended_output) {
+                if (extended_output & (!d_conf.extended_output_ts)) {
                     S_E[sim_idx][j] += S_i_E;
                     I_E[sim_idx][j] += tmp_I_E;
                     r_E[sim_idx][j] += tmp_r_E;
@@ -475,7 +483,7 @@ __global__ void bnm(
                         // so these variables have not been updated so far
                         mean_bold[sim_idx][j] = 0;
                         ssd_bold[sim_idx][j] = 0;
-                        if (extended_output) {
+                        if (extended_output & (!d_conf.extended_output_ts)) {
                             S_E[sim_idx][j] = 0;
                             I_E[sim_idx][j] = 0;
                             r_E[sim_idx][j] = 0;
@@ -519,7 +527,7 @@ __global__ void bnm(
         // as well as the number of adjustment trials needed
         fic_n_trials[sim_idx] = fic_trial;
     }
-    if (extended_output) {
+    if (extended_output & (!d_conf.extended_output_ts)) {
         // take average
         int extended_output_time_points = BOLD_len_i - n_vols_remove;
         S_E[sim_idx][j] /= extended_output_time_points;
@@ -1012,6 +1020,10 @@ void run_simulations_gpu(
 
     // copy the output from managed memory to _out arrays (which can be numpy arrays)
     size_t bold_size = nodes * output_ts;
+    size_t ext_out_size = nodes;
+    if (conf.extended_output_ts) {
+        ext_out_size *= output_ts;
+    }
     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
         memcpy(BOLD_ex_out, BOLD_ex[sim_idx], sizeof(u_real) * bold_size);
         BOLD_ex_out+=bold_size;
@@ -1020,18 +1032,18 @@ void run_simulations_gpu(
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
         if (extended_output) {
-            memcpy(S_E_out, S_E[sim_idx], sizeof(u_real) * nodes);
-            S_E_out+=nodes;
-            memcpy(S_I_out, S_I[sim_idx], sizeof(u_real) * nodes);
-            S_I_out+=nodes;
-            memcpy(r_E_out, r_E[sim_idx], sizeof(u_real) * nodes);
-            r_E_out+=nodes;
-            memcpy(r_I_out, r_I[sim_idx], sizeof(u_real) * nodes);
-            r_I_out+=nodes;
-            memcpy(I_E_out, I_E[sim_idx], sizeof(u_real) * nodes);
-            I_E_out+=nodes;
-            memcpy(I_I_out, I_I[sim_idx], sizeof(u_real) * nodes);
-            I_I_out+=nodes;
+            memcpy(S_E_out, S_E[sim_idx], sizeof(u_real) * ext_out_size);
+            S_E_out+=ext_out_size;
+            memcpy(S_I_out, S_I[sim_idx], sizeof(u_real) * ext_out_size);
+            S_I_out+=ext_out_size;
+            memcpy(r_E_out, r_E[sim_idx], sizeof(u_real) * ext_out_size);
+            r_E_out+=ext_out_size;
+            memcpy(r_I_out, r_I[sim_idx], sizeof(u_real) * ext_out_size);
+            r_I_out+=ext_out_size;
+            memcpy(I_E_out, I_E[sim_idx], sizeof(u_real) * ext_out_size);
+            I_E_out+=ext_out_size;
+            memcpy(I_I_out, I_I[sim_idx], sizeof(u_real) * ext_out_size);
+            I_I_out+=ext_out_size;
         }
         if (do_fic) {
             memcpy(w_IE_list, w_IE_fic[sim_idx], sizeof(u_real) * nodes);
@@ -1214,6 +1226,11 @@ void init_gpu(
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fcd_trils, sizeof(double*) * N_SIMS));
     #endif
 
+    // determine size of extended output variables
+    size_t ext_out_size = nodes;
+    if (conf.extended_output_ts) {
+        ext_out_size *= output_ts;
+    }
 
     // allocate memory per each simulation
     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
@@ -1239,12 +1256,12 @@ void init_gpu(
             // allocate a chunk of w_IE_fic to current simulation and copy w_IE array to it
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic[sim_idx], sizeof(u_real) * nodes));
             // also need to allocate memory for all internal variables (but only r_E is used)
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_E[sim_idx], sizeof(u_real) * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_E[sim_idx], sizeof(u_real) * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_E[sim_idx], sizeof(u_real) * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_I[sim_idx], sizeof(u_real) * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_I[sim_idx], sizeof(u_real) * nodes));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_I[sim_idx], sizeof(u_real) * nodes));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_E[sim_idx], sizeof(u_real) * ext_out_size));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_E[sim_idx], sizeof(u_real) * ext_out_size));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_E[sim_idx], sizeof(u_real) * ext_out_size));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_I[sim_idx], sizeof(u_real) * ext_out_size));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_I[sim_idx], sizeof(u_real) * ext_out_size));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_I[sim_idx], sizeof(u_real) * ext_out_size));
         }
     }
 

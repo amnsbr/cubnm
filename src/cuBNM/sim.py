@@ -22,6 +22,7 @@ class SimGroup:
         out_dir="same",
         do_fic=True,
         extended_output=True,
+        extended_output_ts=False,
         window_size=10,
         window_step=2,
         rand_seed=410,
@@ -58,6 +59,10 @@ class SimGroup:
             if provided wIE parameters will be ignored
         extended_output: :obj:`bool`, optional
             return mean internal model variables to self.ext_out
+        extended_output_ts: :obj:`bool`, optional
+            return time series of internal model variables to self.ext_out
+            Note that this will increase the memory usage and is not
+            recommended for large number of simulations (e.g. in a grid search)
         window_size: :obj:`int`, optional
             dynamic FC window size (in TR)
         window_step: :obj:`int`, optional
@@ -123,6 +128,7 @@ class SimGroup:
         self.extended_output = (
             extended_output | do_fic
         )  # extended output is needed for FIC penalty calculations
+        self.extended_output_ts = self.extended_output & extended_output_ts
         self.window_size = window_size
         self.window_step = window_step
         self.rand_seed = rand_seed
@@ -331,6 +337,7 @@ class SimGroup:
             np.ascontiguousarray(self.param_lists["v"]),
             self.do_fic,
             self.extended_output,
+            self.extended_output_ts,
             self.do_delay,
             force_reinit,
             use_cpu,
@@ -366,7 +373,10 @@ class SimGroup:
             ) = out
             self.ext_out = ext_out
             for k in self.ext_out:
-                self.ext_out[k] = self.ext_out[k].reshape(self.N, -1)
+                if self.extended_output_ts:
+                    self.ext_out[k] = self.ext_out[k].reshape(self.N, -1, self.nodes)
+                else:
+                    self.ext_out[k] = self.ext_out[k].reshape(self.N, -1)
         else:
             sim_bold, sim_fc_trils, sim_fcd_trils, self.fic_unstable = out
         self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)

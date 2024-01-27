@@ -209,11 +209,11 @@ static PyObject* get_conf(PyObject* self, PyObject* args) {
 
 static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list, *v_list;
-    bool do_fic, extended_output, do_delay, force_reinit, use_cpu;
+    bool do_fic, extended_output, extended_output_ts, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
     double velocity;
 
-    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiiiiiii", 
             &PyArray_Type, &SC,
             &PyArray_Type, &SC_dist,
             &PyArray_Type, &G_list,
@@ -223,6 +223,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             &PyArray_Type, &v_list,
             &do_fic,
             &extended_output,
+            &extended_output_ts,
             &do_delay,
             &force_reinit,
             &use_cpu,
@@ -265,6 +266,11 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     // maybe via env variables
     bool only_wIE_free = false;
     int _max_fic_trials = conf.max_fic_trials;
+
+    // update conf.extended_output_ts based on extended_output_ts
+    // TODO: consider using this approach for other configs as well
+    // (e.g. extended_output), as opposed to passing them as function arguments
+    conf.extended_output_ts = extended_output_ts;
 
     // copy SC to SC_gsl if FIC is needed
     gsl_matrix *SC_gsl;
@@ -328,6 +334,9 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     npy_intp fc_trils_dims[2] = {N_SIMS, _n_pairs};
     npy_intp fcd_trils_dims[2] = {N_SIMS, _n_window_pairs};
     npy_intp ext_var_dims[2] = {N_SIMS, nodes};
+    if (conf.extended_output_ts) {
+        ext_var_dims[1] *= _output_ts;
+    }
     PyObject* py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
     PyObject* py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
     PyObject* py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
@@ -401,8 +410,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, \n"
-        "v_list, do_fic, extended_output, do_delay, force_reinit, use_cpu, \n"
-        "N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
+        "v_list, do_fic, extended_output, extended_output_ts do_delay, force_reinit, \n"
+        "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
         "-----------\n"
@@ -424,7 +433,9 @@ static PyMethodDef methods[] = {
         "do_fic (bool)\n"
             "\twhether to do feedback inhibition control\n"
         "extended_output (bool)\n"
-            "\twhether to return extended output\n"
+            "\twhether to return extended output (averaged across time)\n"
+        "extended_output (bool)\n"
+            "\twhether to return extended output as time series\n"
         "do_delay (bool)\n"
             "\twhether to consider inter-regional conduction delay \n"
         "force_reinit (bool)\n"

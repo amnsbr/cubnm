@@ -16,6 +16,7 @@ WINDOW_SIZE = 10
 WINDOW_STEP = 2
 RAND_SEED = 410
 EXTENDED_OUTPUT = True
+EXTENDED_OUTPUT_TS = True
 # it is important to force reinit across tests because N_SIMS might be different
 FORCE_REINIT = True
 SC = datasets.load_sc('strength', 'schaefer-100').flatten()
@@ -24,6 +25,8 @@ set_conf("max_fic_trials", 5)
 def no_gpu():
     # to skip GPU-dependent tests
     return avail_gpus()==0
+
+# TODO: include one of the extended output in the tests
 
 @pytest.mark.parametrize(
     "opts, expected", 
@@ -76,7 +79,8 @@ def test_single_sim(opts, expected):
         SC_dist = np.zeros(NODES*NODES, dtype=float) # doesn't matter what it is!
     out = run_simulations(
         SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
-        opts['do_fic'], EXTENDED_OUTPUT, opts['do_delay'], FORCE_REINIT, (not opts['use_gpu']),
+        opts['do_fic'], EXTENDED_OUTPUT, EXTENDED_OUTPUT_TS,
+        opts['do_delay'], FORCE_REINIT, (not opts['use_gpu']),
         N_SIMS, NODES, TIME_STEPS, BOLD_TR,
         WINDOW_SIZE, WINDOW_STEP, RAND_SEED
     )
@@ -128,7 +132,8 @@ def test_identical_sims(opts):
         SC_dist = np.zeros(NODES*NODES, dtype=float) # doesn't matter what it is!
     out = run_simulations(
         SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
-        opts['do_fic'], EXTENDED_OUTPUT, opts['do_delay'], FORCE_REINIT, (not opts['use_gpu']),
+        opts['do_fic'], EXTENDED_OUTPUT, EXTENDED_OUTPUT_TS,
+        opts['do_delay'], FORCE_REINIT, (not opts['use_gpu']),
         N_SIMS, NODES, TIME_STEPS, BOLD_TR,
         WINDOW_SIZE, WINDOW_STEP, RAND_SEED
     )
@@ -159,7 +164,8 @@ def test_gpu_cpu_identical_fic_no_delay():
     force_cpu = True
     out = run_simulations(
         SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
-        do_fic, EXTENDED_OUTPUT, do_delay, FORCE_REINIT, force_cpu,
+        do_fic, EXTENDED_OUTPUT, EXTENDED_OUTPUT_TS,
+        do_delay, FORCE_REINIT, force_cpu,
         N_SIMS, NODES, TIME_STEPS, BOLD_TR,
         WINDOW_SIZE, WINDOW_STEP, RAND_SEED
     )
@@ -169,7 +175,8 @@ def test_gpu_cpu_identical_fic_no_delay():
     force_cpu = False
     out = run_simulations(
         SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
-        do_fic, EXTENDED_OUTPUT, do_delay, FORCE_REINIT, force_cpu,
+        do_fic, EXTENDED_OUTPUT, EXTENDED_OUTPUT_TS,
+        do_delay, FORCE_REINIT, force_cpu,
         N_SIMS, NODES, TIME_STEPS, BOLD_TR,
         WINDOW_SIZE, WINDOW_STEP, RAND_SEED
     )
