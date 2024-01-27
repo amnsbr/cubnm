@@ -125,9 +125,9 @@ gsl_vector * calculate_fcd_tril(gsl_matrix * bold) {
 }
 
 void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
-        double * S_E_mean, double * S_I_mean,
-        double * r_E_mean, double * r_I_mean,
-        double * I_E_mean, double * I_I_mean,
+        double * S_E_out, double * S_I_out,
+        double * r_E_out, double * r_I_out,
+        double * I_E_out, double * I_I_out,
         bool * fic_unstable_p, bool * fic_failed_p,
         int nodes, u_real * SC, gsl_matrix * SC_gsl,
         u_real G, u_real * w_EE,  u_real * w_EI, u_real * w_IE,
@@ -177,13 +177,13 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         bw_f[j] = 1.0;
         bw_nu[j] = 1.0;
         bw_q[j] = 1.0;
-        if (_extended_output) {
-            S_E_mean[j] = 0; // initialize sum (mean) of extended output to 0
-            S_I_mean[j] = 0;
-            r_E_mean[j] = 0;
-            r_I_mean[j] = 0;
-            I_E_mean[j] = 0;
-            I_I_mean[j] = 0;
+        if (_extended_output & (!conf.extended_output_ts)) {
+            S_E_out[j] = 0; // initialize sum (mean) of extended output to 0
+            S_I_out[j] = 0;
+            r_E_out[j] = 0;
+            r_I_out[j] = 0;
+            I_E_out[j] = 0;
+            I_I_out[j] = 0;
         }
     }
     // do FIC if indicated
@@ -248,21 +248,6 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     // make a local copy of mc
     struct ModelConstants _mc = mc;
     memcpy(&_mc, &mc, sizeof(struct ModelConstants));
-
-    u_real *S_E_ts, *S_I_ts, *r_E_ts, *r_I_ts, *I_E_ts, *I_I_ts;
-    if (_extended_output && conf.extended_output_ts) {
-        S_E_ts                  = (u_real *)malloc((bold_size * sizeof(u_real)));
-        S_I_ts                  = (u_real *)malloc((bold_size * sizeof(u_real)));
-        r_E_ts                  = (u_real *)malloc((bold_size * sizeof(u_real)));
-        r_I_ts                  = (u_real *)malloc((bold_size * sizeof(u_real)));
-        I_E_ts                  = (u_real *)malloc((bold_size * sizeof(u_real)));
-        I_I_ts                  = (u_real *)malloc((bold_size * sizeof(u_real)));
-        if (S_E_ts == NULL || S_I_ts == NULL || r_E_ts == NULL || r_I_ts == NULL ||
-            I_E_ts == NULL || I_I_ts == NULL) {
-                printf("Error: Failed to allocate memory to extended output\n");
-                exit(1);
-        }
-    }
 
     // allocate memory to BOLD gsl matrix used for FC and FCD calculation
     gsl_matrix * bold_gsl = gsl_matrix_alloc(output_ts, nodes);
@@ -383,24 +368,24 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                 bold_idx = BOLD_len_i*nodes+j;
                 BOLD_ex[bold_idx] = _mc.V_0 * (_mc.k1 * (1 - bw_q[j]) + _mc.k2 * (1 - bw_q[j]/bw_nu[j]) + _mc.k3 * (1 - bw_nu[j]));
                 gsl_matrix_set(bold_gsl, BOLD_len_i, j, BOLD_ex[bold_idx]);
-                if (conf.extended_output_ts) {
-                    S_E_ts[bold_idx] = S_i_E[j];
-                    S_I_ts[bold_idx] = S_i_I[j];
-                    r_E_ts[bold_idx] = r_i_E[j];
-                    r_I_ts[bold_idx] = r_i_I[j];
-                    I_E_ts[bold_idx] = I_i_E[j];
-                    I_I_ts[bold_idx] = I_i_I[j];
+                if (_extended_output & conf.extended_output_ts) {
+                    S_E_out[bold_idx] = S_i_E[j];
+                    S_I_out[bold_idx] = S_i_I[j];
+                    r_E_out[bold_idx] = r_i_E[j];
+                    r_I_out[bold_idx] = r_i_I[j];
+                    I_E_out[bold_idx] = I_i_E[j];
+                    I_I_out[bold_idx] = I_i_I[j];
                 }
-                // save data to extended output means
-                // only after n_vols_remove
-                if ((BOLD_len_i>=n_vols_remove)) {
-                    if (_extended_output) {
-                        S_E_mean[j] += S_i_E[j];
-                        S_I_mean[j] += S_i_I[j];
-                        r_E_mean[j] += r_i_E[j];
-                        r_I_mean[j] += r_i_I[j];
-                        I_E_mean[j] += I_i_E[j];
-                        I_I_mean[j] += I_i_I[j];
+                if (_extended_output & (!conf.extended_output_ts)) {
+                    // save data to extended output means
+                    // only after n_vols_remove
+                    if ((BOLD_len_i>=n_vols_remove)) {
+                            S_E_out[j] += S_i_E[j];
+                            S_I_out[j] += S_i_I[j];
+                            r_E_out[j] += r_i_E[j];
+                            r_I_out[j] += r_i_I[j];
+                            I_E_out[j] += I_i_E[j];
+                            I_I_out[j] += I_i_I[j];
                     }
                 }
             }
@@ -468,13 +453,13 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
                             bw_nu[j] = 1.0;
                             bw_q[j] = 1.0;
                             mean_I_E[j] = 0;
-                            if (extended_output) {
-                                S_E_mean[j] = 0;
-                                S_I_mean[j] = 0;
-                                r_E_mean[j] = 0;
-                                r_I_mean[j] = 0;
-                                I_E_mean[j] = 0;
-                                I_I_mean[j] = 0;
+                            if (_extended_output & (!conf.extended_output_ts)) {
+                                S_E_out[j] = 0;
+                                S_I_out[j] = 0;
+                                r_E_out[j] = 0;
+                                r_I_out[j] = 0;
+                                I_E_out[j] = 0;
+                                I_I_out[j] = 0;
                             }
                         }
                     } else {
@@ -495,15 +480,15 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
 
     // divide sum of extended output by number of time points
     // to calculate the mean
-    if (_extended_output) {
+    if (_extended_output & (!conf.extended_output_ts)) {
         int extended_output_time_points = BOLD_len_i - n_vols_remove;
         for (int j=0; j<nodes; j++) {
-            S_E_mean[j] /= extended_output_time_points;
-            S_I_mean[j] /= extended_output_time_points;
-            r_E_mean[j] /= extended_output_time_points;
-            r_I_mean[j] /= extended_output_time_points;
-            I_E_mean[j] /= extended_output_time_points;
-            I_I_mean[j] /= extended_output_time_points;
+            S_E_out[j] /= extended_output_time_points;
+            S_I_out[j] /= extended_output_time_points;
+            r_E_out[j] /= extended_output_time_points;
+            r_I_out[j] /= extended_output_time_points;
+            I_E_out[j] /= extended_output_time_points;
+            I_I_out[j] /= extended_output_time_points;
         }
     }
 
@@ -532,10 +517,6 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     #ifdef NOISE_SEGMENT
     free(_shuffled_nodes); free(_shuffled_ts);
     #endif
-    if (extended_output && conf.extended_output_ts) {
-        free(I_I_ts); free(I_E_ts); free(r_I_ts);  
-        free(r_E_ts); free(S_I_ts); free(S_E_ts); 
-    }
     free(I_i_I); free(I_i_E); free(r_i_I); free(r_i_E);
     free(bw_q); free(bw_nu); free(bw_f); free(bw_x); 
     free(_w_IE); free(_w_EI); free(_w_EE); 
@@ -557,6 +538,12 @@ void run_simulations_cpu(
 ) {
     using namespace bnm_cpu;
     // run the simulations
+    size_t ext_out_size;
+    if (conf.extended_output_ts) {
+        ext_out_size = bold_size;
+    } else {
+        ext_out_size = nodes;
+    }
     #ifdef OMP_ENABLED
     #pragma omp parallel
 	#pragma omp for
@@ -580,12 +567,12 @@ void run_simulations_cpu(
             BOLD_ex_out+(sim_idx*bold_size), 
             fc_trils_out+(sim_idx*n_pairs), 
             fcd_trils_out+(sim_idx*n_window_pairs),
-            S_E_out+(sim_idx*nodes),
-            S_I_out+(sim_idx*nodes),
-            r_E_out+(sim_idx*nodes),
-            r_I_out+(sim_idx*nodes),
-            I_E_out+(sim_idx*nodes),
-            I_I_out+(sim_idx*nodes),
+            S_E_out+(sim_idx*ext_out_size),
+            S_I_out+(sim_idx*ext_out_size),
+            r_E_out+(sim_idx*ext_out_size),
+            r_I_out+(sim_idx*ext_out_size),
+            I_E_out+(sim_idx*ext_out_size),
+            I_I_out+(sim_idx*ext_out_size),
             fic_unstable_out+sim_idx,
             fic_failed_out+sim_idx,
             nodes, SC, SC_gsl,
