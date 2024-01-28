@@ -118,4 +118,34 @@ struct ModelConfigs {
 
 extern void init_conf(struct ModelConfigs* conf);
 
+#ifdef __CUDACC__
+#define CUDA_CALLABLE_MEMBER __device__
+#else
+#define CUDA_CALLABLE_MEMBER
+#endif 
+
+class rWWModel {
+public:
+    static constexpr char *name = "rWW";
+    static constexpr int n_state_vars = 6; // number of state variables
+    static constexpr int n_intermediate_vars = 4; // number of intermediate variables
+    static constexpr int n_noise = 2; // number of noise elements needed for each node
+    static constexpr int n_global_params = 1;
+    static constexpr int n_regional_params = 3;
+    static constexpr char* state_var_names[] = {"I_E", "I_I", "r_E", "r_I", "S_E", "S_I"};
+    static constexpr char* intermediate_var_names[] = {"aIb_E", "aIb_I", "dSdt_E", "dSdt_I"};
+    static constexpr char* conn_state_var_name = "S_E"; // name of the state variable which sends input to connected nodes
+    static constexpr int conn_state_var_idx = 4;
+    static constexpr char* bold_state_var_name = "S_E"; // name of the state variable which is used for BOLD calculation
+    static constexpr int bold_state_var_idx = 4;
+
+    CUDA_CALLABLE_MEMBER void init(u_real* _state_vars);
+    CUDA_CALLABLE_MEMBER void step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
+        u_real* tmp_globalinput,
+        u_real* noise, long* noise_idx
+    );
+};
+
 #endif

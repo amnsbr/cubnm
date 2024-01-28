@@ -30,6 +30,7 @@ Author: Amin Saberi, Feb 2023
 #include <cooperative_groups.h>
 #include <random>
 #include <algorithm>
+#include <map>
 #include <gsl/gsl_matrix_double.h>
 #include <gsl/gsl_vector_double.h>
 #include <gsl/gsl_blas.h>
@@ -81,10 +82,10 @@ int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_
 bool adjust_fic, has_delay;
 cudaDeviceProp prop;
 bool *fic_failed, *fic_unstable;
-u_real **S_E, **I_E, **r_E, **S_I, **I_I, **r_I,
-    **BOLD_ex, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
+u_real ***state_vars_out,
+    **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
     **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise, **w_IE_fic,
-    *d_SC, *d_G_list, *d_w_EE_list, *d_w_EI_list, *d_w_IE_list;
+    *d_SC, **d_global_params, **d_regional_params;
 int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
 int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
 int last_nodes = 0;
@@ -112,8 +113,9 @@ __device__ void calculateGlobalInput(
         u_real* tmp_globalinput, int* k_buff_idx,
         int* nodes, int* sim_idx, int* j, int *k, 
         int* buff_idx, int* max_delay, u_real* _SC, 
-        int** delay, u_real** S_i_E_hist, u_real* S_1_E, 
-        bool* has_delay) {
+        int** delay, bool* has_delay, 
+        u_real** conn_state_var_hist, u_real* conn_state_var_1
+        ) {
     // calculates global input from other nodes `k` to current node `j`
     // In this and other device kernels I use a call by pointer design
     // which I hope in most cases will use up less memory + makes all
@@ -126,50 +128,13 @@ __device__ void calculateGlobalInput(
         for (*k=0; *k<*nodes; (*k)++) {
             // calculate correct index of the other region in the buffer based on j-k delay
             *k_buff_idx = (*buff_idx + delay[*sim_idx][(*j)*(*nodes)+(*k)]) % *max_delay;
-            *tmp_globalinput += _SC[*k] * S_i_E_hist[*sim_idx][(*k_buff_idx)*(*nodes)+(*k)];
+            *tmp_globalinput += _SC[*k] * conn_state_var_hist[*sim_idx][(*k_buff_idx)*(*nodes)+(*k)];
         }
     } else {
         for (*k=0; *k<*nodes; (*k)++) {
-            *tmp_globalinput += _SC[*k] * S_1_E[*k];
+            *tmp_globalinput += _SC[*k] * conn_state_var_1[*k];
         }            
     }
-}
-
-__device__ void step(
-        u_real* tmp_I_E, u_real* tmp_I_I, u_real* tmp_aIb_E, 
-        u_real* tmp_aIb_I, u_real* tmp_r_E, u_real* tmp_r_I, 
-        long* noise_idx, u_real* dSdt_E, u_real* dSdt_I, 
-        u_real* S_i_E, u_real* S_i_I, u_real* w_EE, 
-        u_real* tmp_globalinput, u_real* G_J_NMDA, 
-        u_real* w_IE, u_real* w_EI, 
-        int* sh_ts_noise, int* int_i, 
-        int* nodes, int* sh_j, int* ts_bold, 
-        int* j, u_real* noise
-        ) {
-    *tmp_I_E = d_mc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
-    *tmp_I_I = d_mc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I);
-    *tmp_aIb_E = d_mc.a_E * (*tmp_I_E) - d_mc.b_E;
-    *tmp_aIb_I = d_mc.a_I * (*tmp_I_I) - d_mc.b_I;
-    #ifdef USE_FLOATS
-    // to avoid firing rate approaching infinity near I = b/a
-    if (abs(*tmp_aIb_E) < 1e-4) *tmp_aIb_E = 1e-4;
-    if (abs(*tmp_aIb_I) < 1e-4) *tmp_aIb_I = 1e-4;
-    #endif
-    *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_mc.d_E * (*tmp_aIb_E)));
-    *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_mc.d_I * (*tmp_aIb_I)));
-    #ifdef NOISE_SEGMENT
-    // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
-    *noise_idx = ((((*sh_ts_noise) * 10 + (*int_i)) * (*nodes) * 2) + ((*sh_j) * 2));
-    #else
-    *noise_idx = ((((*ts_bold) * 10 + (*int_i)) * (*nodes) * 2) + ((*j) * 2));
-    #endif
-    *dSdt_E = noise[*noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_mc.dt_itau_E * (*S_i_E);
-    *dSdt_I = noise[*noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * (*tmp_r_I) - d_mc.dt_itau_I * (*S_i_I);
-    *S_i_E += *dSdt_E;
-    *S_i_I += *dSdt_I;
-    // clip S to 0-1
-    *S_i_E = max(0.0f, min(1.0f, *S_i_E));
-    *S_i_I = max(0.0f, min(1.0f, *S_i_I));
 }
 
 __device__ void bw_step(
@@ -185,124 +150,184 @@ __device__ void bw_step(
     *bw_f  = *tmp_f;
 }
 
-__device__ void fic_adjust(
-    u_real* mean_I_E, u_real* tmp_I_E, u_real* I_E_ba_diff,
-    u_real* w_IE, u_real* delta,
-    int* ts_bold, int* fic_trial, int* max_fic_trials,
-    bool* needs_fic_adjustment, bool* _adjust_fic,
-    bool* fic_failed, cg::thread_block* b, 
-    // following variables are needed for the reset
-    int* BOLD_len_i, int* nodes, int* sim_idx, int* j,
-    int* buff_idx, int* max_delay, int** delay, int* sh_j,
-    int* shuffled_nodes, int* shuffled_ts, 
-    int* curr_noise_repeat, int* ts_noise,
-    int* sh_ts_noise, bool* extended_output, bool* has_delay,
-    u_real* S_1_E, u_real* S_i_E, u_real* S_i_I, u_real* bw_x,
-    u_real* bw_f, u_real* bw_nu, u_real* bw_q,
-    u_real** S_E, u_real** I_E, u_real** r_E, u_real** S_I, u_real** I_I,
-    u_real** r_I, u_real** S_i_E_hist
+
+__device__ void rWWModel::init(
+    u_real* _state_vars
 ) {
-    if ((*ts_bold >= d_conf.I_SAMPLING_START) & (*ts_bold <= d_conf.I_SAMPLING_END)) {
-        *mean_I_E += *tmp_I_E;
-    }
-    if (*ts_bold == d_conf.I_SAMPLING_END) {
-        *needs_fic_adjustment = false;
-        cg::sync(*b); // all threads must be at the same time point here given needs_fic_adjustment is shared
-        *mean_I_E /= d_conf.I_SAMPLING_DURATION;
-        *I_E_ba_diff = *mean_I_E - d_mc.b_a_ratio_E;
-        if (abs(*I_E_ba_diff + 0.026) > 0.005) {
-            *needs_fic_adjustment = true;
-            if (*fic_trial < *max_fic_trials) { // only do the adjustment if max trials is not exceeded
-                // up- or downregulate inhibition
-                if ((*I_E_ba_diff) < -0.026) {
-                    *w_IE -= *delta;
-                    // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
-                    *delta -= 0.001;
-                    *delta = CUDA_MAX(*delta, 0.001);
-                } else {
-                    *w_IE += *delta;
-                    // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
-                }
-            }
-        }
-        cg::sync(*b); // wait to see if needs_fic_adjustment in any node
-        // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
-        // the simulation until the end
-        if (*needs_fic_adjustment) {
-            if (*fic_trial < *max_fic_trials) {
-                // TODO: create a `init` kernel
-                // than will be used here and at
-                // the beginning of the simulation
-                // reset time
-                *ts_bold = 0;
-                *BOLD_len_i = 0;
-                *fic_trial++;
-                // reset states
-                S_1_E[*j] = 0.001;
-                *S_i_E = 0.001;
-                *S_i_I = 0.001;
-                *bw_x = 0.0;
-                *bw_f = 1.0;
-                *bw_nu = 1.0;
-                *bw_q = 1.0;
-                *mean_I_E = 0;
-                // reset extended output
-                // normally this isn't needed because by default
-                // bold_remove_s is 30s and FIC adjustment happens < 10s
-                // so these variables have not been updated so far
-                if (*extended_output & (!d_conf.extended_output_ts)) {
-                    S_E[*sim_idx][*j] = 0.0;
-                    I_E[*sim_idx][*j] = 0.0;
-                    r_E[*sim_idx][*j] = 0.0;
-                    S_I[*sim_idx][*j] = 0.0;
-                    I_I[*sim_idx][*j] = 0.0;
-                    r_I[*sim_idx][*j] = 0.0;
-                }
-                if (*has_delay) {
-                    // reset buffer
-                    // initialize S_i_E_hist in every time point at initial value
-                    for (*buff_idx=0; *buff_idx<*max_delay; (*buff_idx)++) {
-                        S_i_E_hist[*sim_idx][(*buff_idx)*(*nodes)+(*j)] = 0.001;
-                    }
-                    *buff_idx = *max_delay-1;
-                }
-                #ifdef NOISE_SEGMENT
-                // reset the node shuffling
-                *sh_j = shuffled_nodes[*j];
-                *curr_noise_repeat = 0;
-                *ts_noise = 0;
-                *sh_ts_noise = shuffled_ts[*ts_noise];
-                #endif
-            } else {
-                // continue the simulation but
-                // declare FIC failed
-                fic_failed[*sim_idx] = true;
-                *_adjust_fic = false;
-            }
-        } else {
-            // if no node needs fic adjustment don't run
-            // this block of code any more
-            *_adjust_fic = false;
-        }
-        cg::sync(*b);
-    }
+    _state_vars[0] = 0.0; // I_E
+    _state_vars[1] = 0.0; // I_I
+    _state_vars[2] = 0.0; // r_E
+    _state_vars[3] = 0.0; // r_I
+    _state_vars[4] = 0.001; // S_E
+    _state_vars[5] = 0.001; // S_I
 }
 
+__device__ void rWWModel::step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
+        u_real* tmp_globalinput,
+        u_real* noise, long* noise_idx
+        ) {
+    _state_vars[0] = d_mc.w_E__I_0 + _regional_params[0] * _state_vars[4] + (*tmp_globalinput) * _global_params[0] * d_mc.J_NMDA - _regional_params[2] * _state_vars[5];
+    // *tmp_I_E = d_mc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
+    _state_vars[1] = d_mc.w_I__I_0 + _regional_params[1] * _state_vars[4] - _state_vars[5];
+    // *tmp_I_I = d_mc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I);
+    _intermediate_vars[0] = d_mc.a_E * _state_vars[0] - d_mc.b_E;
+    // *tmp_aIb_E = d_mc.a_E * (*tmp_I_E) - d_mc.b_E;
+    _intermediate_vars[1] = d_mc.a_I * _state_vars[1] - d_mc.b_I;
+    // *tmp_aIb_I = d_mc.a_I * (*tmp_I_I) - d_mc.b_I;
+    #ifdef USE_FLOATS
+    // to avoid firing rate approaching infinity near I = b/a
+    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
+    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
+    #endif
+    _state_vars[2] = _intermediate_vars[0] / (1 - exp(-d_mc.d_E * _intermediate_vars[0]));
+    // *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_mc.d_E * (*tmp_aIb_E)));
+    _state_vars[3] = _intermediate_vars[1] / (1 - exp(-d_mc.d_I * _intermediate_vars[1]));
+    // *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_mc.d_I * (*tmp_aIb_I)));
+    _intermediate_vars[2] = noise[*noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_mc.dt_itau_E * _state_vars[4];
+    // *dSdt_E = noise[*noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_mc.dt_itau_E * (*S_i_E);
+    _intermediate_vars[3] = noise[(*noise_idx)+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * _state_vars[3] - d_mc.dt_itau_I * _state_vars[5];
+    // *dSdt_I = noise[*noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * (*tmp_r_I) - d_mc.dt_itau_I * (*S_i_I);
+    _state_vars[4] += _intermediate_vars[2];
+    // *S_i_E += *dSdt_E;
+    _state_vars[5] += _intermediate_vars[3];
+    // *S_i_I += *dSdt_I;
+    // clip S to 0-1
+    _state_vars[4] = max(0.0f, min(1.0f, _state_vars[4]));
+    // *S_i_E = max(0.0f, min(1.0f, *S_i_E));
+    _state_vars[5] = max(0.0f, min(1.0f, _state_vars[5]));
+    // *S_i_I = max(0.0f, min(1.0f, *S_i_I));
+}
+
+// __device__ void fic_adjust(
+//     u_real* mean_I_E, u_real* tmp_I_E, u_real* I_E_ba_diff,
+//     u_real* w_IE, u_real* delta,
+//     int* ts_bold, int* fic_trial, int* max_fic_trials,
+//     bool* needs_fic_adjustment, bool* _adjust_fic,
+//     bool* fic_failed, cg::thread_block* b, 
+//     // following variables are needed for the reset
+//     int* BOLD_len_i, int* nodes, int* sim_idx, int* j,
+//     int* buff_idx, int* max_delay, int** delay, int* sh_j,
+//     int* shuffled_nodes, int* shuffled_ts, 
+//     int* curr_noise_repeat, int* ts_noise,
+//     int* sh_ts_noise, bool* extended_output, bool* has_delay,
+//     u_real* S_1_E, u_real* S_i_E, u_real* S_i_I, u_real* bw_x,
+//     u_real* bw_f, u_real* bw_nu, u_real* bw_q,
+//     u_real** S_E, u_real** I_E, u_real** r_E, u_real** S_I, u_real** I_I,
+//     u_real** r_I, u_real** S_i_E_hist
+// ) {
+
+// }
+
+// __device__ void rWWModel::post_bw_step(
+//         u_real* _state_vars, u_real* _intermediate_vars,
+//         u_real* _global_params, u_real* _regional_params
+//         ) {
+//     if ((*ts_bold >= d_conf.I_SAMPLING_START) & (*ts_bold <= d_conf.I_SAMPLING_END)) {
+//         *mean_I_E += *tmp_I_E;
+//     }
+//     if (*ts_bold == d_conf.I_SAMPLING_END) {
+//         *needs_fic_adjustment = false;
+//         cg::sync(*b); // all threads must be at the same time point here given needs_fic_adjustment is shared
+//         *mean_I_E /= d_conf.I_SAMPLING_DURATION;
+//         *I_E_ba_diff = *mean_I_E - d_mc.b_a_ratio_E;
+//         if (abs(*I_E_ba_diff + 0.026) > 0.005) {
+//             *needs_fic_adjustment = true;
+//             if (*fic_trial < *max_fic_trials) { // only do the adjustment if max trials is not exceeded
+//                 // up- or downregulate inhibition
+//                 if ((*I_E_ba_diff) < -0.026) {
+//                     *w_IE -= *delta;
+//                     // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
+//                     *delta -= 0.001;
+//                     *delta = CUDA_MAX(*delta, 0.001);
+//                 } else {
+//                     *w_IE += *delta;
+//                     // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
+//                 }
+//             }
+//         }
+//         cg::sync(*b); // wait to see if needs_fic_adjustment in any node
+//         // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
+//         // the simulation until the end
+//         if (*needs_fic_adjustment) {
+//             if (*fic_trial < *max_fic_trials) {
+//                 // TODO: create a `init` kernel
+//                 // than will be used here and at
+//                 // the beginning of the simulation
+//                 // reset time
+//                 *ts_bold = 0;
+//                 *BOLD_len_i = 0;
+//                 *fic_trial++;
+//                 // reset states
+//                 S_1_E[*j] = 0.001;
+//                 *S_i_E = 0.001;
+//                 *S_i_I = 0.001;
+//                 *bw_x = 0.0;
+//                 *bw_f = 1.0;
+//                 *bw_nu = 1.0;
+//                 *bw_q = 1.0;
+//                 *mean_I_E = 0;
+//                 // reset extended output
+//                 // normally this isn't needed because by default
+//                 // bold_remove_s is 30s and FIC adjustment happens < 10s
+//                 // so these variables have not been updated so far
+//                 if (*extended_output & (!d_conf.extended_output_ts)) {
+//                     S_E[*sim_idx][*j] = 0.0;
+//                     I_E[*sim_idx][*j] = 0.0;
+//                     r_E[*sim_idx][*j] = 0.0;
+//                     S_I[*sim_idx][*j] = 0.0;
+//                     I_I[*sim_idx][*j] = 0.0;
+//                     r_I[*sim_idx][*j] = 0.0;
+//                 }
+//                 if (*has_delay) {
+//                     // reset buffer
+//                     // initialize S_i_E_hist in every time point at initial value
+//                     for (*buff_idx=0; *buff_idx<*max_delay; (*buff_idx)++) {
+//                         S_i_E_hist[*sim_idx][(*buff_idx)*(*nodes)+(*j)] = 0.001;
+//                     }
+//                     *buff_idx = *max_delay-1;
+//                 }
+//                 #ifdef NOISE_SEGMENT
+//                 // reset the node shuffling
+//                 *sh_j = shuffled_nodes[*j];
+//                 *curr_noise_repeat = 0;
+//                 *ts_noise = 0;
+//                 *sh_ts_noise = shuffled_ts[*ts_noise];
+//                 #endif
+//             } else {
+//                 // continue the simulation but
+//                 // declare FIC failed
+//                 fic_failed[*sim_idx] = true;
+//                 *_adjust_fic = false;
+//             }
+//         } else {
+//             // if no node needs fic adjustment don't run
+//             // this block of code any more
+//             *_adjust_fic = false;
+//         }
+//         cg::sync(*b);
+//     }
+// }
+
+template<typename Model>
 __global__ void bnm(
-    u_real **BOLD_ex,
-    u_real **S_E, u_real **I_E, u_real **r_E, u_real **S_I, u_real **I_I, 
-    u_real **r_I, int n_vols_remove,
-    u_real *SC, u_real *G_list, u_real *w_EE_list, u_real *w_EI_list, u_real *w_IE_list,
-    u_real **S_i_E_hist, int **delay, int max_delay,
+    u_real **BOLD,
+    u_real ***state_vars_out, 
+    Model* model,
+    int n_vols_remove,
+    u_real *SC, u_real **global_params, u_real **regional_params,
+    u_real **conn_state_var_hist, int **delay, int max_delay,
     int N_SIMS, int nodes, int BOLD_TR, int time_steps, 
-    u_real *noise, bool do_fic, u_real **w_IE_fic,
-    bool adjust_fic, int max_fic_trials, bool *fic_unstable, bool *fic_failed, int *fic_n_trials,
-    bool extended_output, int corr_len,
+    u_real *noise, 
+    // bool do_fic, u_real **w_IE_fic,
+    // bool adjust_fic, int max_fic_trials, bool *fic_unstable, bool *fic_failed, int *fic_n_trials,
+    bool extended_output,
 #ifdef NOISE_SEGMENT
     int *shuffled_nodes, int *shuffled_ts,
     int noise_time_steps, int noise_repeats,
 #endif
-    bool regional_params = false
+    int corr_len
     ) {
     // convert block to a cooperative group
     // get simulation and node indices
@@ -339,108 +364,89 @@ __global__ void bnm(
     // use __shared__ for parameters that are shared
     // between regions in the same simulation, e.g. G, but
     // not for those that (may) vary, e.g. w_IE, w_EE and w_IE
-    __shared__ u_real G;
-    u_real w_IE, w_EE, w_EI;
-    G = G_list[sim_idx];
-    u_real G_J_NMDA = G * d_mc.J_NMDA; // precalculate G * J_NMDA
-    if (regional_params) {
-        w_EE = w_EE_list[sim_idx*nodes+j];
-        w_EI = w_EI_list[sim_idx*nodes+j];
-        w_IE = w_IE_list[sim_idx*nodes+j];
-    } else {
-        w_EE = w_EE_list[sim_idx]; 
-        w_EI = w_EI_list[sim_idx];
-        w_IE = w_IE_list[sim_idx];
+    __shared__ u_real _global_params[Model::n_global_params];
+    u_real _regional_params[Model::n_regional_params];
+    int ii; // general-purpose index for parameters and varaiables
+    for (ii=0; ii<Model::n_global_params; ii++) {
+        _global_params[ii] = global_params[ii][sim_idx];
     }
-    if (do_fic) {
-        // TODO: use w_IE_list for FIC output
-        // then this line will not be needed
-        w_IE = w_IE_fic[sim_idx][j];
-        if (d_conf.w_IE_1) {
-            w_IE = 1;
-        }
+    for (ii=0; ii<Model::n_regional_params; ii++) {
+        _regional_params[ii] = regional_params[ii][sim_idx*nodes+j];
     }
 
-    // set initial values
-    u_real S_i_E, S_i_I, bw_x, bw_f, bw_nu, bw_q;
-    S_i_E = 0.001;
-    S_i_I = 0.001;
+    // initialize state variables
+    u_real _state_vars[Model::n_state_vars];
+    model->init(_state_vars);
+    // initialize extended output sums
+    if (extended_output & (!d_conf.extended_output_ts)) {
+        for (ii=0; ii<Model::n_state_vars; ii++) {
+            state_vars_out[ii][sim_idx][j] = 0;
+        }
+    }
+    // initialize intermediate variables
+    u_real _intermediate_vars[Model::n_intermediate_vars];
+    for (ii=0; ii<Model::n_intermediate_vars; ii++) {
+        _intermediate_vars[ii] = 0;
+    }
+
+    // Ballon-Windkessel model variables
+    u_real bw_x, bw_f, bw_nu, bw_q, tmp_f;
     bw_x = 0.0;
     bw_f = 1.0;
     bw_nu = 1.0;
     bw_q = 1.0;
-    // initialization of extended output sums
-    if (extended_output & (!d_conf.extended_output_ts)) {
-        S_E[sim_idx][j] = 0;
-        I_E[sim_idx][j] = 0;
-        r_E[sim_idx][j] = 0;
-        S_I[sim_idx][j] = 0;
-        I_I[sim_idx][j] = 0;
-        r_I[sim_idx][j] = 0;
-    }
 
     // delay setup
     bool has_delay = (max_delay > 0);
-    // if there is delay use a circular buffer (S_i_E_hist)
+    // if there is delay use a circular buffer (conn_state_var_hist)
     // and keep track of current buffer index (will be the same
     // in all nodes at each time point). Start from the end and
     // go backwards. 
-    // Note that S_i_E_hist is pseudo-2d
+    // Note that conn_state_var_hist is pseudo-2d
     int buff_idx, k_buff_idx;
     if (has_delay) {
-        // initialize S_i_E_hist in every time point at initial value
+        // initialize conn_state_var_hist in every time point at initial value
         for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
-            S_i_E_hist[sim_idx][buff_idx*nodes+j] = 0.001;
+            conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
         }
         buff_idx = max_delay-1;
     }
-    // set up immediate history of S_i_E
-    // (S_E at time t-1 which is msec of 0.1 msec
-    // depending on conf.sync_msec)
-    // which is used in case there is no delay
-    #ifndef MANY_NODES
-    // if N nodes is not very high (<400) the immediate
-    // history can be stored on shared memory
+
+    // stored history of conn_state_var on extern shared memory
     // the memory is allocated dynamically based on the number of nodes
     // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
-    extern __shared__ u_real S_1_E[];
-    #else
-    // when many nodes are simulated there will be not enough room
-    // on shared memory for the history. In that case use device memory
-    u_real *S_1_E = &(S_i_E_hist[sim_idx]);
-    #endif
-    S_1_E[j] = 0.001;
+    extern __shared__ u_real conn_state_var_1[];
+    conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
 
-    #ifndef MANY_NODES
+//     #ifndef MANY_NODES
     // copy SC to thread memory to make it faster
     // (especially with lower N of simulations)
     u_real _SC[MAX_NODES];
     for (int k=0; k<nodes; k++) {
         _SC[k] = SC[j*nodes+k];
     }
-    #else
-    // use global memory for SC
-    u_real *_SC = &(SC[j*nodes]);
-    #endif
+//     #else
+//     // use global memory for SC
+//     u_real *_SC = &(SC[j*nodes]);
+//     #endif
 
-    // initializations for FIC numerical adjustment
-    u_real mean_I_E, delta, I_E_ba_diff;
-    int fic_trial;
-    if (adjust_fic) {
-        mean_I_E = 0;
-        delta = d_conf.init_delta;
-        fic_trial = 0;
-        fic_failed[sim_idx] = false;
-    }
-    // copy adjust_fic to a local shared variable and use it to indicate
-    // if adjustment should be stopped after N trials
-    __shared__ bool _adjust_fic;
-    _adjust_fic = adjust_fic;
-    __shared__ bool needs_fic_adjustment;
+//     // initializations for FIC numerical adjustment
+//     u_real mean_I_E, delta, I_E_ba_diff;
+//     int fic_trial;
+//     if (adjust_fic) {
+//         mean_I_E = 0;
+//         delta = d_conf.init_delta;
+//         fic_trial = 0;
+//         fic_failed[sim_idx] = false;
+//     }
+//     // copy adjust_fic to a local shared variable and use it to indicate
+//     // if adjustment should be stopped after N trials
+//     __shared__ bool _adjust_fic;
+//     _adjust_fic = adjust_fic;
+//     __shared__ bool needs_fic_adjustment;
 
     // integration loop
-    u_real tmp_globalinput, tmp_I_E, tmp_I_I, tmp_r_E, tmp_r_I, dSdt_E, dSdt_I, tmp_f,
-        tmp_aIb_E, tmp_aIb_I;
+    u_real tmp_globalinput;
     int ts_bold, int_i, k;
     long noise_idx = 0;
     int BOLD_len_i = 0;
@@ -458,7 +464,8 @@ __global__ void bnm(
                 &tmp_globalinput, &k_buff_idx,
                 &nodes, &sim_idx, 
                 &j, &k, &buff_idx, &max_delay, 
-                _SC, delay, S_i_E_hist, S_1_E, &has_delay
+                _SC, delay, &has_delay,
+                conn_state_var_hist, conn_state_var_1
             );
         }
         for (int_i = 0; int_i < 10; int_i++) {
@@ -469,34 +476,35 @@ __global__ void bnm(
                     &tmp_globalinput, &k_buff_idx,
                     &nodes, &sim_idx, 
                     &j, &k, &buff_idx, &max_delay, 
-                    _SC, delay, S_i_E_hist, S_1_E, &has_delay
+                    _SC, delay, &has_delay,
+                    conn_state_var_hist, conn_state_var_1
                 );
             }
             // equations
-            step(
-                &tmp_I_E, &tmp_I_I, &tmp_aIb_E, 
-                &tmp_aIb_I, &tmp_r_E, &tmp_r_I, 
-                &noise_idx, &dSdt_E, &dSdt_I, 
-                &S_i_E, &S_i_I, &w_EE, 
-                &tmp_globalinput, &G_J_NMDA, 
-                &w_IE, &w_EI, 
-                &sh_ts_noise, &int_i, 
-                &nodes, &sh_j, &ts_bold, 
-                &j, noise
+            #ifdef NOISE_SEGMENT
+            noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * Model::n_noise) + (sh_j * Model::n_noise));
+            #else
+            noise_idx = (((ts_bold * 10 + int_i) * nodes * Model::n_noise) + (j * Model::n_noise));
+            #endif
+            model->step(
+                _state_vars, _intermediate_vars, 
+                _global_params, _regional_params,
+                &tmp_globalinput,
+                noise, &noise_idx
             );
             if (!d_conf.sync_msec) {
                 if (has_delay) {
                     // go 0.1 ms backward in the buffer and save most recent S_i_E
                     // wait for all regions to have correct (same) buff_idx
-                    // and updated S_i_E_hist
+                    // and updated conn_state_var_hist
                     cg::sync(b);
                     buff_idx = (buff_idx + max_delay - 1) % max_delay;
-                    S_i_E_hist[sim_idx][buff_idx*nodes+j] = S_i_E;
+                    conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
                 } else  {
                     // wait for other regions
                     // see note above on why this is needed before updating S_i_1_E
                     cg::sync(b);
-                    S_1_E[j] = S_i_E;
+                    conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
                 }
             }
         }
@@ -505,22 +513,22 @@ __global__ void bnm(
             if (has_delay) {
                 // go 1 ms backward in the buffer and save most recent S_i_E
                 // wait for all regions to have correct (same) buff_idx
-                // and updated S_i_E_hist
+                // and updated conn_state_var_hist
                 cg::sync(b);
                 buff_idx = (buff_idx + max_delay - 1) % max_delay;
-                S_i_E_hist[sim_idx][buff_idx*nodes+j] = S_i_E;
+                conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
             } else {
                 // wait for other regions
                 // see note above on why this is needed before updating S_i_1_E
                 cg::sync(b);
-                S_1_E[j] = S_i_E;
+                conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
             }
         }
 
         // Balloon-Windkessel model equations here since its
         // dt is 1 msec
         bw_step(&bw_x, &bw_f, &bw_nu, 
-            &bw_q, &tmp_f, &S_i_E );
+            &bw_q, &tmp_f, &(_state_vars[Model::bold_state_var_idx]));
 
         // Save BOLD and extended output to managed memory
         // every TR
@@ -529,28 +537,28 @@ __global__ void bnm(
         // TODO: add option to return time series of extended output
         if (ts_bold % BOLD_TR == 0) {
             // calcualte and save BOLD
-            BOLD_ex[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0_k1 * (1 - bw_q) + d_mc.V_0_k2 * (1 - bw_q/bw_nu) + d_mc.V_0_k3 * (1 - bw_nu);
-            // save time series of extended output if indicated
-            if (extended_output & d_conf.extended_output_ts) {
-                S_E[sim_idx][BOLD_len_i*nodes+j] = S_i_E;
-                I_E[sim_idx][BOLD_len_i*nodes+j] = tmp_I_E;
-                r_E[sim_idx][BOLD_len_i*nodes+j] = tmp_r_E;
-                S_I[sim_idx][BOLD_len_i*nodes+j] = S_i_I;
-                I_I[sim_idx][BOLD_len_i*nodes+j] = tmp_I_I;
-                r_I[sim_idx][BOLD_len_i*nodes+j] = tmp_r_I;
-            }
-            // update sum (later mean) of extended
-            // output only after n_vols_remove
-            if ((BOLD_len_i>=n_vols_remove)) {
-                if (extended_output & (!d_conf.extended_output_ts)) {
-                    S_E[sim_idx][j] += S_i_E;
-                    I_E[sim_idx][j] += tmp_I_E;
-                    r_E[sim_idx][j] += tmp_r_E;
-                    S_I[sim_idx][j] += S_i_I;
-                    I_I[sim_idx][j] += tmp_I_I;
-                    r_I[sim_idx][j] += tmp_r_I;
-                }
-            }
+            BOLD[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0_k1 * (1 - bw_q) + d_mc.V_0_k2 * (1 - bw_q/bw_nu) + d_mc.V_0_k3 * (1 - bw_nu);
+            // // save time series of extended output if indicated
+            // if (extended_output & d_conf.extended_output_ts) {
+            //     S_E[sim_idx][BOLD_len_i*nodes+j] = S_i_E;
+            //     I_E[sim_idx][BOLD_len_i*nodes+j] = tmp_I_E;
+            //     r_E[sim_idx][BOLD_len_i*nodes+j] = tmp_r_E;
+            //     S_I[sim_idx][BOLD_len_i*nodes+j] = S_i_I;
+            //     I_I[sim_idx][BOLD_len_i*nodes+j] = tmp_I_I;
+            //     r_I[sim_idx][BOLD_len_i*nodes+j] = tmp_r_I;
+            // }
+            // // update sum (later mean) of extended
+            // // output only after n_vols_remove
+            // if ((BOLD_len_i>=n_vols_remove)) {
+            //     if (extended_output & (!d_conf.extended_output_ts)) {
+            //         S_E[sim_idx][j] += S_i_E;
+            //         I_E[sim_idx][j] += tmp_I_E;
+            //         r_E[sim_idx][j] += tmp_r_E;
+            //         S_I[sim_idx][j] += S_i_I;
+            //         I_I[sim_idx][j] += tmp_I_I;
+            //         r_I[sim_idx][j] += tmp_r_I;
+            //     }
+            // }
             BOLD_len_i++;
         }
         ts_bold++;
@@ -576,47 +584,52 @@ __global__ void bnm(
         sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
         #endif
 
-        if (_adjust_fic) {
-            fic_adjust(
-                &mean_I_E, &tmp_I_E, &I_E_ba_diff,
-                &w_IE, &delta,
-                &ts_bold, &fic_trial, &max_fic_trials,
-                &needs_fic_adjustment, &_adjust_fic,
-                fic_failed, &b, 
-                // following variables are needed for the reset
-                &BOLD_len_i, &nodes, &sim_idx, &j,
-                &buff_idx, &max_delay, delay, &sh_j,
-                shuffled_nodes, shuffled_ts, 
-                &curr_noise_repeat, &ts_noise,
-                &sh_ts_noise, &extended_output, &has_delay,
-                S_1_E, &S_i_E, &S_i_I, &bw_x,
-                &bw_f, &bw_nu, &bw_q, 
-                S_E, I_E, r_E, S_I, I_I,
-                r_I, S_i_E_hist
-            );
-        }
+        // model->post_step(
+        //     _state_vars, _intermediate_vars, 
+        //     _global_params, _regional_params,
+        // );
+
+//         if (_adjust_fic) {
+//             fic_adjust(
+//                 &mean_I_E, &tmp_I_E, &I_E_ba_diff,
+//                 &w_IE, &delta,
+//                 &ts_bold, &fic_trial, &max_fic_trials,
+//                 &needs_fic_adjustment, &_adjust_fic,
+//                 fic_failed, &b, 
+//                 // following variables are needed for the reset
+//                 &BOLD_len_i, &nodes, &sim_idx, &j,
+//                 &buff_idx, &max_delay, delay, &sh_j,
+//                 shuffled_nodes, shuffled_ts, 
+//                 &curr_noise_repeat, &ts_noise,
+//                 &sh_ts_noise, &extended_output, &has_delay,
+//                 S_1_E, &S_i_E, &S_i_I, &bw_x,
+//                 &bw_f, &bw_nu, &bw_q, 
+//                 S_E, I_E, r_E, S_I, I_I,
+//                 r_I, conn_state_var_hist
+//             );
+//         }
     }
-    if (adjust_fic) {
-        // save the final w_IE after adjustment
-        w_IE_fic[sim_idx][j] = w_IE;
-        // as well as the number of adjustment trials needed
-        fic_n_trials[sim_idx] = fic_trial;
-    }
-    if (extended_output & (!d_conf.extended_output_ts)) {
-        // take average
-        int extended_output_time_points = BOLD_len_i - n_vols_remove;
-        S_E[sim_idx][j] /= extended_output_time_points;
-        I_E[sim_idx][j] /= extended_output_time_points;
-        r_E[sim_idx][j] /= extended_output_time_points;
-        S_I[sim_idx][j] /= extended_output_time_points;
-        I_I[sim_idx][j] /= extended_output_time_points;
-        r_I[sim_idx][j] /= extended_output_time_points;
-    }
+//     if (adjust_fic) {
+//         // save the final w_IE after adjustment
+//         w_IE_fic[sim_idx][j] = w_IE;
+//         // as well as the number of adjustment trials needed
+//         fic_n_trials[sim_idx] = fic_trial;
+//     }
+//     if (extended_output & (!d_conf.extended_output_ts)) {
+//         // take average
+//         int extended_output_time_points = BOLD_len_i - n_vols_remove;
+//         S_E[sim_idx][j] /= extended_output_time_points;
+//         I_E[sim_idx][j] /= extended_output_time_points;
+//         r_E[sim_idx][j] /= extended_output_time_points;
+//         S_I[sim_idx][j] /= extended_output_time_points;
+//         I_I[sim_idx][j] /= extended_output_time_points;
+//         r_I[sim_idx][j] /= extended_output_time_points;
+//     }
 }
 
 __global__ void bold_stats(
     u_real **mean_bold, u_real **ssd_bold,
-    u_real **BOLD_ex, int N_SIMS, int nodes,
+    u_real **BOLD, int N_SIMS, int nodes,
     int output_ts, int corr_len, int n_vols_remove) {
     // TODO: consider combining this with window_bold_stats
     // get simulation index
@@ -630,13 +643,13 @@ __global__ void bold_stats(
     u_real _mean_bold = 0;
     int vol;
     for (vol=n_vols_remove; vol<output_ts; vol++) {
-        _mean_bold += BOLD_ex[sim_idx][vol*nodes+j];
+        _mean_bold += BOLD[sim_idx][vol*nodes+j];
     }
     _mean_bold /= corr_len;
     // ssd
     u_real _ssd_bold = 0;
     for (vol=n_vols_remove; vol<output_ts; vol++) {
-        _ssd_bold += POW(BOLD_ex[sim_idx][vol*nodes+j] - _mean_bold, 2);
+        _ssd_bold += POW(BOLD[sim_idx][vol*nodes+j] - _mean_bold, 2);
     }
     // save to memory
     mean_bold[sim_idx][j] = _mean_bold;
@@ -644,7 +657,7 @@ __global__ void bold_stats(
 }
 
 __global__ void window_bold_stats(
-    u_real **BOLD_ex, int N_SIMS, int nodes,
+    u_real **BOLD, int N_SIMS, int nodes,
     int n_windows, int window_size_1, int *window_starts, int *window_ends,
     u_real **windows_mean_bold, u_real **windows_ssd_bold) {
         // get simulation index
@@ -660,13 +673,13 @@ __global__ void window_bold_stats(
         u_real _mean_bold = 0;
         int vol;
         for (vol=window_starts[w]; vol<=window_ends[w]; vol++) {
-            _mean_bold += BOLD_ex[sim_idx][vol*nodes+j];
+            _mean_bold += BOLD[sim_idx][vol*nodes+j];
         }
         _mean_bold /= window_size_1;
         // calculate sd of window
         u_real _ssd_bold = 0;
         for (vol=window_starts[w]; vol<=window_ends[w]; vol++) {
-            _ssd_bold += POW(BOLD_ex[sim_idx][vol*nodes+j] - _mean_bold, 2);
+            _ssd_bold += POW(BOLD[sim_idx][vol*nodes+j] - _mean_bold, 2);
         }
         // save to memory
         windows_mean_bold[sim_idx][w*nodes+j] = _mean_bold;
@@ -674,7 +687,7 @@ __global__ void window_bold_stats(
 }
 
 __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
-    u_real **BOLD_ex, int N_SIMS, int nodes, int n_pairs, int *pairs_i,
+    u_real **BOLD, int N_SIMS, int nodes, int n_pairs, int *pairs_i,
     int *pairs_j, int output_ts, int n_vols_remove, 
     int corr_len, u_real **mean_bold, u_real **ssd_bold, 
     int n_windows, int window_size_1, u_real **windows_mean_bold, u_real **windows_ssd_bold,
@@ -712,7 +725,7 @@ __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
         int vol;
         u_real cov = 0;
         for (vol=vol_start; vol<vol_end; vol++) {
-            cov += (BOLD_ex[sim_idx][vol*nodes+i] - _mean_bold_i) * (BOLD_ex[sim_idx][vol*nodes+j] - _mean_bold_j);
+            cov += (BOLD[sim_idx][vol*nodes+i] - _mean_bold_i) * (BOLD[sim_idx][vol*nodes+j] - _mean_bold_j);
         }
         // calculate corr(i, j)
         u_real corr = cov / (_ssd_bold_i * _ssd_bold_j);
@@ -880,8 +893,9 @@ cudaDeviceProp get_device_prop(int verbose = 1) {
     return prop;
 }
 
+template<typename Model>
 void run_simulations_gpu(
-    double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+    double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     double * S_E_out, double * S_I_out,
     double * r_E_out, double * r_I_out,
     double * I_E_out, double * I_I_out,
@@ -894,20 +908,25 @@ void run_simulations_gpu(
 )
 // TODO: clean the order of args
 {
+    Model* d_model;
+    CUDA_CHECK_RETURN(cudaMallocManaged(&d_model, sizeof(Model)));
+    new (d_model) Model(); 
+
     // copy SC and parameter lists to device
     CUDA_CHECK_RETURN(cudaMemcpy(d_SC, SC, nodes*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-    CUDA_CHECK_RETURN(cudaMemcpy(d_G_list, G_list, N_SIMS * sizeof(u_real), cudaMemcpyHostToDevice));
-    CUDA_CHECK_RETURN(cudaMemcpy(d_w_EE_list, w_EE_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-    CUDA_CHECK_RETURN(cudaMemcpy(d_w_EI_list, w_EI_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-    CUDA_CHECK_RETURN(cudaMemcpy(d_w_IE_list, w_IE_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+    // TODO: make the following model-specific
+    CUDA_CHECK_RETURN(cudaMemcpy(d_global_params[0], G_list, N_SIMS * sizeof(u_real), cudaMemcpyHostToDevice));
+    CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[0], w_EE_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+    CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[1], w_EI_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+    CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[2], w_IE_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
 
     // if indicated, calculate delay matrix of each simulation and allocate
-    // memory to S_i_E_hist according to the max_delay among the current simulations
-    // Note: unlike many other variables delay and S_i_E_hist are not global variables
+    // memory to conn_state_var_hist according to the max_delay among the current simulations
+    // Note: unlike many other variables delay and conn_state_var_hist are not global variables
     // and are not initialized in init_gpu, in order to allow variable ranges of velocities
     // in each run_simulations_gpu call within a session
-    u_real **S_i_E_hist; 
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist, sizeof(u_real*) * N_SIMS)); 
+    u_real **conn_state_var_hist; 
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist, sizeof(u_real*) * N_SIMS)); 
     int **delay;
     max_delay = 0; // msec or 0.1 msec depending on conf.sync_msec; this is a global variable that will be used in the kernel
     float min_velocity = 1e10; // only used for printing info
@@ -954,53 +973,53 @@ void run_simulations_gpu(
         }
         printf("Max distance %f (mm) with a minimum velocity of %f (%s) => Max delay: %d (%s)\n", max_length, min_velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
 
-        // allocate memory to S_i_E_hist for N_SIMS * (nodes * max_delay)
+        // allocate memory to conn_state_var_hist for N_SIMS * (nodes * max_delay)
         // TODO: make it possible to have variable max_delay per each simulation
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist[sim_idx], sizeof(u_real) * nodes * max_delay));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * nodes * max_delay));
         }
     } 
     #ifdef MANY_NODES
     // in case of large number of nodes also allocate memory to
-    // S_i_E_hist[sim_idx] for a length of nodes. This array
+    // conn_state_var_hist[sim_idx] for a length of nodes. This array
     // will contain the immediate history of S_i_E (at t-1)
     else {
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_i_E_hist[sim_idx], sizeof(u_real) * nodes));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * nodes));
         }
     }
     #endif
 
-    // do fic if indicated
-    if (do_fic) {
-        gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
-        double *curr_w_EE = (double *)malloc(nodes * sizeof(double));
-        double *curr_w_EI = (double *)malloc(nodes * sizeof(double));
-        for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
-            // make a copy of regional wEE and wEI
-            for (int j=0; j<nodes; j++) {
-                curr_w_EE[j] = (double)(w_EE_list[sim_idx*nodes+j]);
-                curr_w_EI[j] = (double)(w_EI_list[sim_idx*nodes+j]);
-            }
-            // do FIC for the current particle
-            fic_unstable[sim_idx] = false;
-            analytical_fic_het(
-                SC_gsl, G_list[sim_idx], curr_w_EE, curr_w_EI,
-                curr_w_IE, fic_unstable+sim_idx);
+    // // do fic if indicated
+    // if (do_fic) {
+    //     gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
+    //     double *curr_w_EE = (double *)malloc(nodes * sizeof(double));
+    //     double *curr_w_EI = (double *)malloc(nodes * sizeof(double));
+    //     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
+    //         // make a copy of regional wEE and wEI
+    //         for (int j=0; j<nodes; j++) {
+    //             curr_w_EE[j] = (double)(w_EE_list[sim_idx*nodes+j]);
+    //             curr_w_EI[j] = (double)(w_EI_list[sim_idx*nodes+j]);
+    //         }
+    //         // do FIC for the current particle
+    //         fic_unstable[sim_idx] = false;
+    //         analytical_fic_het(
+    //             SC_gsl, G_list[sim_idx], curr_w_EE, curr_w_EI,
+    //             curr_w_IE, fic_unstable+sim_idx);
 
-            if (fic_unstable[sim_idx]) {
-                printf("In simulation #%d FIC solution is unstable. Setting wIE to 1 in all nodes\n", sim_idx);
-                for (int j=0; j<nodes; j++) {
-                    w_IE_fic[sim_idx][j] = 1.0;
-                }
-            } else {
-                // copy to w_IE_fic which will be passed on to the device
-                for (int j=0; j<nodes; j++) {
-                    w_IE_fic[sim_idx][j] = (u_real)gsl_vector_get(curr_w_IE, j);
-                }
-            }
-        }
-    }
+    //         if (fic_unstable[sim_idx]) {
+    //             printf("In simulation #%d FIC solution is unstable. Setting wIE to 1 in all nodes\n", sim_idx);
+    //             for (int j=0; j<nodes; j++) {
+    //                 w_IE_fic[sim_idx][j] = 1.0;
+    //             }
+    //         } else {
+    //             // copy to w_IE_fic which will be passed on to the device
+    //             for (int j=0; j<nodes; j++) {
+    //                 w_IE_fic[sim_idx][j] = (u_real)gsl_vector_get(curr_w_IE, j);
+    //             }
+    //         }
+    //     }
+    // }
 
     // run simulations
     dim3 numBlocks(N_SIMS);
@@ -1008,40 +1027,40 @@ void run_simulations_gpu(
     // (third argument is extern shared memory size for S_i_1_E)
     // provide NULL for extended output variables and FIC variables
     bool _extended_output = (extended_output | do_fic); // extended output is needed if requested by user or FIC is done
-    bool regional_params = true;
     #ifndef MANY_NODES
     size_t shared_mem_extern = nodes*sizeof(u_real);
     #else
     size_t shared_mem_extern = 0;
-    #endif
-    bnm<<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
-        BOLD_ex, 
-        S_E, I_E, r_E, 
-        S_I, I_I, r_I,
+    #endif 
+    bnm<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
+        BOLD, state_vars_out, 
+        d_model,
         n_vols_remove,
-        d_SC, d_G_list, d_w_EE_list, d_w_EI_list, d_w_IE_list,
-        S_i_E_hist, delay, max_delay,
+        d_SC, d_global_params, d_regional_params,
+        conn_state_var_hist, delay, max_delay,
         N_SIMS, nodes, BOLD_TR, time_steps, 
-        noise, do_fic, w_IE_fic, 
-        adjust_fic, _max_fic_trials, fic_unstable, fic_failed, fic_n_trials,
-        _extended_output, corr_len,
+        noise, 
+        // do_fic, w_IE_fic, 
+        // adjust_fic, _max_fic_trials, fic_unstable, fic_failed, fic_n_trials,
+        _extended_output,
     #ifdef NOISE_SEGMENT
         shuffled_nodes, shuffled_ts, noise_time_steps, noise_repeats,
     #endif
-        regional_params);
+        corr_len);
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+
     // calculate mean and sd bold for FC calculation
     bold_stats<<<numBlocks, threadsPerBlock>>>(
         mean_bold, ssd_bold,
-        BOLD_ex, N_SIMS, nodes,
+        BOLD, N_SIMS, nodes,
         output_ts, corr_len, n_vols_remove);
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     // calculate window mean and sd bold for FCD calculations
     numBlocks.y = n_windows;
     window_bold_stats<<<numBlocks,threadsPerBlock>>>(
-        BOLD_ex, N_SIMS, nodes, 
+        BOLD, N_SIMS, nodes, 
         n_windows, window_size+1, window_starts, window_ends,
         windows_mean_bold, windows_ssd_bold);
     CUDA_CHECK_LAST_ERROR();
@@ -1058,7 +1077,7 @@ void run_simulations_gpu(
     threadsPerBlock.y = 1;
     threadsPerBlock.z = 1;
     fc<<<numBlocks, threadsPerBlock>>>(
-        fc_trils, windows_fc_trils, BOLD_ex, N_SIMS, nodes, n_pairs, pairs_i, pairs_j,
+        fc_trils, windows_fc_trils, BOLD, N_SIMS, nodes, n_pairs, pairs_i, pairs_j,
         output_ts, n_vols_remove, corr_len, mean_bold, ssd_bold,
         n_windows, window_size+1, windows_mean_bold, windows_ssd_bold,
         window_starts, window_ends,
@@ -1123,37 +1142,37 @@ void run_simulations_gpu(
         ext_out_size *= output_ts;
     }
     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
-        memcpy(BOLD_ex_out, BOLD_ex[sim_idx], sizeof(u_real) * bold_size);
-        BOLD_ex_out+=bold_size;
+        memcpy(BOLD_out, BOLD[sim_idx], sizeof(u_real) * bold_size);
+        BOLD_out+=bold_size;
         memcpy(fc_trils_out, fc_trils[sim_idx], sizeof(u_real) * n_pairs);
         fc_trils_out+=n_pairs;
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
-        if (extended_output) {
-            memcpy(S_E_out, S_E[sim_idx], sizeof(u_real) * ext_out_size);
-            S_E_out+=ext_out_size;
-            memcpy(S_I_out, S_I[sim_idx], sizeof(u_real) * ext_out_size);
-            S_I_out+=ext_out_size;
-            memcpy(r_E_out, r_E[sim_idx], sizeof(u_real) * ext_out_size);
-            r_E_out+=ext_out_size;
-            memcpy(r_I_out, r_I[sim_idx], sizeof(u_real) * ext_out_size);
-            r_I_out+=ext_out_size;
-            memcpy(I_E_out, I_E[sim_idx], sizeof(u_real) * ext_out_size);
-            I_E_out+=ext_out_size;
-            memcpy(I_I_out, I_I[sim_idx], sizeof(u_real) * ext_out_size);
-            I_I_out+=ext_out_size;
-        }
-        if (do_fic) {
-            memcpy(w_IE_list, w_IE_fic[sim_idx], sizeof(u_real) * nodes);
-            w_IE_list+=nodes;
-        }
+        // if (extended_output) {
+        //     memcpy(S_E_out, S_E[sim_idx], sizeof(u_real) * ext_out_size);
+        //     S_E_out+=ext_out_size;
+        //     memcpy(S_I_out, S_I[sim_idx], sizeof(u_real) * ext_out_size);
+        //     S_I_out+=ext_out_size;
+        //     memcpy(r_E_out, r_E[sim_idx], sizeof(u_real) * ext_out_size);
+        //     r_E_out+=ext_out_size;
+        //     memcpy(r_I_out, r_I[sim_idx], sizeof(u_real) * ext_out_size);
+        //     r_I_out+=ext_out_size;
+        //     memcpy(I_E_out, I_E[sim_idx], sizeof(u_real) * ext_out_size);
+        //     I_E_out+=ext_out_size;
+        //     memcpy(I_I_out, I_I[sim_idx], sizeof(u_real) * ext_out_size);
+        //     I_I_out+=ext_out_size;
+        // }
+        // if (do_fic) {
+        //     memcpy(w_IE_list, w_IE_fic[sim_idx], sizeof(u_real) * nodes);
+        //     w_IE_list+=nodes;
+        // }
     }
-    if (do_fic) {
-        memcpy(fic_unstable_out, fic_unstable, sizeof(bool) * N_SIMS);
-        memcpy(fic_failed_out, fic_failed, sizeof(bool) * N_SIMS);
-    }
+    // if (do_fic) {
+    //     memcpy(fic_unstable_out, fic_unstable, sizeof(bool) * N_SIMS);
+    //     memcpy(fic_failed_out, fic_failed, sizeof(bool) * N_SIMS);
+    // }
 
-    // free delay and S_i_E_hist memories if allocated
+    // free delay and conn_state_var_hist memories if allocated
     // Note: no need to clear memory of the other variables
     // as we'll want to reuse them in the next calls to run_simulations_gpu
     // within current session
@@ -1165,20 +1184,21 @@ void run_simulations_gpu(
     }
     if (has_delay) {
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaFree(S_i_E_hist[sim_idx]));
+            CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
         }
     }
-    #ifdef MANY_NODES
-    else {
-        for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaFree(S_i_E_hist[sim_idx]));
-        }
-    } 
-    #endif   
-    CUDA_CHECK_RETURN(cudaFree(S_i_E_hist));
+    // #ifdef MANY_NODES
+    // else {
+    //     for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
+    //         CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
+    //     }
+    // } 
+    // #endif   
+    CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist));
 
 }
 
+template<typename Model>
 void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
@@ -1193,42 +1213,44 @@ void init_gpu(
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_mc, &mc, sizeof(ModelConstants)));
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_conf, &conf, sizeof(ModelConfigs)));
 
-    // allocate device memory for SC and parameter lists
-    // note that the memory for these variables on the host is separate
-    // also note that unlike the other variables these are not allocated
-    // via cudaMallocManaged and therefore are only accessible by the device
-    // (hence the d_ prefix)
+    // allocate device memory for SC
     CUDA_CHECK_RETURN(cudaMalloc(&d_SC, sizeof(u_real) * nodes*nodes));
-    CUDA_CHECK_RETURN(cudaMalloc(&d_G_list, sizeof(u_real) * N_SIMS));
-    CUDA_CHECK_RETURN(cudaMalloc(&d_w_EE_list, sizeof(u_real) * N_SIMS*nodes));
-    CUDA_CHECK_RETURN(cudaMalloc(&d_w_EI_list, sizeof(u_real) * N_SIMS*nodes));
-    CUDA_CHECK_RETURN(cudaMalloc(&d_w_IE_list, sizeof(u_real) * N_SIMS*nodes));
 
-    // FIC adjustment init
-    // adjust_fic is set to true by default but only for
-    // assessing FIC success. With default max_fic_trials_cmaes = 0
-    // no adjustment is done but FIC success is assessed
-    adjust_fic = do_fic & conf.numerical_fic;
-    bool _extended_output = (extended_output | do_fic);
-    CUDA_CHECK_RETURN(cudaMallocManaged(&fic_failed, sizeof(bool) * N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged(&fic_unstable, sizeof(bool) * N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged(&fic_n_trials, sizeof(int) * N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic, sizeof(u_real*) * N_SIMS));
-    if (_extended_output) {
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_E, sizeof(u_real*) * N_SIMS));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_E, sizeof(u_real*) * N_SIMS));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_E, sizeof(u_real*) * N_SIMS));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_I, sizeof(u_real*) * N_SIMS));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_I, sizeof(u_real*) * N_SIMS));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_I, sizeof(u_real*) * N_SIMS));
+    // allocate device memory for simulation parameters
+    // size of global_params is (n_global_params, N_SIMS)
+    // size of regional_params is (n_regional_params, N_SIMS * nodes)
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_global_params, sizeof(u_real*) * Model::n_global_params));
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_regional_params, sizeof(u_real*) * Model::n_regional_params));
+    for (int param_idx=0; param_idx<Model::n_global_params; param_idx++) {
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_global_params[param_idx], sizeof(u_real) * N_SIMS));
+    }
+    for (int param_idx=0; param_idx<Model::n_regional_params; param_idx++) {
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_regional_params[param_idx], sizeof(u_real) * N_SIMS * nodes));
     }
 
     // allocated memory for BOLD time-series of all simulations
-    // BOLD_ex will be a 2D array of size N_SIMS x (nodes x output_ts)
+    // BOLD will be a 2D array of size N_SIMS x (nodes x output_ts)
     u_real TR        = (u_real)BOLD_TR / 1000; // (s) TR of fMRI data
     output_ts = (time_steps / (TR / mc.bw_dt))+1; // Length of BOLD time-series written to HDD
     size_t bold_size = nodes * output_ts;
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&BOLD_ex, sizeof(u_real*) * N_SIMS));
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&BOLD, sizeof(u_real*) * N_SIMS));
+
+    // allocate memory for extended output
+    // TODO: add FIC for rWW
+    bool _extended_output = extended_output;
+    size_t ext_out_size = nodes;
+    if (conf.extended_output_ts) {
+        ext_out_size *= output_ts;
+    }
+    if (_extended_output) {
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&state_vars_out, sizeof(u_real**) * Model::n_state_vars));
+        for (int var_idx=0; var_idx<Model::n_state_vars; var_idx++) {
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&state_vars_out[var_idx], sizeof(u_real*) * N_SIMS));
+            for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&state_vars_out[var_idx][sim_idx], sizeof(u_real) * ext_out_size));
+            }
+        }
+    }
 
     // specify n_vols_remove (for extended output and FC calculations)
     n_vols_remove = conf.bold_remove_s * 1000 / BOLD_TR; // 30 seconds
@@ -1324,16 +1346,12 @@ void init_gpu(
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fcd_trils, sizeof(double*) * N_SIMS));
     #endif
 
-    // determine size of extended output variables
-    size_t ext_out_size = nodes;
-    if (conf.extended_output_ts) {
-        ext_out_size *= output_ts;
-    }
+
 
     // allocate memory per each simulation
     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
-        // allocate a chunk of BOLD_ex to this simulation (not sure entirely if this is the best way to do it)
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&BOLD_ex[sim_idx], sizeof(u_real) * bold_size));
+        // allocate a chunk of BOLD to this simulation (not sure entirely if this is the best way to do it)
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&BOLD[sim_idx], sizeof(u_real) * bold_size));
         // allocate memory for fc calculations
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&mean_bold[sim_idx], sizeof(u_real) * nodes));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&ssd_bold[sim_idx], sizeof(u_real) * nodes));
@@ -1350,17 +1368,6 @@ void init_gpu(
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fc_trils[sim_idx], sizeof(double) * n_pairs));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&d_fcd_trils[sim_idx], sizeof(double) * n_window_pairs));
         #endif
-        if (_extended_output) {
-            // allocate a chunk of w_IE_fic to current simulation and copy w_IE array to it
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&w_IE_fic[sim_idx], sizeof(u_real) * nodes));
-            // also need to allocate memory for all internal variables (but only r_E is used)
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_E[sim_idx], sizeof(u_real) * ext_out_size));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_E[sim_idx], sizeof(u_real) * ext_out_size));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_E[sim_idx], sizeof(u_real) * ext_out_size));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&S_I[sim_idx], sizeof(u_real) * ext_out_size));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&I_I[sim_idx], sizeof(u_real) * ext_out_size));
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&r_I[sim_idx], sizeof(u_real) * ext_out_size));
-        }
     }
 
     // pre-calculate normally-distributed noise on CPU
@@ -1369,12 +1376,12 @@ void init_gpu(
     #ifndef NOISE_SEGMENT
     // precalculate the entire noise needed; can use up a lot of memory
     // with high N of nodes and longer durations leads maxes out the memory
-    int noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
+    int noise_size = nodes * (time_steps+1) * 10 * Model::n_noise; // +1 for inclusive last time point, 2 for E and I
     #else
     // otherwise precalculate a noise segment and arrays of shuffled
     // nodes and time points and reuse-shuffle the noise segment
     // throughout the simulation for `noise_repeats`
-    int noise_size = nodes * (noise_time_steps) * 10 * 2;
+    int noise_size = nodes * (noise_time_steps) * 10 * Model::n_noise;
     noise_repeats = ceil((float)(time_steps+1) / (float)noise_time_steps); // +1 for inclusive last time point
     #endif
     if ((rand_seed != last_rand_seed) || (time_steps != last_time_steps) || (nodes != last_nodes)) {
@@ -1419,3 +1426,17 @@ void init_gpu(
 
     bnm_gpu::is_initialized = true;
 }
+
+
+template void run_simulations_gpu<rWWModel>(
+    double*, double*, double*, double*, double*, double*, double*, double*, double*,
+    bool*, bool*, u_real*, u_real*, u_real*, u_real*, u_real*, u_real*, gsl_matrix*, u_real*, bool,
+    int, int, int, int, int, int, bool, bool, bool, ModelConfigs
+);
+
+template void init_gpu<rWWModel>(
+        int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
+        int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
+        int BOLD_TR, int time_steps, int window_size, int window_step,
+        struct ModelConstants mc, struct ModelConfigs conf, bool verbose
+);

@@ -42,12 +42,14 @@
 
 #ifdef GPU_ENABLED
 // declare gpu functions which will be provided by bnm.cu compiled library
+template<typename Model>
 extern void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
         struct ModelConstants mc, struct ModelConfigs conf, bool verbose
         );
+template<typename Model>
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     double * S_E_out, double * S_I_out,
@@ -315,7 +317,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         } 
         #ifdef GPU_ENABLED
         else {
-            init_gpu(
+            init_gpu<rWWModel>(
                 &_output_ts, &_n_pairs, &_n_window_pairs,
                 N_SIMS, nodes,
                 do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
@@ -373,7 +375,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     }
     #ifdef GPU_ENABLED
     else {
-        run_simulations_gpu(
+        run_simulations_gpu<rWWModel>(
             (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
             (double*)PyArray_DATA(py_fcd_trils_out),
             (double*)PyArray_DATA(py_S_E_out), (double*)PyArray_DATA(py_S_I_out),
