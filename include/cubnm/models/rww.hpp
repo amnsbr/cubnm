@@ -1,57 +1,5 @@
-#ifndef CONSTANTS_HPP
-#define CONSTANTS_HPP
-
-// Using floats vs doubles in the simulations, pass -D USE_FLOATS=1 to compiler to use floats
-// Note that this does not affect FIC, CMAES and GOF calculations (always using doubles)
-// as well as the noise array (always generated as floats, but then casted to u_real)
-#ifdef USE_FLOATS
-    typedef float u_real;
-    #define EXP expf
-    #define POW powf
-    #define SQRT sqrtf
-    #define CUDA_MAX fmaxf
-    #define CUDA_MIN fminf
-#else
-    typedef double u_real;
-    #define EXP exp
-    #define POW pow
-    #define SQRT sqrt
-    #define CUDA_MAX max
-    #define CUDA_MIN min
-#endif
-
-#ifndef MANY_NODES
-    #define MAX_NODES 500
-#else
-    // this is just an arbitrary number
-    // and it is not guaranteed that the code will work 
-    // with this many nodes or won't work with more nodes
-    #define MAX_NODES 10000
-#endif
-
-extern float get_env_or_default(std::string key, double value_default = 0.0);
-extern int get_env_or_default(std::string key, int value_default = 0);
-
-struct BWConstants {
-    u_real bw_dt;
-    u_real rho;
-    u_real alpha;
-    u_real tau;
-    u_real y;
-    u_real kappa;
-    u_real V_0;
-    u_real k1;
-    u_real k2;
-    u_real k3;
-    u_real ialpha;
-    u_real itau;
-    u_real oneminrho;
-    u_real bw_dt_itau;
-    u_real V_0_k1;
-    u_real V_0_k2;
-    u_real V_0_k3;
-};
-
+#ifndef RWW_HPP
+#define RWW_HPP
 struct rWWConstants {
     u_real dt;
     u_real sqrt_dt;
@@ -94,39 +42,8 @@ struct rWWConstants {
     double S_E_ss;
 };
 
-struct ModelConfigs {
-    // Simulation config
-    int bold_remove_s;
-    unsigned int I_SAMPLING_START;
-    unsigned int I_SAMPLING_END;
-    unsigned int I_SAMPLING_DURATION;
-    bool numerical_fic;
-    int max_fic_trials;
-    u_real init_delta;
-    bool exc_interhemispheric;
-    bool drop_edges;
-    bool sync_msec;
-    bool extended_output_ts;
-    bool sim_verbose;
-    bool fic_verbose;
-
-    // GPU config
-    bool grid_save_hemis;
-    bool grid_save_dfc;
-    bool w_IE_1;    
-};
-
-extern void init_bw_constants(BWConstants* bwc);
 extern void init_rWW_constants(rWWConstants* rWWc);
-extern void init_conf(ModelConfigs* conf);
 
-#ifdef __CUDACC__
-#define CUDA_CALLABLE_MEMBER __device__
-// #define CUDA_CONSTANT __constant__
-#else
-#define CUDA_CALLABLE_MEMBER
-// #define CUDA_CONSTANT
-#endif 
 
 class rWWModel {
 public:

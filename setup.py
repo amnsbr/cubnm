@@ -62,7 +62,7 @@ os.environ["CXX"] = "g++"
 # create lists of include directories
 shared_includes = [
     os.path.join(PROJECT,"include"),
-    os.path.join(PROJECT, "src", "cpp"),
+    os.path.join(PROJECT, "src", "ext"),
     np.get_include(),
     os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
 ]
@@ -93,14 +93,14 @@ if gpu_enabled:
     libraries += ["bnm", "cudart_static"]
     bnm_ext = Extension(
         "cuBNM.core",
-        [os.path.join("src","cpp", "core.cpp")],
+        [os.path.join("src", "ext", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args+["-D GPU_ENABLED"],
         libraries=libraries,
         include_dirs=all_includes,
         library_dirs=[
             "/usr/lib/cuda", 
-            os.path.join(PROJECT, "src", "cuda"),
+            os.path.join(PROJECT, "src", "ext"),
             os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
         ],
     )
@@ -108,7 +108,7 @@ else:
     print("Compiling for CPU")
     bnm_ext = Extension(
         "cuBNM.core",
-        [os.path.join("src","cpp", "core.cpp")],
+        [os.path.join("src", "ext", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args,
         libraries=libraries,
@@ -172,7 +172,7 @@ class build_ext_gsl_cuda(build_ext):
             GSL_LIB_DIR = os.path.join(gsl_build, 'lib')
         # Compile CUDA code into libbnm.a
         if gpu_enabled:
-            cuda_dir = os.path.join(PROJECT, 'src', 'cuda')
+            cuda_dir = os.path.join(PROJECT, 'src', 'ext')
             conf_flags = []
             if noise_segment:
                 conf_flags.append("NOISE_SEGMENT")

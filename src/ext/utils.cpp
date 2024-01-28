@@ -1,8 +1,7 @@
 /*
 Includes utility functions used by both CPU and GPU
 */
-#ifndef UTILS_CPP
-#define UTILS_CPP
+#include "cubnm/utils.hpp"
 
 int get_fc_n_pairs(int nodes) {
     int n_pairs = ((nodes) * (nodes - 1)) / 2;
@@ -91,6 +90,3 @@ void get_shuffled_nodes_ts(
         std::copy(ts_indices.begin(), ts_indices.end(), *shuffled_ts_p+(i*noise_time_steps));
     }
 }
-
-
-#endif

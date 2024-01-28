@@ -35,9 +35,12 @@
 #include <complex>
 #include <algorithm>
 #include <memory>
-#include "constants.cpp"
-#include "fic.cpp"
-#include "utils.cpp"
+#include "cubnm/defines.h"
+#include "./models/base.cpp"
+#include "./models/bw.cpp"
+#include "./models/rww.cpp"
+#include "./models/rww_fic.cpp"
+#include "./utils.cpp"
 // #include "bnm.cpp"
 
 #ifdef GPU_ENABLED

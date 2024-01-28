@@ -7,8 +7,7 @@ Translated from Python code in https://github.com/murraylab/hbnm
 
 Author: Amin Saberi, Feb 2023
 */
-#ifndef FIC_CPP
-#define FIC_CPP
+#include "cubnm/models/rww_fic.hpp"
 
 // helper functions
 void repeat(gsl_vector ** dest, double a, int size) {
@@ -100,10 +99,6 @@ double dphi_I(double II) {
 /* Eq.10 in Demirtas which would be used in `gsl_fsolve`
  to find the steady-state inhibitory synaptic gating variable
  and the suitable w_IE weight according to the FIC algorithm */
-
-struct inh_curr_params {
-    double _I0_I, _w_EI, _S_E_ss, _w_II, gamma_I_s, tau_I_s;
-};
 
 double _inh_curr_fixed_pts(double x, void * params) {
     struct inh_curr_params *p = (struct inh_curr_params *) params;
@@ -202,5 +197,3 @@ void analytical_fic_het(
     gsl_vector_free(_I0_E); gsl_vector_free(_I0_I); gsl_vector_free(_I_E_ss); gsl_vector_free(_I_I_ss);
     gsl_vector_free(_S_E_ss); gsl_vector_free(_S_I_ss); gsl_vector_free(_r_I_ss); gsl_vector_free(_K_EE_row);
 }
-
-#endif

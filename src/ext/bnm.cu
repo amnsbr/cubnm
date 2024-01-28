@@ -37,80 +37,19 @@ Author: Amin Saberi, Feb 2023
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_roots.h>
-#include "constants.hpp"
-#include "utils.hpp"
 
-#ifdef MANY_NODES
-    #warning Compiling with -D MANY_NODES (S_E at t-1 is stored in device instead of shared memory)
-#endif
+// TODO: clean up the includes
+// and remove unncessary header files
+// Note: 
+#include "cubnm/defines.h"
+#include "./utils.cu"
+#include "cubnm/models/base.cuh"
+#include "./fc.cu"
+#include "./models/bw.cu"
+#include "cubnm/bnm.cuh"
+#include "./models/rww.cu"
+// other models go here
 
-extern void analytical_fic_het(
-        gsl_matrix * sc, double G, double * w_EE, double * w_EI,
-        gsl_vector * w_IE_out, bool * _unstable
-        );
-
-namespace cg = cooperative_groups;
-
-#define CUDA_CHECK_RETURN(value) {											\
-	cudaError_t _m_cudaStat = value;										\
-	if (_m_cudaStat != cudaSuccess) {										\
-		fprintf(stderr, "Error %s at line %d in file %s\n",					\
-				cudaGetErrorString(_m_cudaStat), __LINE__, __FILE__);		\
-		exit(1);															\
-	} }
-
-#define CUDA_CHECK_LAST_ERROR() checkLast(__FILE__, __LINE__)
-void checkLast(const char* const file, const int line)
-{
-    // from https://leimao.github.io/blog/Proper-CUDA-Error-Checking/
-    cudaError_t err{cudaGetLastError()};
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA Runtime Error at: " << file << ":" << line
-                  << std::endl;
-        std::cerr << cudaGetErrorString(err) << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-}
-
-__constant__ BWConstants d_bwc;
-__constant__ rWWConstants d_rWWc;
-__constant__ ModelConfigs d_conf;
-
-namespace bnm_gpu {
-    bool is_initialized = false;
-}
-int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
-bool adjust_fic, has_delay;
-cudaDeviceProp prop;
-bool *fic_failed, *fic_unstable;
-u_real ***state_vars_out,
-    **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
-    **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise,
-    *d_SC, **d_global_params, **d_regional_params;
-int **global_out_int;
-bool **global_out_bool;
-int *fic_n_trials, *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
-int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
-int last_nodes = 0;
-int last_rand_seed = 0;
-#ifdef NOISE_SEGMENT
-int *shuffled_nodes, *shuffled_ts;
-// set a default length of noise (msec)
-// (+1 to avoid having an additional repeat for a single time point
-// when time_steps can be divided by 30(000), as the actual duration of
-// simulation (in msec) is always user request time steps + 1)
-int noise_time_steps = 30001;
-int noise_repeats; // number of noise segment repeats for current simulations
-#endif
-#ifdef USE_FLOATS
-double **d_fc_trils, **d_fcd_trils;
-#else
-// use d_fc_trils and d_fcd_trils as aliases for fc_trils and fcd_trils
-// which will later be used for GOF calculations
-#define d_fc_trils fc_trils
-#define d_fcd_trils fcd_trils
-#endif
 
 __device__ void calculateGlobalInput(
         u_real* tmp_globalinput, int* k_buff_idx,
@@ -140,161 +79,6 @@ __device__ void calculateGlobalInput(
     }
 }
 
-__device__ void bw_step(
-        u_real* bw_x, u_real* bw_f, u_real* bw_nu, 
-        u_real* bw_q, u_real* tmp_f,
-        u_real* S_i_E
-        ) {
-    // Balloon-Windkessel model integration step
-    *bw_x  = (*bw_x)  +  d_bwc.bw_dt * ((*S_i_E) - d_bwc.kappa * (*bw_x) - d_bwc.y * ((*bw_f) - 1.0));
-    *tmp_f = (*bw_f)  +  d_bwc.bw_dt * (*bw_x);
-    *bw_nu = (*bw_nu) +  d_bwc.bw_dt_itau * ((*bw_f) - pow((*bw_nu), d_bwc.ialpha));
-    *bw_q  = (*bw_q)  +  d_bwc.bw_dt_itau * ((*bw_f) * (1.0 - pow(d_bwc.oneminrho,(1.0/ (*bw_f)))) / d_bwc.rho  - pow(*bw_nu,d_bwc.ialpha) * (*bw_q) / (*bw_nu));
-    *bw_f  = *tmp_f;
-}
-
-
-__device__ void rWWModel::init(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool, rWWModel* model
-) {
-    // Note that rather than harcoding the variable
-    // indices it is also possible to do indexing via
-    // strings, but that will be less efficient
-    _state_vars[4] = 0.001; // S_E
-    _state_vars[5] = 0.001; // S_I
-    // numerical FIC initializations
-    _intermediate_vars[4] = 0.0; // mean_I_E
-    _intermediate_vars[5] = d_conf.init_delta; // delta
-    _ext_int[0] = 0; // fic_trial
-    _ext_bool[0] = model->adjust_fic; // _adjust_fic in current sim
-    _ext_bool[1] = false; // fic_failed
-}
-
-__device__ void rWWModel::restart(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool, rWWModel* model
-) {
-    // this is different from init in that it doesn't
-    // reset the numerical FIC variables delta, fic_trial
-    // and _adjust_fic
-    _state_vars[4] = 0.001; // S_E
-    _state_vars[5] = 0.001; // S_I
-    // numerical FIC reset
-    _intermediate_vars[4] = 0.0; // mean_I_E
-}
-
-__device__ void rWWModel::step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real* tmp_globalinput,
-        u_real* noise, long* noise_idx, rWWModel* model
-        ) {
-    _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _state_vars[4] + (*tmp_globalinput) * _global_params[0] * d_rWWc.J_NMDA - _regional_params[2] * _state_vars[5];
-    // *tmp_I_E = d_rWWc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
-    _state_vars[1] = d_rWWc.w_I__I_0 + _regional_params[1] * _state_vars[4] - _state_vars[5];
-    // *tmp_I_I = d_rWWc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I);
-    _intermediate_vars[0] = d_rWWc.a_E * _state_vars[0] - d_rWWc.b_E;
-    // *tmp_aIb_E = d_rWWc.a_E * (*tmp_I_E) - d_rWWc.b_E;
-    _intermediate_vars[1] = d_rWWc.a_I * _state_vars[1] - d_rWWc.b_I;
-    // *tmp_aIb_I = d_rWWc.a_I * (*tmp_I_I) - d_rWWc.b_I;
-    #ifdef USE_FLOATS
-    // to avoid firing rate approaching infinity near I = b/a
-    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
-    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
-    #endif
-    _state_vars[2] = _intermediate_vars[0] / (1 - exp(-d_rWWc.d_E * _intermediate_vars[0]));
-    // *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_rWWc.d_E * (*tmp_aIb_E)));
-    _state_vars[3] = _intermediate_vars[1] / (1 - exp(-d_rWWc.d_I * _intermediate_vars[1]));
-    // *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_rWWc.d_I * (*tmp_aIb_I)));
-    _intermediate_vars[2] = noise[*noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_rWWc.dt_itau_E * _state_vars[4];
-    // *dSdt_E = noise[*noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_rWWc.dt_itau_E * (*S_i_E);
-    _intermediate_vars[3] = noise[(*noise_idx)+1] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * _state_vars[3] - d_rWWc.dt_itau_I * _state_vars[5];
-    // *dSdt_I = noise[*noise_idx+1] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * (*tmp_r_I) - d_rWWc.dt_itau_I * (*S_i_I);
-    _state_vars[4] += _intermediate_vars[2];
-    // *S_i_E += *dSdt_E;
-    _state_vars[5] += _intermediate_vars[3];
-    // *S_i_I += *dSdt_I;
-    // clip S to 0-1
-    _state_vars[4] = max(0.0f, min(1.0f, _state_vars[4]));
-    // *S_i_E = max(0.0f, min(1.0f, *S_i_E));
-    _state_vars[5] = max(0.0f, min(1.0f, _state_vars[5]));
-    // *S_i_I = max(0.0f, min(1.0f, *S_i_I));
-}
-
-__device__ void rWWModel::post_bw_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        int* _ext_int, bool* _ext_bool, bool* restart,
-        u_real* _global_params, u_real* _regional_params,
-        int* ts_bold, rWWModel* model
-        ) {
-    if (_ext_bool[0]) {
-        if ((*ts_bold >= d_conf.I_SAMPLING_START) & (*ts_bold <= d_conf.I_SAMPLING_END)) {
-            _intermediate_vars[4] += _state_vars[0];
-        }
-        if (*ts_bold == d_conf.I_SAMPLING_END) {
-            *restart = false;
-            __syncthreads(); // all threads must be at the same time point here given needs_fic_adjustment is shared
-            _intermediate_vars[4] /= d_conf.I_SAMPLING_DURATION;
-            _intermediate_vars[6] = _intermediate_vars[4] - d_rWWc.b_a_ratio_E;
-            if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
-                *restart = true;
-                if (_ext_int[0] < model->max_fic_trials) { // only do the adjustment if max trials is not exceeded
-                    // up- or downregulate inhibition
-                    if ((_intermediate_vars[6]) < -0.026) {
-                        _regional_params[2] -= _intermediate_vars[5];
-                        // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
-                        _intermediate_vars[5] -= 0.001;
-                        _intermediate_vars[5] = CUDA_MAX(_intermediate_vars[5], 0.001);
-                    } else {
-                        _regional_params[2] += _intermediate_vars[5];
-                        // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
-                    }
-                }
-            }
-            __syncthreads(); // wait to see if needs_fic_adjustment in any node
-            // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
-            // the simulation until the end
-            if (*restart) {
-                if (_ext_int[0] < (model->max_fic_trials)) {
-                    _ext_int[0]++; // increment fic_trial
-                } else {
-                    // continue the simulation and
-                    // declare FIC failed
-                    *restart = false;
-                    _ext_bool[0] = false; // _adjust_fic
-                    _ext_bool[1] = true; // fic_failed
-                }
-            } else {
-                // if no node needs fic adjustment don't run
-                // this block of code any more
-                _ext_bool[0] = false;
-            }
-            __syncthreads();
-        }
-    }
-}
-
-__device__ void rWWModel::post_integration(
-        u_real **BOLD, u_real ***state_vars_out, 
-        int **global_out_int, bool **global_out_bool,
-        u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool, 
-        u_real** global_params, u_real** regional_params,
-        u_real* _global_params, u_real* _regional_params,
-        int sim_idx, int nodes, int j,
-        rWWModel* model
-    ) {
-    if (model->adjust_fic) {
-        // save the wIE adjustment results
-        // modified wIE array
-        regional_params[2][sim_idx*nodes+j] = _regional_params[2];
-        // number of trials and fic failure
-        global_out_int[0][sim_idx] = _ext_int[0];
-        global_out_bool[1][sim_idx] = _ext_bool[1];
-    }
-}
-
 template<typename Model>
 __global__ void bnm(
     Model* model,
@@ -307,8 +91,6 @@ __global__ void bnm(
     u_real **conn_state_var_hist, int **delay, int max_delay,
     int N_SIMS, int nodes, int BOLD_TR, int time_steps, 
     u_real *noise, 
-    // bool do_fic, u_real **w_IE_fic,
-    // bool adjust_fic, int max_fic_trials, bool *fic_unstable, bool *fic_failed, int *fic_n_trials,
     bool extended_output,
 #ifdef NOISE_SEGMENT
     int *shuffled_nodes, int *shuffled_ts,
@@ -320,8 +102,6 @@ __global__ void bnm(
     // get simulation and node indices
     int sim_idx = blockIdx.x;
     if (sim_idx >= N_SIMS) return;
-    // cg::thread_block b = cg::this_thread_block();
-    // int j = b.thread_rank();
     int j = threadIdx.x;
     if (j >= nodes) return;
 
@@ -380,20 +160,7 @@ __global__ void bnm(
     //     _ext_bool_shared = new bool[Model::n_ext_bool];
     // }
     model->init(_state_vars, _intermediate_vars, _ext_int, _ext_bool, model);
-    // initializations for FIC numerical adjustment
-    // u_real mean_I_E, delta, I_E_ba_diff;
-//     int fic_trial;
-//     if (adjust_fic) {
-//         mean_I_E = 0;
-//         delta = d_conf.init_delta;
-//         fic_trial = 0;
-//         fic_failed[sim_idx] = false;
-//     }
-//     // copy adjust_fic to a local shared variable and use it to indicate
-//     // if adjustment should be stopped after N trials
-//     __shared__ bool _adjust_fic;
-//     _adjust_fic = adjust_fic;
-//     __shared__ bool needs_fic_adjustment;
+
 
     // Ballon-Windkessel model variables
     u_real bw_x, bw_f, bw_nu, bw_q, tmp_f;
@@ -633,272 +400,6 @@ __global__ void bnm(
             state_vars_out[ii][sim_idx][j] /= extended_output_time_points;
         }
     }
-}
-
-__global__ void bold_stats(
-    u_real **mean_bold, u_real **ssd_bold,
-    u_real **BOLD, int N_SIMS, int nodes,
-    int output_ts, int corr_len, int n_vols_remove) {
-    // TODO: consider combining this with window_bold_stats
-    // get simulation index
-    int sim_idx = blockIdx.x;
-    if (sim_idx >= N_SIMS) return;
-    // get node index
-    int j = threadIdx.x;
-    if (j >= nodes) return;
-
-    // mean
-    u_real _mean_bold = 0;
-    int vol;
-    for (vol=n_vols_remove; vol<output_ts; vol++) {
-        _mean_bold += BOLD[sim_idx][vol*nodes+j];
-    }
-    _mean_bold /= corr_len;
-    // ssd
-    u_real _ssd_bold = 0;
-    for (vol=n_vols_remove; vol<output_ts; vol++) {
-        _ssd_bold += POW(BOLD[sim_idx][vol*nodes+j] - _mean_bold, 2);
-    }
-    // save to memory
-    mean_bold[sim_idx][j] = _mean_bold;
-    ssd_bold[sim_idx][j] = SQRT(_ssd_bold);
-}
-
-__global__ void window_bold_stats(
-    u_real **BOLD, int N_SIMS, int nodes,
-    int n_windows, int window_size_1, int *window_starts, int *window_ends,
-    u_real **windows_mean_bold, u_real **windows_ssd_bold) {
-        // get simulation index
-        int sim_idx = blockIdx.x;
-        if (sim_idx >= N_SIMS) return;
-        // get window index
-        int w = blockIdx.y;
-        if (w >= n_windows) return;
-        // get node index
-        int j = threadIdx.x;
-        if (j >= nodes) return;
-        // calculate mean of window
-        u_real _mean_bold = 0;
-        int vol;
-        for (vol=window_starts[w]; vol<=window_ends[w]; vol++) {
-            _mean_bold += BOLD[sim_idx][vol*nodes+j];
-        }
-        _mean_bold /= window_size_1;
-        // calculate sd of window
-        u_real _ssd_bold = 0;
-        for (vol=window_starts[w]; vol<=window_ends[w]; vol++) {
-            _ssd_bold += POW(BOLD[sim_idx][vol*nodes+j] - _mean_bold, 2);
-        }
-        // save to memory
-        windows_mean_bold[sim_idx][w*nodes+j] = _mean_bold;
-        windows_ssd_bold[sim_idx][w*nodes+j] = SQRT(_ssd_bold);
-}
-
-__global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
-    u_real **BOLD, int N_SIMS, int nodes, int n_pairs, int *pairs_i,
-    int *pairs_j, int output_ts, int n_vols_remove, 
-    int corr_len, u_real **mean_bold, u_real **ssd_bold, 
-    int n_windows, int window_size_1, u_real **windows_mean_bold, u_real **windows_ssd_bold,
-    int *window_starts, int *window_ends,
-    int maxThreadsPerBlock) {
-        // get simulation index
-        int sim_idx = blockIdx.x;
-        if (sim_idx >= N_SIMS) return;
-        // get pair index
-        int pair_idx = threadIdx.x + (maxThreadsPerBlock * blockIdx.y);
-        if (pair_idx >= n_pairs) return;
-        int i = pairs_i[pair_idx];
-        int j = pairs_j[pair_idx];
-        // get window index
-        int w = blockIdx.z - 1; // -1 indicates total FC
-        if (w >= n_windows) return;
-        int vol_start, vol_end;
-        u_real _mean_bold_i, _mean_bold_j, _ssd_bold_i, _ssd_bold_j;
-        if (w == -1) {
-            vol_start = n_vols_remove;
-            vol_end = output_ts;
-            _mean_bold_i = mean_bold[sim_idx][i];
-            _ssd_bold_i = ssd_bold[sim_idx][i];
-            _mean_bold_j = mean_bold[sim_idx][j];
-            _ssd_bold_j = ssd_bold[sim_idx][j];
-        } else {
-            vol_start = window_starts[w];
-            vol_end = window_ends[w]+1; // +1 because end is non-inclusive
-            _mean_bold_i = windows_mean_bold[sim_idx][w*nodes+i];
-            _ssd_bold_i = windows_ssd_bold[sim_idx][w*nodes+i];
-            _mean_bold_j = windows_mean_bold[sim_idx][w*nodes+j];
-            _ssd_bold_j = windows_ssd_bold[sim_idx][w*nodes+j];
-        }
-        // calculate sigma(x_i * x_j)
-        int vol;
-        u_real cov = 0;
-        for (vol=vol_start; vol<vol_end; vol++) {
-            cov += (BOLD[sim_idx][vol*nodes+i] - _mean_bold_i) * (BOLD[sim_idx][vol*nodes+j] - _mean_bold_j);
-        }
-        // calculate corr(i, j)
-        u_real corr = cov / (_ssd_bold_i * _ssd_bold_j);
-        if (w == -1) {
-            fc_trils[sim_idx][pair_idx] = corr;
-        } else {
-            windows_fc_trils[sim_idx][w*n_pairs+pair_idx] = corr;
-        }
-    }
-
-__global__ void window_fc_stats(
-    u_real **windows_mean_fc, u_real **windows_ssd_fc,
-    u_real **L_windows_mean_fc, u_real **L_windows_ssd_fc,
-    u_real **R_windows_mean_fc, u_real **R_windows_ssd_fc,
-    u_real **windows_fc_trils, int N_SIMS, int n_windows, int n_pairs,
-    bool save_hemis, int n_pairs_hemi) {
-        // get simulation index
-        int sim_idx = blockIdx.x;
-        if (sim_idx >= N_SIMS) return;
-        // get window index
-        int w = threadIdx.x;
-        if (w >= n_windows) return;
-        // get hemi
-        int hemi = blockIdx.z;
-        if (!save_hemis) {
-            if (hemi > 0) return;
-        } else {
-            if (hemi > 2) return;
-        }
-        // calculate mean fc of window
-        u_real _mean_fc = 0;
-        int pair_idx_start = 0;
-        int pair_idx_end = n_pairs; // non-inclusive
-        int pair_idx;
-        int _curr_n_pairs = n_pairs;
-        // for left and right specify start and end indices
-        // that belong to current hemi. Note that this will work
-        // regardless of exc_interhemispheric true or false
-        if (hemi == 1) { // left
-            pair_idx_end = n_pairs_hemi;
-            _curr_n_pairs = n_pairs_hemi;
-        } else if (hemi == 2) { // right
-            pair_idx_start = n_pairs - n_pairs_hemi;
-            _curr_n_pairs = n_pairs_hemi;
-        }
-        for (pair_idx=pair_idx_start; pair_idx<pair_idx_end; pair_idx++) {
-            _mean_fc += windows_fc_trils[sim_idx][w*n_pairs+pair_idx];
-        }
-        _mean_fc /= _curr_n_pairs;
-        // calculate ssd fc of window
-        u_real _ssd_fc = 0;
-        for (pair_idx=pair_idx_start; pair_idx<pair_idx_end; pair_idx++) {
-            _ssd_fc += POW(windows_fc_trils[sim_idx][w*n_pairs+pair_idx] - _mean_fc, 2);
-        }
-        // save to memory
-        if (hemi == 0) {
-            windows_mean_fc[sim_idx][w] = _mean_fc;
-            windows_ssd_fc[sim_idx][w] = SQRT(_ssd_fc);
-        } else if (hemi == 1) {
-            L_windows_mean_fc[sim_idx][w] = _mean_fc;
-            L_windows_ssd_fc[sim_idx][w] = SQRT(_ssd_fc);
-        } else if (hemi == 2) {
-            R_windows_mean_fc[sim_idx][w] = _mean_fc;
-            R_windows_ssd_fc[sim_idx][w] = SQRT(_ssd_fc);
-        }
-    }
-
-__global__ void fcd(
-    u_real **fcd_trils, u_real **L_fcd_trils, u_real **R_fcd_trils,
-    u_real **windows_fc_trils,
-    u_real **windows_mean_fc, u_real **windows_ssd_fc,
-    u_real **L_windows_mean_fc, u_real **L_windows_ssd_fc,
-    u_real **R_windows_mean_fc, u_real **R_windows_ssd_fc,
-    int N_SIMS, int n_pairs, int n_windows, int n_window_pairs, 
-    int *window_pairs_i, int *window_pairs_j, int maxThreadsPerBlock,
-    bool save_hemis, int n_pairs_hemi) {
-        // get simulation index
-        int sim_idx = blockIdx.x;
-        if (sim_idx >= N_SIMS) return;
-        // get window pair index
-        int window_pair_idx = threadIdx.x + (maxThreadsPerBlock * blockIdx.y);
-        if (window_pair_idx >= n_window_pairs) return;
-        int w_i = window_pairs_i[window_pair_idx];
-        int w_j = window_pairs_j[window_pair_idx];
-        // get hemi
-        int hemi = blockIdx.z;
-        if (!save_hemis) {
-            if (hemi > 0) return;
-        } else {
-            if (hemi > 2) return;
-        }
-        // calculate cov
-        int pair_idx;
-        u_real cov = 0;
-        // pair_idx_start = 0;
-        // pair_idx_end = n_pairs; // non-inclusive
-        // if (hemi == 1) { // left
-        //     pair_idx_end = n_pairs_hemi;
-        // } else if (hemi == 2) { // right
-        //     pair_idx_start = n_pairs - n_pairs_hemi;
-        // }
-        if (hemi == 0) {
-            for (pair_idx=0; pair_idx<n_pairs; pair_idx++) {
-                cov += 
-                    (windows_fc_trils[sim_idx][w_i*n_pairs+pair_idx] - windows_mean_fc[sim_idx][w_i]) 
-                    * (windows_fc_trils[sim_idx][w_j*n_pairs+pair_idx] - windows_mean_fc[sim_idx][w_j]);
-            }
-            fcd_trils[sim_idx][window_pair_idx] = cov / (windows_ssd_fc[sim_idx][w_i] * windows_ssd_fc[sim_idx][w_j]);
-        } else if (hemi == 1) {
-            for (pair_idx=0; pair_idx<n_pairs_hemi; pair_idx++) {
-                cov += 
-                    (windows_fc_trils[sim_idx][w_i*n_pairs+pair_idx] - L_windows_mean_fc[sim_idx][w_i]) 
-                    * (windows_fc_trils[sim_idx][w_j*n_pairs+pair_idx] - L_windows_mean_fc[sim_idx][w_j]);
-            }
-            L_fcd_trils[sim_idx][window_pair_idx] = cov / (L_windows_ssd_fc[sim_idx][w_i] * L_windows_ssd_fc[sim_idx][w_j]);
-        } else if (hemi == 2) {
-            for (pair_idx=n_pairs-n_pairs_hemi; pair_idx<n_pairs; pair_idx++) {
-                cov += 
-                    (windows_fc_trils[sim_idx][w_i*n_pairs+pair_idx] - R_windows_mean_fc[sim_idx][w_i]) 
-                    * (windows_fc_trils[sim_idx][w_j*n_pairs+pair_idx] - R_windows_mean_fc[sim_idx][w_j]);
-            }
-            R_fcd_trils[sim_idx][window_pair_idx] = cov / (R_windows_ssd_fc[sim_idx][w_i] * R_windows_ssd_fc[sim_idx][w_j]);
-        }
-    }
-
-__global__ void float2double(double **dst, float **src, size_t rows, size_t cols) {
-    int row = blockIdx.x;
-    int col = blockIdx.y;
-    if ((row > rows) | (col > cols)) return;
-    dst[row][col] = (float)(src[row][col]);
-}
-
-cudaDeviceProp get_device_prop(int verbose = 1) {
-    /*
-        Gets GPU device properties and prints them to the console.
-        Also exits the program if no GPU is found.
-    */
-    int count;
-    cudaError_t error = cudaGetDeviceCount(&count);
-    struct cudaDeviceProp prop;
-    if (error == cudaSuccess) {
-        int device = 0;
-        CUDA_CHECK_RETURN( cudaGetDeviceProperties(&prop, device) );
-        if (verbose > 0) {
-            std::cout << std::endl << "CUDA device #" << device << ": " << prop.name << std::endl;
-        }
-        if (verbose > 1) {
-            std::cout << "totalGlobalMem: " << prop.totalGlobalMem << ", sharedMemPerBlock: " << prop.sharedMemPerBlock; 
-            std::cout << ", regsPerBlock: " << prop.regsPerBlock << ", warpSize: " << prop.warpSize << ", memPitch: " << prop.memPitch << std::endl;
-            std::cout << "maxThreadsPerBlock: " << prop.maxThreadsPerBlock << ", maxThreadsDim[0]: " << prop.maxThreadsDim[0] 
-                << ", maxThreadsDim[1]: " << prop.maxThreadsDim[1] << ", maxThreadsDim[2]: " << prop.maxThreadsDim[2] << std::endl; 
-            std::cout << "maxGridSize[0]: " << prop.maxGridSize[0] << ", maxGridSize[1]: " << prop.maxGridSize[1] << ", maxGridSize[2]: " 
-                << prop.maxGridSize[2] << ", totalConstMem: " << prop.totalConstMem << std::endl;
-            std::cout << "major: " << prop.major << ", minor: " << prop.minor << ", clockRate: " << prop.clockRate << ", textureAlignment: " 
-                << prop.textureAlignment << ", deviceOverlap: " << prop.deviceOverlap << ", multiProcessorCount: " << prop.multiProcessorCount << std::endl; 
-            std::cout << "kernelExecTimeoutEnabled: " << prop.kernelExecTimeoutEnabled << ", integrated: " << prop.integrated  
-                << ", canMapHostMemory: " << prop.canMapHostMemory << ", computeMode: " << prop.computeMode <<  std::endl; 
-            std::cout << "concurrentKernels: " << prop.concurrentKernels << ", ECCEnabled: " << prop.ECCEnabled << ", pciBusID: " << prop.pciBusID
-                << ", pciDeviceID: " << prop.pciDeviceID << ", tccDriver: " << prop.tccDriver  << std::endl;
-        }
-    } else {
-        std::cout << "No CUDA devices was found\n" << std::endl;
-        exit(1);
-    }
-    return prop;
 }
 
 template<typename Model>
@@ -1469,17 +970,3 @@ void init_gpu(
 
     bnm_gpu::is_initialized = true;
 }
-
-
-template void run_simulations_gpu<rWWModel>(
-    double*, double*, double*, double*, double*, double*, double*, double*, double*,
-    bool*, bool*, u_real*, u_real*, u_real*, u_real*, u_real*, u_real*, gsl_matrix*, u_real*, bool,
-    int, int, int, int, int, int, bool, bool, bool, ModelConfigs
-);
-
-template void init_gpu<rWWModel, rWWConstants>(
-        int*, int*, int*,
-        int, int, bool, bool, int,
-        int, int, int, int,
-        BWConstants, rWWConstants, ModelConfigs, bool
-);
