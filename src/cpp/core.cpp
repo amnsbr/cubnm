@@ -36,9 +36,9 @@
 #include <algorithm>
 #include <memory>
 #include "constants.cpp"
-#include "fic.cpp"
+// #include "fic.cpp"
 #include "utils.cpp"
-#include "bnm.cpp"
+// #include "bnm.cpp"
 
 #ifdef GPU_ENABLED
 // declare gpu functions which will be provided by bnm.cu compiled library
@@ -47,7 +47,7 @@ extern void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf, bool verbose
+        struct BWConstants bwc, struct ModelConfigs conf, bool verbose
         );
 template<typename Model>
 extern void run_simulations_gpu(
@@ -79,7 +79,7 @@ static PyObject* init(PyObject* self, PyObject* args) {
 
     // initialize constants and configurations
     // with default values
-    init_constants(&mc);
+    init_bw_constants(&bwc);
     init_conf(&conf);
 
     Py_RETURN_NONE;
@@ -98,27 +98,27 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
 
     // update value of the constant
     if (strcmp(key, "k1") == 0) {
-        mc.k1 = value;
+        bwc.k1 = value;
     }
     else if (strcmp(key, "k2") == 0) {
-        mc.k2 = value;
+        bwc.k2 = value;
     }
     else if (strcmp(key, "k3") == 0) {
-        mc.k3 = value;
+        bwc.k3 = value;
     }
     else if (strcmp(key, "V_0") == 0) {
-        mc.V_0 = value;
+        bwc.V_0 = value;
     }
 
     // update derived constants
-    mc.V_0_k1 = mc.V_0 * mc.k1;
-    mc.V_0_k2 = mc.V_0 * mc.k2;
-    mc.V_0_k3 = mc.V_0 * mc.k3;
+    bwc.V_0_k1 = bwc.V_0 * bwc.k1;
+    bwc.V_0_k2 = bwc.V_0 * bwc.k2;
+    bwc.V_0_k3 = bwc.V_0 * bwc.k3;
 
     // set is_initialized to false so that the next time run_simulations
     // is called, the session will be reinitialized
     // (and new constants will be used)
-    bnm_cpu::is_initialized = false;
+    // bnm_cpu::is_initialized = false;
     #ifdef GPU_ENABLED
     bnm_gpu::is_initialized = false;
     #endif
@@ -177,7 +177,7 @@ static PyObject* set_conf(PyObject* self, PyObject* args) {
     // set is_initialized to false so that the next time run_simulations
     // is called, the session will be reinitialized
     // (and new constants will be used)
-    bnm_cpu::is_initialized = false;
+    // bnm_cpu::is_initialized = false;
     #ifdef GPU_ENABLED
     bnm_gpu::is_initialized = false;
     #endif
@@ -292,7 +292,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     bool is_initialized;
     if (use_cpu) {
-        is_initialized = bnm_cpu::is_initialized;
+        // is_initialized = bnm_cpu::is_initialized;
     } else {
         #ifdef GPU_ENABLED
         is_initialized = bnm_gpu::is_initialized;
@@ -310,10 +310,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         printf("Initializing the session...");
         start = std::chrono::high_resolution_clock::now();
         if (use_cpu) {
-            init_cpu(
-                &_output_ts, &_n_pairs, &_n_window_pairs,
-                nodes,rand_seed, BOLD_TR, time_steps, window_size, window_step,
-                mc, conf);
+            // init_cpu(
+            //     &_output_ts, &_n_pairs, &_n_window_pairs,
+            //     nodes,rand_seed, BOLD_TR, time_steps, window_size, window_step,
+            //     mc, conf);
         } 
         #ifdef GPU_ENABLED
         else {
@@ -321,7 +321,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
                 &_output_ts, &_n_pairs, &_n_window_pairs,
                 N_SIMS, nodes,
                 do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-                mc, conf, (!is_initialized));
+                bwc, conf, (!is_initialized));
         }
         #endif
         end = std::chrono::high_resolution_clock::now();
@@ -356,22 +356,22 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     start = std::chrono::high_resolution_clock::now();
     // TODO: cast the arrays to double if u_real is float
     if (use_cpu) {
-        run_simulations_cpu(
-            (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
-            (double*)PyArray_DATA(py_fcd_trils_out),
-            (double*)PyArray_DATA(py_S_E_out), (double*)PyArray_DATA(py_S_I_out),
-            (double*)PyArray_DATA(py_r_E_out), (double*)PyArray_DATA(py_r_I_out),
-            (double*)PyArray_DATA(py_I_E_out), (double*)PyArray_DATA(py_I_I_out),
-            (bool*)PyArray_DATA(py_fic_unstable_out), (bool*)PyArray_DATA(py_fic_failed_out),
-            (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
-            (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
-            (double*)PyArray_DATA(v_list),
-            (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
-            time_steps, BOLD_TR, _max_fic_trials,
-            window_size, window_step,
-            N_SIMS, do_fic, only_wIE_free, extended_output, 
-            mc, conf, rand_seed
-        );
+        // run_simulations_cpu(
+        //     (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
+        //     (double*)PyArray_DATA(py_fcd_trils_out),
+        //     (double*)PyArray_DATA(py_S_E_out), (double*)PyArray_DATA(py_S_I_out),
+        //     (double*)PyArray_DATA(py_r_E_out), (double*)PyArray_DATA(py_r_I_out),
+        //     (double*)PyArray_DATA(py_I_E_out), (double*)PyArray_DATA(py_I_I_out),
+        //     (bool*)PyArray_DATA(py_fic_unstable_out), (bool*)PyArray_DATA(py_fic_failed_out),
+        //     (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
+        //     (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
+        //     (double*)PyArray_DATA(v_list),
+        //     (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
+        //     time_steps, BOLD_TR, _max_fic_trials,
+        //     window_size, window_step,
+        //     N_SIMS, do_fic, only_wIE_free, extended_output, 
+        //     mc, conf, rand_seed
+        // );
     }
     #ifdef GPU_ENABLED
     else {

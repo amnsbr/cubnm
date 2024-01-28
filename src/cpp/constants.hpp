@@ -32,7 +32,27 @@
 extern float get_env_or_default(std::string key, double value_default = 0.0);
 extern int get_env_or_default(std::string key, int value_default = 0);
 
-struct ModelConstants {
+struct BWConstants {
+    u_real bw_dt;
+    u_real rho;
+    u_real alpha;
+    u_real tau;
+    u_real y;
+    u_real kappa;
+    u_real V_0;
+    u_real k1;
+    u_real k2;
+    u_real k3;
+    u_real ialpha;
+    u_real itau;
+    u_real oneminrho;
+    u_real bw_dt_itau;
+    u_real V_0_k1;
+    u_real V_0_k2;
+    u_real V_0_k3;
+};
+
+struct rWWConstants {
     u_real dt;
     u_real sqrt_dt;
     u_real J_NMDA;
@@ -72,27 +92,10 @@ struct ModelConstants {
     double I_E_ss;
     double S_I_ss;
     double S_E_ss;
-    u_real bw_dt;
-    u_real rho;
-    u_real alpha;
-    u_real tau;
-    u_real y;
-    u_real kappa;
-    u_real V_0;
-    u_real k1;
-    u_real k2;
-    u_real k3;
-    u_real ialpha;
-    u_real itau;
-    u_real oneminrho;
-    u_real bw_dt_itau;
-    u_real V_0_k1;
-    u_real V_0_k2;
-    u_real V_0_k3;
 };
 
 
-extern void init_constants(struct ModelConstants* mc);
+extern void init_bw_constants(struct BWConstants* bwc);
 
 struct ModelConfigs {
     // Simulation config
@@ -120,8 +123,10 @@ extern void init_conf(struct ModelConfigs* conf);
 
 #ifdef __CUDACC__
 #define CUDA_CALLABLE_MEMBER __device__
+// #define CUDA_CONSTANT __constant__
 #else
 #define CUDA_CALLABLE_MEMBER
+// #define CUDA_CONSTANT
 #endif 
 
 class rWWModel {
@@ -139,12 +144,66 @@ public:
     static constexpr char* bold_state_var_name = "S_E"; // name of the state variable which is used for BOLD calculation
     static constexpr int bold_state_var_idx = 4;
 
+    rWWConstants mc; // consider having it as a global variable simialr to BWConstants
+
+    rWWModel() {
+        init_constants(&mc);
+    }
+
+    void init_constants(rWWConstants* mc) {
+        mc->dt  = 0.1; // Time-step of synaptic activity model (msec)
+        mc->sqrt_dt = SQRT(mc->dt); 
+        mc->J_NMDA  = 0.15;
+        mc->a_E = 310; // (n/C)
+        mc->b_E = 125; // (Hz)
+        mc->d_E = 0.16; // (s)
+        mc->a_I = 615; // (n/C)
+        mc->b_I = 177; // (Hz)
+        mc->d_I = 0.087; // (s)
+        mc->gamma_E = (u_real)0.641/(u_real)1000.0; // factor 1000 for expressing everything in ms
+        mc->gamma_I = (u_real)1.0/(u_real)1000.0; // factor 1000 for expressing everything in ms
+        mc->tau_E = 100; // (ms) Time constant of NMDA (excitatory)
+        mc->tau_I = 10; // (ms) Time constant of GABA (inhibitory)
+        mc->sigma_model = 0.01; // (nA) Noise amplitude (named sigma_model to avoid confusion with CMAES sigma)
+        mc->I_0 = 0.382; // (nA) overall effective external input
+        mc->w_E = 1.0; // scaling of external input for excitatory pool
+        mc->w_I = 0.7; // scaling of external input for inhibitory pool
+        mc->w_II = 1.0; // I->I self-coupling
+        mc->I_ext = 0.0; // [nA] external input
+        mc->w_E__I_0 = mc->w_E * mc->I_0; // pre-calculating some multiplications/divisions
+        mc->w_I__I_0 = mc->w_I * mc->I_0;
+        mc->b_a_ratio_E = mc->b_E / mc->a_E;
+        mc->itau_E = 1.0/mc->tau_E;
+        mc->itau_I = 1.0/mc->tau_I;
+        mc->sigma_model_sqrt_dt = mc->sigma_model * mc->sqrt_dt;
+        mc->dt_itau_E = mc->dt * mc->itau_E;
+        mc->dt_gamma_E = mc->dt * mc->gamma_E;
+        mc->dt_itau_I = mc->dt * mc->itau_I;
+        mc->dt_gamma_I = mc->dt * mc->gamma_I;
+
+        /*
+        FIC parameters
+        */
+        // tau and gamma in seconds (for FIC)
+        mc->tau_E_s = 0.1; // [s] (NMDA)
+        mc->tau_I_s = 0.01; // [s] (GABA)
+        mc->gamma_E_s = 0.641; // kinetic conversion factor (typo in text)
+        mc->gamma_I_s = 1.0;
+        // Steady-state solutions in isolated case (for FIC)
+        mc->r_I_ss = 3.9218448633; // Hz
+        mc->r_E_ss = 3.0773270642; // Hz
+        mc->I_I_ss = 0.2528951325; // nA
+        mc->I_E_ss = 0.3773805650; // nA
+        mc->S_I_ss = 0.0392184486; // dimensionless
+        mc->S_E_ss = 0.1647572075; // dimensionless
+    }
+
     CUDA_CALLABLE_MEMBER void init(u_real* _state_vars);
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real* tmp_globalinput,
-        u_real* noise, long* noise_idx
+        u_real* noise, long* noise_idx, rWWModel* model
     );
 };
 

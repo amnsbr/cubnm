@@ -44,9 +44,9 @@ Author: Amin Saberi, Feb 2023
     #warning Compiling with -D MANY_NODES (S_E at t-1 is stored in device instead of shared memory)
 #endif
 
-extern void analytical_fic_het(
-        gsl_matrix * sc, double G, double * w_EE, double * w_EI,
-        gsl_vector * w_IE_out, bool * _unstable);
+// extern void analytical_fic_het(
+//         gsl_matrix * sc, double G, double * w_EE, double * w_EI,
+//         gsl_vector * w_IE_out, bool * _unstable);
 
 namespace cg = cooperative_groups;
 
@@ -72,7 +72,7 @@ void checkLast(const char* const file, const int line)
     }
 }
 
-__constant__ struct ModelConstants d_mc;
+__constant__ struct BWConstants d_bwc;
 __constant__ struct ModelConfigs d_conf;
 
 namespace bnm_gpu {
@@ -140,13 +140,13 @@ __device__ void calculateGlobalInput(
 __device__ void bw_step(
         u_real* bw_x, u_real* bw_f, u_real* bw_nu, 
         u_real* bw_q, u_real* tmp_f,
-        u_real* S_i_E 
+        u_real* S_i_E
         ) {
     // Balloon-Windkessel model integration step
-    *bw_x  = (*bw_x)  +  d_mc.bw_dt * ((*S_i_E) - d_mc.kappa * (*bw_x) - d_mc.y * ((*bw_f) - 1.0));
-    *tmp_f = (*bw_f)  +  d_mc.bw_dt * (*bw_x);
-    *bw_nu = (*bw_nu) +  d_mc.bw_dt_itau * ((*bw_f) - pow((*bw_nu), d_mc.ialpha));
-    *bw_q  = (*bw_q)  +  d_mc.bw_dt_itau * ((*bw_f) * (1.0 - pow(d_mc.oneminrho,(1.0/ (*bw_f)))) / d_mc.rho  - pow(*bw_nu,d_mc.ialpha) * (*bw_q) / (*bw_nu));
+    *bw_x  = (*bw_x)  +  d_bwc.bw_dt * ((*S_i_E) - d_bwc.kappa * (*bw_x) - d_bwc.y * ((*bw_f) - 1.0));
+    *tmp_f = (*bw_f)  +  d_bwc.bw_dt * (*bw_x);
+    *bw_nu = (*bw_nu) +  d_bwc.bw_dt_itau * ((*bw_f) - pow((*bw_nu), d_bwc.ialpha));
+    *bw_q  = (*bw_q)  +  d_bwc.bw_dt_itau * ((*bw_f) * (1.0 - pow(d_bwc.oneminrho,(1.0/ (*bw_f)))) / d_bwc.rho  - pow(*bw_nu,d_bwc.ialpha) * (*bw_q) / (*bw_nu));
     *bw_f  = *tmp_f;
 }
 
@@ -166,29 +166,29 @@ __device__ void rWWModel::step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real* tmp_globalinput,
-        u_real* noise, long* noise_idx
+        u_real* noise, long* noise_idx, rWWModel* model
         ) {
-    _state_vars[0] = d_mc.w_E__I_0 + _regional_params[0] * _state_vars[4] + (*tmp_globalinput) * _global_params[0] * d_mc.J_NMDA - _regional_params[2] * _state_vars[5];
-    // *tmp_I_E = d_mc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
-    _state_vars[1] = d_mc.w_I__I_0 + _regional_params[1] * _state_vars[4] - _state_vars[5];
-    // *tmp_I_I = d_mc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I);
-    _intermediate_vars[0] = d_mc.a_E * _state_vars[0] - d_mc.b_E;
-    // *tmp_aIb_E = d_mc.a_E * (*tmp_I_E) - d_mc.b_E;
-    _intermediate_vars[1] = d_mc.a_I * _state_vars[1] - d_mc.b_I;
-    // *tmp_aIb_I = d_mc.a_I * (*tmp_I_I) - d_mc.b_I;
+    _state_vars[0] = model->mc.w_E__I_0 + _regional_params[0] * _state_vars[4] + (*tmp_globalinput) * _global_params[0] * model->mc.J_NMDA - _regional_params[2] * _state_vars[5];
+    // *tmp_I_E = model->mc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
+    _state_vars[1] = model->mc.w_I__I_0 + _regional_params[1] * _state_vars[4] - _state_vars[5];
+    // *tmp_I_I = model->mc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I);
+    _intermediate_vars[0] = model->mc.a_E * _state_vars[0] - model->mc.b_E;
+    // *tmp_aIb_E = model->mc.a_E * (*tmp_I_E) - model->mc.b_E;
+    _intermediate_vars[1] = model->mc.a_I * _state_vars[1] - model->mc.b_I;
+    // *tmp_aIb_I = model->mc.a_I * (*tmp_I_I) - model->mc.b_I;
     #ifdef USE_FLOATS
     // to avoid firing rate approaching infinity near I = b/a
     if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
     if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
     #endif
-    _state_vars[2] = _intermediate_vars[0] / (1 - exp(-d_mc.d_E * _intermediate_vars[0]));
-    // *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_mc.d_E * (*tmp_aIb_E)));
-    _state_vars[3] = _intermediate_vars[1] / (1 - exp(-d_mc.d_I * _intermediate_vars[1]));
-    // *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_mc.d_I * (*tmp_aIb_I)));
-    _intermediate_vars[2] = noise[*noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_mc.dt_itau_E * _state_vars[4];
-    // *dSdt_E = noise[*noise_idx] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_mc.dt_itau_E * (*S_i_E);
-    _intermediate_vars[3] = noise[(*noise_idx)+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * _state_vars[3] - d_mc.dt_itau_I * _state_vars[5];
-    // *dSdt_I = noise[*noise_idx+1] * d_mc.sigma_model_sqrt_dt + d_mc.dt_gamma_I * (*tmp_r_I) - d_mc.dt_itau_I * (*S_i_I);
+    _state_vars[2] = _intermediate_vars[0] / (1 - exp(-model->mc.d_E * _intermediate_vars[0]));
+    // *tmp_r_E = *tmp_aIb_E / (1 - exp(-model->mc.d_E * (*tmp_aIb_E)));
+    _state_vars[3] = _intermediate_vars[1] / (1 - exp(-model->mc.d_I * _intermediate_vars[1]));
+    // *tmp_r_I = *tmp_aIb_I / (1 - exp(-model->mc.d_I * (*tmp_aIb_I)));
+    _intermediate_vars[2] = noise[*noise_idx] * model->mc.sigma_model_sqrt_dt + model->mc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - model->mc.dt_itau_E * _state_vars[4];
+    // *dSdt_E = noise[*noise_idx] * model->mc.sigma_model_sqrt_dt + model->mc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - model->mc.dt_itau_E * (*S_i_E);
+    _intermediate_vars[3] = noise[(*noise_idx)+1] * model->mc.sigma_model_sqrt_dt + model->mc.dt_gamma_I * _state_vars[3] - model->mc.dt_itau_I * _state_vars[5];
+    // *dSdt_I = noise[*noise_idx+1] * model->mc.sigma_model_sqrt_dt + model->mc.dt_gamma_I * (*tmp_r_I) - model->mc.dt_itau_I * (*S_i_I);
     _state_vars[4] += _intermediate_vars[2];
     // *S_i_E += *dSdt_E;
     _state_vars[5] += _intermediate_vars[3];
@@ -231,7 +231,7 @@ __device__ void rWWModel::step(
 //         *needs_fic_adjustment = false;
 //         cg::sync(*b); // all threads must be at the same time point here given needs_fic_adjustment is shared
 //         *mean_I_E /= d_conf.I_SAMPLING_DURATION;
-//         *I_E_ba_diff = *mean_I_E - d_mc.b_a_ratio_E;
+//         *I_E_ba_diff = *mean_I_E - model->mc.b_a_ratio_E;
 //         if (abs(*I_E_ba_diff + 0.026) > 0.005) {
 //             *needs_fic_adjustment = true;
 //             if (*fic_trial < *max_fic_trials) { // only do the adjustment if max trials is not exceeded
@@ -490,7 +490,8 @@ __global__ void bnm(
                 _state_vars, _intermediate_vars, 
                 _global_params, _regional_params,
                 &tmp_globalinput,
-                noise, &noise_idx
+                noise, &noise_idx,
+                model
             );
             if (!d_conf.sync_msec) {
                 if (has_delay) {
@@ -528,7 +529,8 @@ __global__ void bnm(
         // Balloon-Windkessel model equations here since its
         // dt is 1 msec
         bw_step(&bw_x, &bw_f, &bw_nu, 
-            &bw_q, &tmp_f, &(_state_vars[Model::bold_state_var_idx]));
+            &bw_q, &tmp_f,
+            &(_state_vars[Model::bold_state_var_idx]));
 
         // Save BOLD and extended output to managed memory
         // every TR
@@ -537,7 +539,7 @@ __global__ void bnm(
         // TODO: add option to return time series of extended output
         if (ts_bold % BOLD_TR == 0) {
             // calcualte and save BOLD
-            BOLD[sim_idx][BOLD_len_i*nodes+j] = d_mc.V_0_k1 * (1 - bw_q) + d_mc.V_0_k2 * (1 - bw_q/bw_nu) + d_mc.V_0_k3 * (1 - bw_nu);
+            BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q) + d_bwc.V_0_k2 * (1 - bw_q/bw_nu) + d_bwc.V_0_k3 * (1 - bw_nu);
             // // save time series of extended output if indicated
             // if (extended_output & d_conf.extended_output_ts) {
             //     S_E[sim_idx][BOLD_len_i*nodes+j] = S_i_E;
@@ -910,7 +912,7 @@ void run_simulations_gpu(
 {
     Model* d_model;
     CUDA_CHECK_RETURN(cudaMallocManaged(&d_model, sizeof(Model)));
-    new (d_model) Model(); 
+    new (d_model) Model();
 
     // copy SC and parameter lists to device
     CUDA_CHECK_RETURN(cudaMemcpy(d_SC, SC, nodes*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
@@ -1203,14 +1205,14 @@ void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf, bool verbose
+        struct BWConstants bwc, struct ModelConfigs conf, bool verbose
         )
     {
     // check CUDA device avaliability and properties
     prop = get_device_prop(verbose);
 
     // copy constants and configs from CPU
-    CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_mc, &mc, sizeof(ModelConstants)));
+    CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_bwc, &bwc, sizeof(BWConstants)));
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_conf, &conf, sizeof(ModelConfigs)));
 
     // allocate device memory for SC
@@ -1231,7 +1233,8 @@ void init_gpu(
     // allocated memory for BOLD time-series of all simulations
     // BOLD will be a 2D array of size N_SIMS x (nodes x output_ts)
     u_real TR        = (u_real)BOLD_TR / 1000; // (s) TR of fMRI data
-    output_ts = (time_steps / (TR / mc.bw_dt))+1; // Length of BOLD time-series written to HDD
+    // output_ts = (time_steps / (TR / mc.bw_dt))+1; // Length of BOLD time-series written to HDD
+    output_ts = (time_steps / (TR / 0.001))+1; // Length of BOLD time-series written to HDD
     size_t bold_size = nodes * output_ts;
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&BOLD, sizeof(u_real*) * N_SIMS));
 
@@ -1438,5 +1441,5 @@ template void init_gpu<rWWModel>(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf, bool verbose
+        struct BWConstants bwc, struct ModelConfigs conf, bool verbose
 );
