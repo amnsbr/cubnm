@@ -31,10 +31,10 @@ def run_sims(N_SIMS=1, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
     G_list = np.repeat(0.5, N_SIMS)
     w_EE_list = np.repeat(0.21, nodes*N_SIMS)
     w_EI_list = np.repeat(0.15, nodes*N_SIMS)
-    # w_IE_list = np.repeat(0.0, nodes*N_SIMS)
-    # do_fic = True
-    w_IE_list = np.repeat(1.0, nodes*N_SIMS)
-    do_fic = False
+    w_IE_list = np.repeat(0.0, nodes*N_SIMS)
+    do_fic = True
+    # w_IE_list = np.repeat(1.0, nodes*N_SIMS)
+    # do_fic = False
 
     do_delay = False
     # do_delay = True

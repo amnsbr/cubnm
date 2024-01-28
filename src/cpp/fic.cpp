@@ -76,25 +76,25 @@ double gsl_fsolve(gsl_function F, double x_lo, double x_hi) {
 
 // transfer function and derivatives for excitatory and inhibitory populations
 double phi_E(double IE) {
-    return ((mc.a_E * IE) - mc.b_E) / (1 - exp(-mc.d_E * ((mc.a_E * IE) - mc.b_E)));
+    return ((rWWc.a_E * IE) - rWWc.b_E) / (1 - exp(-rWWc.d_E * ((rWWc.a_E * IE) - rWWc.b_E)));
 }
 
 double dphi_E(double IE) {
     return (
-        (mc.a_E * (1 - exp(-1 * mc.d_E * ((mc.a_E * IE) - mc.b_E))))
-        - (mc.a_E * mc.d_E * exp(-1 * mc.d_E * ((mc.a_E * IE) - mc.b_E)) * ((mc.a_E * IE) - mc.b_E))
-        ) / pow((1 - exp(-1 * mc.d_E * ((mc.a_E * IE) - mc.b_E))), 2);
+        (rWWc.a_E * (1 - exp(-1 * rWWc.d_E * ((rWWc.a_E * IE) - rWWc.b_E))))
+        - (rWWc.a_E * rWWc.d_E * exp(-1 * rWWc.d_E * ((rWWc.a_E * IE) - rWWc.b_E)) * ((rWWc.a_E * IE) - rWWc.b_E))
+        ) / pow((1 - exp(-1 * rWWc.d_E * ((rWWc.a_E * IE) - rWWc.b_E))), 2);
 }
 
 double phi_I(double II) {
-    return ((mc.a_I * II) - mc.b_I) / (1 - exp(-1 * mc.d_I * ((mc.a_I * II) - mc.b_I)));
+    return ((rWWc.a_I * II) - rWWc.b_I) / (1 - exp(-1 * rWWc.d_I * ((rWWc.a_I * II) - rWWc.b_I)));
 }
 
 double dphi_I(double II) {
     return (
-        mc.a_I * (1 - exp(-1 * mc.d_I * ((mc.a_I * II) - mc.b_I)))
-        - mc.a_I * mc.d_I * exp(-1 * mc.d_I * ((mc.a_I * II) - mc.b_I)) * ((mc.a_I * II) - mc.b_I)
-        ) / pow((1 - exp(-1 * mc.d_I * ((mc.a_I * II) - mc.b_I))), 2);
+        rWWc.a_I * (1 - exp(-1 * rWWc.d_I * ((rWWc.a_I * II) - rWWc.b_I)))
+        - rWWc.a_I * rWWc.d_I * exp(-1 * rWWc.d_I * ((rWWc.a_I * II) - rWWc.b_I)) * ((rWWc.a_I * II) - rWWc.b_I)
+        ) / pow((1 - exp(-1 * rWWc.d_I * ((rWWc.a_I * II) - rWWc.b_I))), 2);
 }
 
 /* Eq.10 in Demirtas which would be used in `gsl_fsolve`
@@ -123,31 +123,31 @@ void analytical_fic_het(
                 *_r_I_ss, *_K_EE_row;
 
     // specify regional parameters
-    repeat(&_w_II, mc.w_II, nodes);
+    repeat(&_w_II, rWWc.w_II, nodes);
     repeat(&_w_IE, 0, nodes);
     copy_array_to_vector(&_w_EI, w_EI, nodes);
     copy_array_to_vector(&_w_EE, w_EE, nodes);
 
-    repeat(&_I0, mc.I_0, nodes);
-    repeat(&_I_ext, mc.I_ext, nodes);
+    repeat(&_I0, rWWc.I_0, nodes);
+    repeat(&_I_ext, rWWc.I_ext, nodes);
 
     // Baseline input currents
-    vector_scale(&_I0_E, _I0, mc.w_E);
-    vector_scale(&_I0_I, _I0, mc.w_I);
+    vector_scale(&_I0_E, _I0, rWWc.w_E);
+    vector_scale(&_I0_I, _I0, rWWc.w_I);
 
     // Steady state values for isolated node
-    repeat(&_I_E_ss, mc.I_E_ss, nodes);
-    repeat(&_I_I_ss, mc.I_I_ss, nodes);
-    repeat(&_S_E_ss, mc.S_E_ss, nodes);
-    repeat(&_S_I_ss, mc.S_I_ss, nodes);
+    repeat(&_I_E_ss, rWWc.I_E_ss, nodes);
+    repeat(&_I_I_ss, rWWc.I_I_ss, nodes);
+    repeat(&_S_E_ss, rWWc.S_E_ss, nodes);
+    repeat(&_S_I_ss, rWWc.S_I_ss, nodes);
     // repeat(&_r_E_ss, r_E_ss, nodes);
-    repeat(&_r_I_ss, mc.r_I_ss, nodes);
+    repeat(&_r_I_ss, rWWc.r_I_ss, nodes);
     
     // set K_EE and K_EI
     _K_EE = gsl_matrix_alloc(nodes, nodes);
 
     gsl_matrix_memcpy(_K_EE, sc);
-    gsl_matrix_scale(_K_EE, G * mc.J_NMDA);
+    gsl_matrix_scale(_K_EE, G * rWWc.J_NMDA);
     make_diag(&_w_EE_matrix, _w_EE);
     gsl_matrix_add(_K_EE, _w_EE_matrix);
     // gsl_matrix_free(_w_EE_matrix);
@@ -164,7 +164,7 @@ void analytical_fic_het(
         struct inh_curr_params params = {
             _I0_I->data[j], _w_EI->data[j],
             _S_E_ss->data[j], _w_II->data[j],
-            mc.gamma_I_s, mc.tau_I_s
+            rWWc.gamma_I_s, rWWc.tau_I_s
         };
         F.function = &_inh_curr_fixed_pts;
         F.params = &params;
@@ -179,7 +179,7 @@ void analytical_fic_het(
         // gsl_vector_set(_r_I, j, curr_r_I);
         gsl_vector_set(_r_I_ss, j, curr_r_I);
         gsl_vector_set(_S_I_ss, j, 
-                        curr_r_I * mc.tau_I_s * mc.gamma_I_s);
+                        curr_r_I * rWWc.tau_I_s * rWWc.gamma_I_s);
         gsl_matrix_get_row(_K_EE_row, _K_EE, j);
         gsl_blas_ddot(_K_EE_row, _S_E_ss, &_K_EE_dot_S_E_ss);
         w_IE = (-1 / _S_I_ss->data[j]) *

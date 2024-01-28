@@ -36,18 +36,18 @@
 #include <algorithm>
 #include <memory>
 #include "constants.cpp"
-// #include "fic.cpp"
+#include "fic.cpp"
 #include "utils.cpp"
 // #include "bnm.cpp"
 
 #ifdef GPU_ENABLED
 // declare gpu functions which will be provided by bnm.cu compiled library
-template<typename Model>
+template<typename Model, typename ModelConstants>
 extern void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct BWConstants bwc, struct ModelConfigs conf, bool verbose
+        BWConstants bwc, ModelConstants mc, ModelConfigs conf, bool verbose
         );
 template<typename Model>
 extern void run_simulations_gpu(
@@ -60,7 +60,7 @@ extern void run_simulations_gpu(
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
-    struct ModelConfigs conf
+    ModelConfigs conf
 );
 namespace bnm_gpu {
     extern bool is_initialized;
@@ -80,6 +80,7 @@ static PyObject* init(PyObject* self, PyObject* args) {
     // initialize constants and configurations
     // with default values
     init_bw_constants(&bwc);
+    init_rWW_constants(&rWWc);
     init_conf(&conf);
 
     Py_RETURN_NONE;
@@ -317,11 +318,11 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         } 
         #ifdef GPU_ENABLED
         else {
-            init_gpu<rWWModel>(
+            init_gpu<rWWModel, rWWConstants>(
                 &_output_ts, &_n_pairs, &_n_window_pairs,
                 N_SIMS, nodes,
                 do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-                bwc, conf, (!is_initialized));
+                bwc, rWWc, conf, (!is_initialized));
         }
         #endif
         end = std::chrono::high_resolution_clock::now();
