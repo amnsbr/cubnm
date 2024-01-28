@@ -540,27 +540,19 @@ __global__ void bnm(
         if (ts_bold % BOLD_TR == 0) {
             // calcualte and save BOLD
             BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q) + d_bwc.V_0_k2 * (1 - bw_q/bw_nu) + d_bwc.V_0_k3 * (1 - bw_nu);
-            // // save time series of extended output if indicated
-            // if (extended_output & d_conf.extended_output_ts) {
-            //     S_E[sim_idx][BOLD_len_i*nodes+j] = S_i_E;
-            //     I_E[sim_idx][BOLD_len_i*nodes+j] = tmp_I_E;
-            //     r_E[sim_idx][BOLD_len_i*nodes+j] = tmp_r_E;
-            //     S_I[sim_idx][BOLD_len_i*nodes+j] = S_i_I;
-            //     I_I[sim_idx][BOLD_len_i*nodes+j] = tmp_I_I;
-            //     r_I[sim_idx][BOLD_len_i*nodes+j] = tmp_r_I;
-            // }
-            // // update sum (later mean) of extended
-            // // output only after n_vols_remove
-            // if ((BOLD_len_i>=n_vols_remove)) {
-            //     if (extended_output & (!d_conf.extended_output_ts)) {
-            //         S_E[sim_idx][j] += S_i_E;
-            //         I_E[sim_idx][j] += tmp_I_E;
-            //         r_E[sim_idx][j] += tmp_r_E;
-            //         S_I[sim_idx][j] += S_i_I;
-            //         I_I[sim_idx][j] += tmp_I_I;
-            //         r_I[sim_idx][j] += tmp_r_I;
-            //     }
-            // }
+            // save time series of extended output if indicated
+            if (extended_output & d_conf.extended_output_ts) {
+                for (ii=0; ii<Model::n_state_vars; ii++) {
+                    state_vars_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[ii];
+                }
+            }
+            // update sum (later mean) of extended
+            // output only after n_vols_remove
+            if ((BOLD_len_i>=n_vols_remove) & extended_output & (!d_conf.extended_output_ts)) {
+                for (ii=0; ii<Model::n_state_vars; ii++) {
+                    state_vars_out[ii][sim_idx][j] += _state_vars[ii];
+                }
+            }
             BOLD_len_i++;
         }
         ts_bold++;
@@ -617,16 +609,13 @@ __global__ void bnm(
 //         // as well as the number of adjustment trials needed
 //         fic_n_trials[sim_idx] = fic_trial;
 //     }
-//     if (extended_output & (!d_conf.extended_output_ts)) {
-//         // take average
-//         int extended_output_time_points = BOLD_len_i - n_vols_remove;
-//         S_E[sim_idx][j] /= extended_output_time_points;
-//         I_E[sim_idx][j] /= extended_output_time_points;
-//         r_E[sim_idx][j] /= extended_output_time_points;
-//         S_I[sim_idx][j] /= extended_output_time_points;
-//         I_I[sim_idx][j] /= extended_output_time_points;
-//         r_I[sim_idx][j] /= extended_output_time_points;
-//     }
+    if (extended_output & (!d_conf.extended_output_ts)) {
+        // take average
+        int extended_output_time_points = BOLD_len_i - n_vols_remove;
+        for (ii=0; ii<Model::n_state_vars; ii++) {
+            state_vars_out[ii][sim_idx][j] /= extended_output_time_points;
+        }
+    }
 }
 
 __global__ void bold_stats(
@@ -1150,20 +1139,20 @@ void run_simulations_gpu(
         fc_trils_out+=n_pairs;
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
-        // if (extended_output) {
-        //     memcpy(S_E_out, S_E[sim_idx], sizeof(u_real) * ext_out_size);
-        //     S_E_out+=ext_out_size;
-        //     memcpy(S_I_out, S_I[sim_idx], sizeof(u_real) * ext_out_size);
-        //     S_I_out+=ext_out_size;
-        //     memcpy(r_E_out, r_E[sim_idx], sizeof(u_real) * ext_out_size);
-        //     r_E_out+=ext_out_size;
-        //     memcpy(r_I_out, r_I[sim_idx], sizeof(u_real) * ext_out_size);
-        //     r_I_out+=ext_out_size;
-        //     memcpy(I_E_out, I_E[sim_idx], sizeof(u_real) * ext_out_size);
-        //     I_E_out+=ext_out_size;
-        //     memcpy(I_I_out, I_I[sim_idx], sizeof(u_real) * ext_out_size);
-        //     I_I_out+=ext_out_size;
-        // }
+        if (extended_output) {
+            memcpy(I_E_out, state_vars_out[0][sim_idx], sizeof(u_real) * ext_out_size);
+            I_E_out+=ext_out_size;
+            memcpy(I_I_out, state_vars_out[1][sim_idx], sizeof(u_real) * ext_out_size);
+            I_I_out+=ext_out_size;
+            memcpy(r_E_out, state_vars_out[2][sim_idx], sizeof(u_real) * ext_out_size);
+            r_E_out+=ext_out_size;
+            memcpy(r_I_out, state_vars_out[3][sim_idx], sizeof(u_real) * ext_out_size);
+            r_I_out+=ext_out_size;
+            memcpy(S_E_out, state_vars_out[4][sim_idx], sizeof(u_real) * ext_out_size);
+            S_E_out+=ext_out_size;
+            memcpy(S_I_out, state_vars_out[5][sim_idx], sizeof(u_real) * ext_out_size);
+            S_I_out+=ext_out_size;
+        }
         // if (do_fic) {
         //     memcpy(w_IE_list, w_IE_fic[sim_idx], sizeof(u_real) * nodes);
         //     w_IE_list+=nodes;
