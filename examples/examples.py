@@ -12,7 +12,7 @@ from pymoo.core.termination import Termination
 from pymoo.termination import get_termination
 import cma
 
-def run_sims(N_SIMS=1, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False):
+def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False):
     # run identical simulations and check if BOLD is the same
     nodes = 100
     time_steps = 60000
@@ -32,6 +32,8 @@ def run_sims(N_SIMS=1, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
     w_EE_list = np.repeat(0.21, nodes*N_SIMS)
     w_EI_list = np.repeat(0.15, nodes*N_SIMS)
     w_IE_list = np.repeat(0.0, nodes*N_SIMS)
+    global_params = G_list[np.newaxis, :]
+    regional_params = np.vstack([w_EE_list, w_EI_list, w_IE_list])
     do_fic = True
     # w_IE_list = np.repeat(1.0, nodes*N_SIMS)
     # do_fic = False
@@ -54,7 +56,7 @@ def run_sims(N_SIMS=1, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
     force_cpu = force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus()==0)
     # make sure all the input arrays are of type float/double
     out = run_simulations(
-        SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, v_list,
+        'rWW', SC, SC_dist, global_params, regional_params, v_list,
         do_fic, extended_output, extended_output_ts, do_delay, force_reinit, force_cpu,
         N_SIMS, nodes, time_steps, BOLD_TR,
         window_size, window_step, rand_seed

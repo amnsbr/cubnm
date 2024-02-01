@@ -5,26 +5,27 @@ cudaDeviceProp prop;
 
 namespace bnm_gpu {
     bool is_initialized = false;
+    int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
+    bool has_delay;
+    u_real ***states_out, **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
+        **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise,
+        *d_SC, **d_global_params, **d_regional_params;
+    int **global_out_int;
+    bool **global_out_bool;
+    int *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
+    int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
+    int last_nodes = 0;
+    int last_rand_seed = 0;
+    #ifdef NOISE_SEGMENT
+    int *shuffled_nodes, *shuffled_ts;
+    // set a default length of noise (msec)
+    // (+1 to avoid having an additional repeat for a single time point
+    // when time_steps can be divided by 30(000), as the actual duration of
+    // simulation (in msec) is always user request time steps + 1)
+    int noise_time_steps = 30001;
+    int noise_repeats; // number of noise segment repeats for current simulations
 }
-int n_vols_remove, corr_len, n_windows, n_pairs, n_window_pairs, output_ts, max_delay;
-bool has_delay;
-u_real ***state_vars_out,**BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
-    **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils, *noise,
-    *d_SC, **d_global_params, **d_regional_params;
-int **global_out_int;
-bool **global_out_bool;
-int *pairs_i, *pairs_j, *window_starts, *window_ends, *window_pairs_i, *window_pairs_j;
-int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
-int last_nodes = 0;
-int last_rand_seed = 0;
-#ifdef NOISE_SEGMENT
-int *shuffled_nodes, *shuffled_ts;
-// set a default length of noise (msec)
-// (+1 to avoid having an additional repeat for a single time point
-// when time_steps can be divided by 30(000), as the actual duration of
-// simulation (in msec) is always user request time steps + 1)
-int noise_time_steps = 30001;
-int noise_repeats; // number of noise segment repeats for current simulations
+
 #endif
 #ifdef USE_FLOATS
 double **d_fc_trils, **d_fcd_trils;
@@ -66,11 +67,7 @@ __global__ void bnm(
 template<typename Model>
 void run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
-    double * S_E_out, double * S_I_out,
-    double * r_E_out, double * r_I_out,
-    double * I_E_out, double * I_I_out,
-    bool * fic_unstable_out, bool * fic_failed_out,
-    u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
+    u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
     int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,

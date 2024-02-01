@@ -333,13 +333,19 @@ class SimGroup:
         self.param_lists["wIE"] = np.ascontiguousarray(
             self.param_lists["wIE"].flatten()
         )
-        out = run_simulations(
-            np.ascontiguousarray(self.sc.flatten()),
-            np.ascontiguousarray(self.sc_dist.flatten()),
-            np.ascontiguousarray(self.param_lists["G"]),
+        global_params = np.ascontiguousarray(self.param_lists["G"])[np.newaxis, :]
+        regional_params = np.vstack([
             np.ascontiguousarray(self.param_lists["wEE"].flatten()),
             np.ascontiguousarray(self.param_lists["wEI"].flatten()),
             self.param_lists["wIE"],
+        ])
+
+        out = run_simulations(
+            'rWW',
+            np.ascontiguousarray(self.sc.flatten()),
+            np.ascontiguousarray(self.sc_dist.flatten()),
+            global_params,
+            regional_params,
             np.ascontiguousarray(self.param_lists["v"]),
             self.do_fic,
             self.extended_output,
@@ -362,28 +368,32 @@ class SimGroup:
         self.it += 1
         # assign the output to object properties
         # and reshape them to (N_SIMS, ...)
-        ext_out = {}
+        self.ext_out = {}
         if self.extended_output:
             (
                 sim_bold,
                 sim_fc_trils,
                 sim_fcd_trils,
-                ext_out["S_E"],
-                ext_out["S_I"],
-                ext_out["r_E"],
-                ext_out["r_I"],
-                ext_out["I_E"],
-                ext_out["I_I"],
-                self.fic_unstable,
+                sim_states,
+                global_bools,
+                global_ints,
             ) = out
-            self.ext_out = ext_out
-            for k in self.ext_out:
-                if self.extended_output_ts:
+            self.ext_out = {
+                'I_E': sim_states[0],
+                'I_I': sim_states[1],
+                'r_E': sim_states[2],
+                'r_I': sim_states[3],
+                'S_E': sim_states[4],
+                'S_I': sim_states[5],
+            }
+            if self.extended_output_ts:
+                for k in self.ext_out:
                     self.ext_out[k] = self.ext_out[k].reshape(self.N, -1, self.nodes)
-                else:
-                    self.ext_out[k] = self.ext_out[k].reshape(self.N, -1)
+            self.fic_unstable = global_bools[0]
+            self.fic_failed = global_bools[1]
+            self.fic_ntrials = global_ints[0]
         else:
-            sim_bold, sim_fc_trils, sim_fcd_trils, self.fic_unstable = out
+            sim_bold, sim_fc_trils, sim_fcd_trils = out
         self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)
         self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
         self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)

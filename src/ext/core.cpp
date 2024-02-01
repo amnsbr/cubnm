@@ -55,11 +55,7 @@ extern void init_gpu(
 template<typename Model>
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
-    double * S_E_out, double * S_I_out,
-    double * r_E_out, double * r_I_out,
-    double * I_E_out, double * I_I_out,
-    bool * fic_unstable_out, bool * fic_failed_out,
-    u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
+    u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay, int nodes,
     int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
@@ -67,12 +63,63 @@ extern void run_simulations_gpu(
 );
 namespace bnm_gpu {
     extern bool is_initialized;
+    extern u_real *** states_out, **BOLD, **fc_trils, **fcd_trils;
+    extern int **global_out_int;
+    extern bool **global_out_bool;
 }
 #endif
 // the following variables are calcualted during init functions and will
 // be needed to determine the size of arrays
 // they are global because init functions may be called only once
 int _output_ts, _n_pairs, _n_window_pairs;
+
+
+u_real ** np_to_array_2d(PyArrayObject * np_arr) {
+    // converts a 2d numpy array to a 2d array of type u_real
+    int rows = PyArray_DIM(np_arr, 0);
+    int cols = PyArray_DIM(np_arr, 1);
+    double* data = (double*)PyArray_DATA(np_arr);
+
+    u_real** arr = (u_real**)malloc(rows * sizeof(u_real*));
+    for (int i = 0; i < rows; i++) {
+        arr[i] = (u_real*)malloc(cols * sizeof(u_real));
+        for (int j = 0; j < cols; j++) {
+            arr[i][j] = data[i*cols + j];
+        }
+    }
+    return arr;
+}
+
+template<typename T>
+void array_to_np_3d(T *** arr, PyObject * np_arr) {
+    // converts a 3d array to a 3d numpy array
+    int dim1 = PyArray_DIM(np_arr, 0);
+    int dim2 = PyArray_DIM(np_arr, 1);
+    int dim3 = PyArray_DIM(np_arr, 2);
+    T* data = (T*)PyArray_DATA(np_arr);
+
+    for (int i = 0; i < dim1; i++) {
+        for (int j = 0; j < dim2; j++) {
+            for (int k = 0; k < dim3; k++) {
+                data[i*dim2*dim3 + j*dim3 + k] = arr[i][j][k];
+            }
+        }
+    }
+}
+
+template<typename T>
+void array_to_np_2d(T ** arr, PyObject * np_arr) {
+    // converts a 2d array to a 2d numpy array
+    int dim1 = PyArray_DIM(np_arr, 0);
+    int dim2 = PyArray_DIM(np_arr, 1);
+    T* data = (T*)PyArray_DATA(np_arr);
+
+    for (int i = 0; i < dim1; i++) {
+        for (int j = 0; j < dim2; j++) {
+            data[i*dim2 + j] = arr[i][j];
+        }
+    }
+}
 
 // write a python extension function with no arguments named init which
 // returns nothing
@@ -214,18 +261,17 @@ static PyObject* get_conf(PyObject* self, PyObject* args) {
 }
 
 static PyObject* run_simulations(PyObject* self, PyObject* args) {
-    PyArrayObject *SC, *SC_dist, *G_list, *w_EE_list, *w_EI_list, *w_IE_list, *v_list;
+    char* model_name;
+    PyArrayObject *SC, *SC_dist, *py_global_params, *py_regional_params, *v_list;
     bool do_fic, extended_output, extended_output_ts, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
-    double velocity;
 
-    if (!PyArg_ParseTuple(args, "O!O!O!O!O!O!O!iiiiiiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!iiiiiiiiiiiii", 
+            &model_name,
             &PyArray_Type, &SC,
             &PyArray_Type, &SC_dist,
-            &PyArray_Type, &G_list,
-            &PyArray_Type, &w_EE_list,
-            &PyArray_Type, &w_EI_list,
-            &PyArray_Type, &w_IE_list,
+            &PyArray_Type, &py_global_params,
+            &PyArray_Type, &py_regional_params,
             &PyArray_Type, &v_list,
             &do_fic,
             &extended_output,
@@ -243,19 +289,13 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             ))
         return NULL;
 
-    // make sure arrays are 1D and of type double
-    if (
-        SC->nd != 1 || SC->descr->type_num != PyArray_DOUBLE ||
-        SC_dist->nd != 1 || SC_dist->descr->type_num != PyArray_DOUBLE ||
-        G_list->nd != 1 || G_list->descr->type_num != PyArray_DOUBLE ||
-        w_EE_list->nd != 1 || w_EE_list->descr->type_num != PyArray_DOUBLE ||
-        w_EE_list->nd != 1 || w_EE_list->descr->type_num != PyArray_DOUBLE ||
-        w_IE_list->nd != 1 || w_IE_list->descr->type_num != PyArray_DOUBLE ||
-        v_list->nd != 1 || v_list->descr->type_num != PyArray_DOUBLE
-    ) {
-        PyErr_SetString(PyExc_ValueError, "arrays must be one-dimensional and of type float");
-        return NULL;
-    }
+    py_global_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_global_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    py_regional_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_regional_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    if ((py_global_params == NULL) | (py_regional_params == NULL)) return NULL;
+
+    u_real ** global_params = np_to_array_2d(py_global_params);
+    u_real ** regional_params = np_to_array_2d(py_regional_params);
+
 
     if (nodes > MAX_NODES) {
         printf("nodes must be less than %d\n", MAX_NODES);
@@ -339,22 +379,19 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     npy_intp bold_dims[2] = {N_SIMS, _output_ts*nodes};
     npy_intp fc_trils_dims[2] = {N_SIMS, _n_pairs};
     npy_intp fcd_trils_dims[2] = {N_SIMS, _n_window_pairs};
-    npy_intp ext_var_dims[2] = {N_SIMS, nodes};
+    npy_intp states_dims[3] = {rWWModel::n_state_vars, N_SIMS, nodes};
     if (conf.extended_output_ts) {
-        ext_var_dims[1] *= _output_ts;
+        states_dims[2] *= _output_ts;
     }
+    npy_intp global_bools_dims[2] = {rWWModel::n_global_out_bool, N_SIMS};
+    npy_intp global_ints_dims[2] = {rWWModel::n_global_out_int, N_SIMS};
+
     PyObject* py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
     PyObject* py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
     PyObject* py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
-    PyObject* py_S_E_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
-    PyObject* py_S_I_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
-    PyObject* py_r_E_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
-    PyObject* py_r_I_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
-    PyObject* py_I_E_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
-    PyObject* py_I_I_out = PyArray_SimpleNew(2, ext_var_dims, PyArray_DOUBLE);
-    npy_intp sims_dims[1] = {N_SIMS};
-    PyObject* py_fic_unstable_out = PyArray_SimpleNew(1, sims_dims, PyArray_BOOL);
-    PyObject* py_fic_failed_out = PyArray_SimpleNew(1, sims_dims, PyArray_BOOL);
+    PyObject* py_states_out = PyArray_SimpleNew(3, states_dims, PyArray_DOUBLE);
+    PyObject* py_global_bools_out = PyArray_SimpleNew(2, global_bools_dims, PyArray_BOOL);
+    PyObject* py_global_ints_out = PyArray_SimpleNew(2, global_ints_dims, PyArray_INT);
 
     printf("Running %d simulations...\n", N_SIMS);
     start = std::chrono::high_resolution_clock::now();
@@ -382,12 +419,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         run_simulations_gpu<rWWModel>(
             (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
             (double*)PyArray_DATA(py_fcd_trils_out),
-            (double*)PyArray_DATA(py_S_E_out), (double*)PyArray_DATA(py_S_I_out),
-            (double*)PyArray_DATA(py_r_E_out), (double*)PyArray_DATA(py_r_I_out),
-            (double*)PyArray_DATA(py_I_E_out), (double*)PyArray_DATA(py_I_I_out),
-            (bool*)PyArray_DATA(py_fic_unstable_out), (bool*)PyArray_DATA(py_fic_failed_out),
-            (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
-            (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
+            global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
             (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
             time_steps, BOLD_TR, _max_fic_trials,
@@ -399,40 +431,41 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     elapsed_seconds = end - start;
     printf("took %lf s\n", elapsed_seconds.count());
 
+    array_to_np_3d<u_real>(bnm_gpu::states_out, py_states_out);
+    array_to_np_2d<bool>(bnm_gpu::global_out_bool, py_global_bools_out);
+    array_to_np_2d<int>(bnm_gpu::global_out_int, py_global_ints_out);
+
     if (extended_output) {
-        return Py_BuildValue("OOOOOOOOOO", 
+        return Py_BuildValue("OOOOOO", 
             py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out,
-            py_S_E_out, py_S_I_out, 
-            py_r_E_out, py_r_I_out,
-            py_I_E_out, py_I_I_out, 
-            py_fic_unstable_out
+            py_states_out, py_global_bools_out, py_global_ints_out
         );
-    } else {
-        return Py_BuildValue("OOOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out, py_fic_unstable_out);
+    } 
+    else {
+        return Py_BuildValue("OOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out);
     }
 }
 
 
 static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
-        "run_simulations(SC, SC_dist, G_list, w_EE_list, w_EI_list, w_IE_list, \n"
+        "run_simulations(model_name, SC, SC_dist, global_params, regional_params, \n"
         "v_list, do_fic, extended_output, extended_output_ts do_delay, force_reinit, \n"
         "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
         "-----------\n"
+        "model_name (str)\n"
+            "\tname of the model to use\n"
+            "\tcurrently only supports 'rWW'\n"
         "SC (np.ndarray) (nodes*nodes,)\n\tflattened strucutral connectivity matrix\n"
         "SC_dist (np.ndarray) (nodes*nodes,)\n"
             "\tflattened edge length matrix\n"
             "\twill be ignored if do_delay is False\n"
-        "G_list (np.ndarray) (N_SIMS,)\n"
-            "\tarray of global coupling values\n"
-        "w_EE_list (np.ndarray) (N_SIMS*nodes,)\n"
-            "\tflattened array of regional E-E synaptic weights\n"
-        "w_EI_list (np.ndarray) (N_SIMS*nodes,)\n"
-            "\tflattened array of regional E-I synaptic weights\n"
-        "w_IE_list (np.ndarray) (N_SIMS*nodes,)\n"
-            "\tflattened array of regional I-E synaptic weights\n"
+        "global_params (np.ndarray) (n_global_params, N_SIM)\n"
+            "\tarray of global model parameters\n"
+        "regional_params (np.ndarray) (n_regional_params, N_SIMS*nodes)\n"
+            "\tflattened array of regional model parameters\n"
         "v_list (np.ndarray) (N_SIMS,)\n"
             "\tarray of conduction velocity values\n"
             "\twill be ignored if do_delay is False\n"
@@ -473,19 +506,14 @@ static PyMethodDef methods[] = {
             "\tsimulated functional connectivity dynamics matrices\n"
         "If extended_output is True, the function also returns "
         "the time-averaged model state variables, including:\n"
-        "S_E (np.ndarray) (N_SIMS, nodes)\n"
-        "S_I (np.ndarray) (N_SIMS, nodes)\n"
-        "S_ratio (np.ndarray) (N_SIMS, nodes)\n"
-        "r_E (np.ndarray) (N_SIMS, nodes)\n"
-        "r_I (np.ndarray) (N_SIMS, nodes)\n"
-        "r_ratio (np.ndarray) (N_SIMS, nodes)\n"
-        "I_E (np.ndarray) (N_SIMS, nodes)\n"
-        "I_I (np.ndarray) (N_SIMS, nodes)\n"
-        "I_ratio (np.ndarray) (N_SIMS, nodes)\n"
-        "fic_unstable (np.ndarray) (N_SIMS,)\n"
-            "\tindicates whether analytical FIC led to unstable solution\n"
-            "\tNote: if extended_output is True but do_fic is False," 
-            "this array is still returned but will be empty\n"
+        "states_out (np.ndarray) (N_SIMS, nodes) or (N_SIMS, nodes*time)\n"
+            "\tmodel state variables\n"
+            "\tNote: if extended_output_ts is True, the time series "
+            "of model state variables will be returned\n"
+        "global_out_bool (np.ndarray) (n_global_out_bool, N_SIMS)\n"
+            "\tglobal boolean outputs\n"
+        "global_out_int (np.ndarray) (n_global_out_int, N_SIMS)\n"
+            "\tglobal integer outputs\n"
     },
     {"init", init, METH_NOARGS, 
         "init()\n"

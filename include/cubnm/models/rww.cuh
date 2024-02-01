@@ -10,8 +10,8 @@ extern void analytical_fic_het(
         );
 
 template void run_simulations_gpu<rWWModel>(
-    double*, double*, double*, double*, double*, double*, double*, double*, double*,
-    bool*, bool*, u_real*, u_real*, u_real*, u_real*, u_real*, u_real*, gsl_matrix*, u_real*, bool,
+    double*, double*, double*, 
+    u_real**, u_real**, u_real*, u_real*, gsl_matrix*, u_real*, bool,
     int, int, int, int, int, int, bool, bool, bool, ModelConfigs
 );
 

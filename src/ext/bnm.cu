@@ -83,7 +83,7 @@ template<typename Model>
 __global__ void bnm(
     Model* model,
     u_real **BOLD,
-    u_real ***state_vars_out, 
+    u_real ***states_out, 
     int **global_out_int,
     bool **global_out_bool,
     int n_vols_remove,
@@ -145,7 +145,7 @@ __global__ void bnm(
     // initialize extended output sums
     if (extended_output & (!d_conf.extended_output_ts)) {
         for (ii=0; ii<Model::n_state_vars; ii++) {
-            state_vars_out[ii][sim_idx][j] = 0;
+            states_out[ii][sim_idx][j] = 0;
         }
     }
 
@@ -306,14 +306,14 @@ __global__ void bnm(
             // save time series of extended output if indicated
             if (extended_output & d_conf.extended_output_ts) {
                 for (ii=0; ii<Model::n_state_vars; ii++) {
-                    state_vars_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[ii];
+                    states_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[ii];
                 }
             }
             // update sum (later mean) of extended
             // output only after n_vols_remove
             if ((BOLD_len_i>=n_vols_remove) & extended_output & (!d_conf.extended_output_ts)) {
                 for (ii=0; ii<Model::n_state_vars; ii++) {
-                    state_vars_out[ii][sim_idx][j] += _state_vars[ii];
+                    states_out[ii][sim_idx][j] += _state_vars[ii];
                 }
             }
             BOLD_len_i++;
@@ -383,7 +383,7 @@ __global__ void bnm(
     }
     if (Model::has_post_integration) {
         model->post_integration(
-            BOLD, state_vars_out, 
+            BOLD, states_out, 
             global_out_int, global_out_bool,
             _state_vars, _intermediate_vars, 
             _ext_int, _ext_bool, 
@@ -397,7 +397,7 @@ __global__ void bnm(
         // take average
         int extended_output_time_points = BOLD_len_i - n_vols_remove;
         for (ii=0; ii<Model::n_state_vars; ii++) {
-            state_vars_out[ii][sim_idx][j] /= extended_output_time_points;
+            states_out[ii][sim_idx][j] /= extended_output_time_points;
         }
     }
 }
@@ -405,11 +405,7 @@ __global__ void bnm(
 template<typename Model>
 void run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
-    double * S_E_out, double * S_I_out,
-    double * r_E_out, double * r_I_out,
-    double * I_E_out, double * I_I_out,
-    bool * fic_unstable_out, bool * fic_failed_out,
-    u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
+    u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
     int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
     int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
@@ -417,17 +413,22 @@ void run_simulations_gpu(
 )
 // TODO: clean the order of args
 {
+    using namespace bnm_gpu;
+
     Model* d_model;
     CUDA_CHECK_RETURN(cudaMallocManaged(&d_model, sizeof(Model)));
     new (d_model) Model();
 
-    // copy SC and parameter lists to device
+    // copy SC to managed memory
     CUDA_CHECK_RETURN(cudaMemcpy(d_SC, SC, nodes*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-    // TODO: make the following model-specific
-    CUDA_CHECK_RETURN(cudaMemcpy(d_global_params[0], G_list, N_SIMS * sizeof(u_real), cudaMemcpyHostToDevice));
-    CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[0], w_EE_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-    CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[1], w_EI_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-    CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[2], w_IE_list, N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+
+    // copy parameters to managed memory
+    for (int i=0; i<Model::n_global_params; i++) {
+        CUDA_CHECK_RETURN(cudaMemcpy(d_global_params[i], global_params[i], N_SIMS * sizeof(u_real), cudaMemcpyHostToDevice));
+    }
+    for (int i=0; i<Model::n_regional_params; i++) {
+        CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[i], regional_params[i], N_SIMS*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+    }
 
     // if indicated, calculate delay matrix of each simulation and allocate
     // memory to conn_state_var_hist according to the max_delay among the current simulations
@@ -510,14 +511,14 @@ void run_simulations_gpu(
         for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
             // make a copy of regional wEE and wEI
             for (int j=0; j<nodes; j++) {
-                curr_w_EE[j] = (double)(w_EE_list[sim_idx*nodes+j]);
-                curr_w_EI[j] = (double)(w_EI_list[sim_idx*nodes+j]);
+                curr_w_EE[j] = (double)(d_regional_params[0][sim_idx*nodes+j]);
+                curr_w_EI[j] = (double)(d_regional_params[1][sim_idx*nodes+j]);
             }
             // do FIC for the current particle
             global_out_bool[0][sim_idx] = false;
             // bool* _fic_unstable;
             analytical_fic_het(
-                SC_gsl, G_list[sim_idx], curr_w_EE, curr_w_EI,
+                SC_gsl, d_global_params[0][sim_idx], curr_w_EE, curr_w_EI,
                 // curr_w_IE, _fic_unstable);
                 curr_w_IE, global_out_bool[0]+sim_idx);
             if (global_out_bool[0][sim_idx]) {
@@ -548,7 +549,7 @@ void run_simulations_gpu(
     #endif 
     bnm<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
         d_model,
-        BOLD, state_vars_out, 
+        BOLD, states_out, 
         global_out_int,
         global_out_bool,
         n_vols_remove,
@@ -664,29 +665,10 @@ void run_simulations_gpu(
         fc_trils_out+=n_pairs;
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
-        if (extended_output) {
-            memcpy(I_E_out, state_vars_out[0][sim_idx], sizeof(u_real) * ext_out_size);
-            I_E_out+=ext_out_size;
-            memcpy(I_I_out, state_vars_out[1][sim_idx], sizeof(u_real) * ext_out_size);
-            I_I_out+=ext_out_size;
-            memcpy(r_E_out, state_vars_out[2][sim_idx], sizeof(u_real) * ext_out_size);
-            r_E_out+=ext_out_size;
-            memcpy(r_I_out, state_vars_out[3][sim_idx], sizeof(u_real) * ext_out_size);
-            r_I_out+=ext_out_size;
-            memcpy(S_E_out, state_vars_out[4][sim_idx], sizeof(u_real) * ext_out_size);
-            S_E_out+=ext_out_size;
-            memcpy(S_I_out, state_vars_out[5][sim_idx], sizeof(u_real) * ext_out_size);
-            S_I_out+=ext_out_size;
-        }
         if (do_fic) {
-            memcpy(w_IE_list, &(d_regional_params[2][sim_idx*nodes]), sizeof(u_real) * nodes);
-            w_IE_list+=nodes;
+            memcpy(regional_params[2], &(d_regional_params[2][sim_idx*nodes]), sizeof(u_real) * nodes);
+            regional_params[2]+=nodes;
         }
-    }
-    if (do_fic) {
-        memcpy(fic_unstable_out, global_out_bool[0], sizeof(bool) * N_SIMS);
-        memcpy(fic_failed_out, global_out_bool[1], sizeof(bool) * N_SIMS);
-        // TODO: add fic_n_trials
     }
 
     // free delay and conn_state_var_hist memories if allocated
@@ -723,6 +705,7 @@ void init_gpu(
         BWConstants bwc, ModelConstants mc, ModelConfigs conf, bool verbose
         )
     {
+    using namespace bnm_gpu;
     // check CUDA device avaliability and properties
     prop = get_device_prop(verbose);
 
@@ -787,11 +770,11 @@ void init_gpu(
         ext_out_size *= output_ts;
     }
     if (_extended_output) {
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&state_vars_out, sizeof(u_real**) * Model::n_state_vars));
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&states_out, sizeof(u_real**) * Model::n_state_vars));
         for (int var_idx=0; var_idx<Model::n_state_vars; var_idx++) {
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&state_vars_out[var_idx], sizeof(u_real*) * N_SIMS));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&states_out[var_idx], sizeof(u_real*) * N_SIMS));
             for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
-                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&state_vars_out[var_idx][sim_idx], sizeof(u_real) * ext_out_size));
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&states_out[var_idx][sim_idx], sizeof(u_real) * ext_out_size));
             }
         }
     }
