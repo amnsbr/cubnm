@@ -45,12 +45,12 @@
 
 #ifdef GPU_ENABLED
 // declare gpu functions which will be provided by bnm.cu compiled library
-template<typename Model, typename ModelConstants>
+template<typename Model>
 extern void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        BWConstants bwc, ModelConstants mc, ModelConfigs conf, bool verbose
+        BWConstants bwc, ModelConfigs conf, bool verbose
         );
 template<typename Model>
 extern void run_simulations_gpu(
@@ -130,7 +130,7 @@ static PyObject* init(PyObject* self, PyObject* args) {
     // initialize constants and configurations
     // with default values
     init_bw_constants(&bwc);
-    init_rWW_constants(&rWWc);
+    rWWModel::init_constants(&(rWWModel::mc));
     init_conf(&conf);
 
     Py_RETURN_NONE;
@@ -361,11 +361,11 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         } 
         #ifdef GPU_ENABLED
         else {
-            init_gpu<rWWModel, rWWConstants>(
+            init_gpu<rWWModel>(
                 &_output_ts, &_n_pairs, &_n_window_pairs,
                 N_SIMS, nodes,
                 do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-                bwc, rWWc, conf, (!is_initialized));
+                bwc, conf, (!is_initialized));
         }
         #endif
         end = std::chrono::high_resolution_clock::now();
