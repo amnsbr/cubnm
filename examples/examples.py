@@ -32,11 +32,9 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
     w_EE_list = np.repeat(0.21, nodes*N_SIMS)
     w_EI_list = np.repeat(0.15, nodes*N_SIMS)
     w_IE_list = np.repeat(0.0, nodes*N_SIMS)
-    global_params = G_list[np.newaxis, :]
-    regional_params = np.vstack([w_EE_list, w_EI_list, w_IE_list])
-    do_fic = True
-    # w_IE_list = np.repeat(1.0, nodes*N_SIMS)
-    # do_fic = False
+    # do_fic = True
+    w_IE_list = np.repeat(1.0, nodes*N_SIMS)
+    do_fic = False
 
     do_delay = False
     # do_delay = True
@@ -54,10 +52,18 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(nodes*nodes, dtype=float) # doesn't matter what it is!
     force_cpu = force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus()==0)
+    model_config = {
+        'do_fic': str(int(do_fic)),
+        'max_fic_trials': '5',
+        # 'fic_verbose': '0',
+    }
+    global_params = G_list[np.newaxis, :]
+    regional_params = np.vstack([w_EE_list, w_EI_list, w_IE_list])
     # make sure all the input arrays are of type float/double
     out = run_simulations(
         'rWW', SC, SC_dist, global_params, regional_params, v_list,
-        do_fic, extended_output, extended_output_ts, do_delay, force_reinit, force_cpu,
+        model_config,
+        extended_output, extended_output_ts, do_delay, force_reinit, force_cpu,
         N_SIMS, nodes, time_steps, BOLD_TR,
         window_size, window_step, rand_seed
     )

@@ -339,7 +339,11 @@ class SimGroup:
             np.ascontiguousarray(self.param_lists["wEI"].flatten()),
             self.param_lists["wIE"],
         ])
-
+        model_config = {
+            'do_fic': str(int(self.do_fic)),
+            # 'max_fic_trials': '5',
+            # 'fic_verbose': '0',
+        }
         out = run_simulations(
             'rWW',
             np.ascontiguousarray(self.sc.flatten()),
@@ -347,7 +351,7 @@ class SimGroup:
             global_params,
             regional_params,
             np.ascontiguousarray(self.param_lists["v"]),
-            self.do_fic,
+            model_config,
             self.extended_output,
             self.extended_output_ts,
             self.do_delay,

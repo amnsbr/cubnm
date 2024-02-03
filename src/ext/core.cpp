@@ -48,17 +48,17 @@
 template<typename Model>
 extern void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
-        int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
+        int N_SIMS, int nodes, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        BWConstants bwc, ModelConfigs conf, bool verbose
+        Model *model, BWConstants bwc, ModelConfigs conf, bool verbose
         );
 template<typename Model>
 extern void run_simulations_gpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay, int nodes,
-    int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
-    int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
+    int time_steps, int BOLD_TR, int window_size,
+    int N_SIMS, bool extended_output, Model *model,
     ModelConfigs conf
 );
 namespace bnm_gpu {
@@ -88,6 +88,32 @@ u_real ** np_to_array_2d(PyArrayObject * np_arr) {
         }
     }
     return arr;
+}
+
+std::map<std::string, std::string> dict_to_map(PyObject *config_dict) {
+    // Create a map to hold the config values
+    std::map<std::string, std::string> config_map;
+    if (!PyDict_Check(config_dict)) {
+        PyErr_SetString(PyExc_TypeError, "Parameter must be a dictionary.");
+        return config_map;
+    }
+    PyObject *key, *value;
+    Py_ssize_t pos = 0;
+
+    while (PyDict_Next(config_dict, &pos, &key, &value)) {
+        // Ensure key and value are strings
+        if (!PyUnicode_Check(key) || !PyUnicode_Check(value)) {
+            PyErr_SetString(PyExc_TypeError, "Dictionary keys and values must be strings.");
+            return config_map;
+        }
+        // Convert key and value to C++ types
+        std::string key_str = PyUnicode_AsUTF8(key);
+        std::string value_str = PyUnicode_AsUTF8(value);
+
+        // Add the key-value pair to the map
+        config_map[key_str] = value_str;
+    }
+    return config_map;
 }
 
 template<typename T>
@@ -189,23 +215,6 @@ static PyObject* set_conf(PyObject* self, PyObject* args) {
     if (strcmp(key, "bold_remove_s") == 0) {
         conf.bold_remove_s = (int)value;
     }
-    else if (strcmp(key, "I_SAMPLING_START") == 0) {
-        conf.I_SAMPLING_START = (int)value;
-        conf.I_SAMPLING_DURATION = conf.I_SAMPLING_END - conf.I_SAMPLING_START + 1;
-    }
-    else if (strcmp(key, "I_SAMPLING_END") == 0) {
-        conf.I_SAMPLING_END = (int)value;
-        conf.I_SAMPLING_DURATION = conf.I_SAMPLING_END - conf.I_SAMPLING_START + 1;
-    }
-    else if (strcmp(key, "numerical_fic") == 0) {
-        conf.numerical_fic = (bool)value;
-    }
-    else if (strcmp(key, "max_fic_trials") == 0) {
-        conf.max_fic_trials = (int)value;
-    }
-    else if (strcmp(key, "init_delta") == 0) {
-        conf.init_delta = value;
-    }
     else if (strcmp(key, "exc_interhemispheric") == 0) {
         conf.exc_interhemispheric = (bool)value;
     }
@@ -220,9 +229,6 @@ static PyObject* set_conf(PyObject* self, PyObject* args) {
     }
     else if (strcmp(key, "sim_verbose") == 0) {
         conf.sim_verbose = (bool)value;
-    }
-    else if (strcmp(key, "fic_verbose") == 0) {
-        conf.fic_verbose = (bool)value;
     }
 
     // set is_initialized to false so that the next time run_simulations
@@ -245,17 +251,11 @@ static PyObject* get_conf(PyObject* self, PyObject* args) {
 
     // Add the configuration values to the dictionary
     PyDict_SetItemString(conf_dict, "bold_remove_s", PyLong_FromLong(conf.bold_remove_s));
-    PyDict_SetItemString(conf_dict, "I_SAMPLING_START", PyLong_FromLong(conf.I_SAMPLING_START));
-    PyDict_SetItemString(conf_dict, "I_SAMPLING_END", PyLong_FromLong(conf.I_SAMPLING_END));
-    PyDict_SetItemString(conf_dict, "numerical_fic", PyBool_FromLong(conf.numerical_fic));
-    PyDict_SetItemString(conf_dict, "max_fic_trials", PyLong_FromLong(conf.max_fic_trials));
-    PyDict_SetItemString(conf_dict, "init_delta", PyFloat_FromDouble(conf.init_delta));
     PyDict_SetItemString(conf_dict, "exc_interhemispheric", PyBool_FromLong(conf.exc_interhemispheric));
     PyDict_SetItemString(conf_dict, "drop_edges", PyBool_FromLong(conf.drop_edges));
     PyDict_SetItemString(conf_dict, "sync_msec", PyBool_FromLong(conf.sync_msec));
     PyDict_SetItemString(conf_dict, "extended_output_ts", PyBool_FromLong(conf.extended_output_ts));
     PyDict_SetItemString(conf_dict, "sim_verbose", PyBool_FromLong(conf.sim_verbose));
-    PyDict_SetItemString(conf_dict, "fic_verbose", PyBool_FromLong(conf.fic_verbose));
 
     return conf_dict;
 }
@@ -263,17 +263,18 @@ static PyObject* get_conf(PyObject* self, PyObject* args) {
 static PyObject* run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
     PyArrayObject *SC, *SC_dist, *py_global_params, *py_regional_params, *v_list;
-    bool do_fic, extended_output, extended_output_ts, do_delay, force_reinit, use_cpu;
+    PyObject* config_dict;
+    bool extended_output, extended_output_ts, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
 
-    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!iiiiiiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!Oiiiiiiiiiiii", 
             &model_name,
             &PyArray_Type, &SC,
             &PyArray_Type, &SC_dist,
             &PyArray_Type, &py_global_params,
             &PyArray_Type, &py_regional_params,
             &PyArray_Type, &v_list,
-            &do_fic,
+            &config_dict,
             &extended_output,
             &extended_output_ts,
             &do_delay,
@@ -304,14 +305,17 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         #endif
         return NULL;
     }
-   
-    printf("do_fic %d N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d do_delay %d use_cpu %d\n", 
-        do_fic, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, do_delay, use_cpu);
 
-    // TODO: these should be determined by the user
-    // maybe via env variables
-    bool only_wIE_free = false;
-    int _max_fic_trials = conf.max_fic_trials;
+    // initialize the model
+    typedef rWWModel Model; // TODO: determine the model based on model_name
+    Model* model = new Model();
+    // set model configs
+    std::map<std::string, std::string> config_map = dict_to_map(config_dict);
+    model->init_config(&(model->conf)); // initialize to default values
+    model->set_config(config_map, &(model->conf)); // update with user values if provided
+   
+    // printf("N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d do_delay %d use_cpu %d\n", 
+    //     N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, do_delay, use_cpu);
 
     // update conf.extended_output_ts based on extended_output_ts
     // TODO: consider using this approach for other configs as well
@@ -320,7 +324,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     // copy SC to SC_gsl if FIC is needed
     gsl_matrix *SC_gsl;
-    if (do_fic) {
+    if (Model::name == "rWW" && model->conf.do_fic) {
         SC_gsl = gsl_matrix_alloc(nodes, nodes);
         for (int i = 0; i < nodes; i++) {
             for (int j = 0; j < nodes; j++) {
@@ -354,6 +358,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         printf("Initializing the session...");
         start = std::chrono::high_resolution_clock::now();
         if (use_cpu) {
+            printf("\nCurrently only GPU is supported...Exiting\n");
+            return NULL;
             // init_cpu(
             //     &_output_ts, &_n_pairs, &_n_window_pairs,
             //     nodes,rand_seed, BOLD_TR, time_steps, window_size, window_step,
@@ -361,11 +367,11 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         } 
         #ifdef GPU_ENABLED
         else {
-            init_gpu<rWWModel>(
+            init_gpu<Model>(
                 &_output_ts, &_n_pairs, &_n_window_pairs,
                 N_SIMS, nodes,
-                do_fic, extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-                bwc, conf, (!is_initialized));
+                extended_output, rand_seed, BOLD_TR, time_steps, window_size, window_step,
+                model, bwc, conf, (!is_initialized));
         }
         #endif
         end = std::chrono::high_resolution_clock::now();
@@ -379,12 +385,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     npy_intp bold_dims[2] = {N_SIMS, _output_ts*nodes};
     npy_intp fc_trils_dims[2] = {N_SIMS, _n_pairs};
     npy_intp fcd_trils_dims[2] = {N_SIMS, _n_window_pairs};
-    npy_intp states_dims[3] = {rWWModel::n_state_vars, N_SIMS, nodes};
+    npy_intp states_dims[3] = {Model::n_state_vars, N_SIMS, nodes};
     if (conf.extended_output_ts) {
         states_dims[2] *= _output_ts;
     }
-    npy_intp global_bools_dims[2] = {rWWModel::n_global_out_bool, N_SIMS};
-    npy_intp global_ints_dims[2] = {rWWModel::n_global_out_int, N_SIMS};
+    npy_intp global_bools_dims[2] = {Model::n_global_out_bool, N_SIMS};
+    npy_intp global_ints_dims[2] = {Model::n_global_out_int, N_SIMS};
 
     PyObject* py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
     PyObject* py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
@@ -416,14 +422,14 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     }
     #ifdef GPU_ENABLED
     else {
-        run_simulations_gpu<rWWModel>(
+        run_simulations_gpu<Model>(
             (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
             (double*)PyArray_DATA(py_fcd_trils_out),
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
             (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
-            time_steps, BOLD_TR, _max_fic_trials,
-            window_size, N_SIMS, do_fic, only_wIE_free, extended_output, conf
+            time_steps, BOLD_TR,
+            window_size, N_SIMS, extended_output, model, conf
         );
     }
     #endif
@@ -450,7 +456,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(model_name, SC, SC_dist, global_params, regional_params, \n"
-        "v_list, do_fic, extended_output, extended_output_ts do_delay, force_reinit, \n"
+        "v_list, model_config, extended_output, extended_output_ts do_delay, force_reinit, \n"
         "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
@@ -469,8 +475,10 @@ static PyMethodDef methods[] = {
         "v_list (np.ndarray) (N_SIMS,)\n"
             "\tarray of conduction velocity values\n"
             "\twill be ignored if do_delay is False\n"
-        "do_fic (bool)\n"
-            "\twhether to do feedback inhibition control\n"
+        "model_config (dict)\n"
+            "\tmodel-specific configurations as a dictioary with\n"
+            "\tstring keys and values. Provide an empty dictionary\n"
+            "\tif no custom configurations are needed / to use defaults\n"
         "extended_output (bool)\n"
             "\twhether to return extended output (averaged across time)\n"
         "extended_output (bool)\n"

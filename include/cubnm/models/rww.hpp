@@ -28,10 +28,6 @@ public:
     static constexpr bool has_post_bw_step = true;
     static constexpr bool has_post_integration = true;
 
-    bool do_fic;
-    bool adjust_fic;
-    int max_fic_trials;
-
     struct Constants {
         u_real dt;
         u_real sqrt_dt;
@@ -72,9 +68,20 @@ public:
         double I_E_ss;
         double S_I_ss;
         double S_E_ss;
+        unsigned int I_SAMPLING_START;
+        unsigned int I_SAMPLING_END;
+        unsigned int I_SAMPLING_DURATION;
+        u_real init_delta;
+    };
+
+    struct Config {
+        bool do_fic;
+        int max_fic_trials;
+        bool fic_verbose;
     };
 
     static Constants mc;
+    Config conf; // TODO: consider making it static
 
     // static void init_constants(rWWModel::Constants* mc);
     static void init_constants(Constants* mc) {
@@ -123,6 +130,32 @@ public:
         mc->I_E_ss = 0.3773805650; // nA
         mc->S_I_ss = 0.0392184486; // dimensionless
         mc->S_E_ss = 0.1647572075; // dimensionless
+
+        /*
+        Config
+        */
+        mc->I_SAMPLING_START = 1000;
+        mc->I_SAMPLING_END = 10000;
+        mc->I_SAMPLING_DURATION = mc->I_SAMPLING_END - mc->I_SAMPLING_START + 1;
+        mc->init_delta = 0.02;
+    }
+
+    void init_config(Config* conf) {
+        conf->do_fic = true;
+        conf->max_fic_trials = 5;
+        conf->fic_verbose = false;
+    }
+
+    void set_config(std::map<std::string, std::string> config_map, Config* conf) {
+        for (const auto& pair : config_map) {
+            if (pair.first == "do_fic") {
+                conf->do_fic = (bool)std::stoi(pair.second);
+            } else if (pair.first == "max_fic_trials") {
+                conf->max_fic_trials = std::stoi(pair.second);
+            } else if (pair.first == "fic_verbose") {
+                conf->fic_verbose = (bool)std::stoi(pair.second);
+            }
+        }
     }
 
     CUDA_CALLABLE_MEMBER void init(

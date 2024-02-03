@@ -441,8 +441,8 @@ void run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
-    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
-    int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
+    int nodes, int time_steps, int BOLD_TR, int window_size,
+    int N_SIMS, bool extended_output, Model* model,
     ModelConfigs conf
 )
 // TODO: clean the order of args
@@ -451,7 +451,10 @@ void run_simulations_gpu(
 
     Model* d_model;
     CUDA_CHECK_RETURN(cudaMallocManaged(&d_model, sizeof(Model)));
-    new (d_model) Model();
+    // new (d_model) Model();
+    // copy model to managed memory
+    CUDA_CHECK_RETURN(cudaMemcpy(d_model, model, sizeof(Model), cudaMemcpyHostToDevice));
+
 
     // copy SC to managed memory
     CUDA_CHECK_RETURN(cudaMemcpy(d_SC, SC, nodes*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
@@ -534,11 +537,7 @@ void run_simulations_gpu(
     }
     #endif
 
-    // // do fic if indicated
-    d_model->do_fic = do_fic;
-    d_model->adjust_fic = adjust_fic;
-    d_model->max_fic_trials = _max_fic_trials;
-    if (do_fic) {
+    if (Model::name == "rWW" && d_model->conf.do_fic) {
         gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
         double *curr_w_EE = (double *)malloc(nodes * sizeof(double));
         double *curr_w_EI = (double *)malloc(nodes * sizeof(double));
@@ -575,7 +574,11 @@ void run_simulations_gpu(
     dim3 threadsPerBlock(nodes);
     // (third argument is extern shared memory size for S_i_1_E)
     // provide NULL for extended output variables and FIC variables
-    bool _extended_output = (extended_output | do_fic); // extended output is needed if requested by user or FIC is done
+    bool _extended_output = extended_output;
+    if (Model::name == "rWW") {
+        // for rWW extended output is needed if requested by user or FIC is done
+        _extended_output = extended_output | model->conf.do_fic;
+    }
     #ifndef MANY_NODES
     size_t shared_mem_extern = nodes*sizeof(u_real);
     #else
@@ -590,10 +593,7 @@ void run_simulations_gpu(
         d_SC, d_global_params, d_regional_params,
         conn_state_var_hist, delay, max_delay,
         N_SIMS, nodes, BOLD_TR, time_steps, 
-        noise, 
-        // do_fic, w_IE_fic, 
-        // adjust_fic, _max_fic_trials, fic_unstable, fic_failed, fic_n_trials,
-        _extended_output,
+        noise, _extended_output,
     #ifdef NOISE_SEGMENT
         shuffled_nodes, shuffled_ts, noise_time_steps, noise_repeats,
     #endif
@@ -699,7 +699,7 @@ void run_simulations_gpu(
         fc_trils_out+=n_pairs;
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
-        if (do_fic) {
+        if (Model::name == "rWW" && model->conf.do_fic) {
             memcpy(regional_params[2], &(d_regional_params[2][sim_idx*nodes]), sizeof(u_real) * nodes);
             regional_params[2]+=nodes;
         }
@@ -734,9 +734,9 @@ void run_simulations_gpu(
 template<typename Model>
 void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
-        int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
+        int N_SIMS, int nodes, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        BWConstants bwc, ModelConfigs conf, bool verbose
+        Model *model, BWConstants bwc, ModelConfigs conf, bool verbose
         )
     {
     using namespace bnm_gpu;
@@ -778,11 +778,7 @@ void init_gpu(
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&BOLD, sizeof(u_real*) * N_SIMS));
 
 
-    // FIC adjustment init
-    // adjust_fic is set to true by default but only for
-    // assessing FIC success. With default max_fic_trials_cmaes = 0
-    // no adjustment is done but FIC success is assessed
-    adjust_fic = do_fic & conf.numerical_fic;
+    // set up global int and bool outputs
     if (Model::n_global_out_int > 0) {
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&global_out_int, sizeof(int*) * Model::n_global_out_int));
         for (int i=0; i<Model::n_global_out_int; i++) {
@@ -797,8 +793,11 @@ void init_gpu(
     }
 
     // allocate memory for extended output
-    // TODO: add FIC for rWW
-    bool _extended_output = extended_output | do_fic;
+    bool _extended_output = extended_output;
+    if (Model::name == "rWW") {
+        // for rWW extended output is needed if requested by user or FIC is done
+        _extended_output = extended_output | model->conf.do_fic;
+    }
     size_t ext_out_size = nodes;
     if (conf.extended_output_ts) {
         ext_out_size *= output_ts;

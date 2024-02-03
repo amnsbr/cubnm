@@ -2,7 +2,6 @@
 #include "cubnm/models/rww.hpp"
 #include "cubnm/models/rww.cuh"
 __constant__ rWWModel::Constants d_rWWc;
-bool adjust_fic;
 
 __device__ void rWWModel::init(
     u_real* _state_vars, u_real* _intermediate_vars, 
@@ -15,9 +14,9 @@ __device__ void rWWModel::init(
     _state_vars[5] = 0.001; // S_I
     // numerical FIC initializations
     _intermediate_vars[4] = 0.0; // mean_I_E
-    _intermediate_vars[5] = d_conf.init_delta; // delta
+    _intermediate_vars[5] = d_rWWc.init_delta; // delta
     _ext_int[0] = 0; // fic_trial
-    _ext_bool[0] = model->adjust_fic; // _adjust_fic in current sim
+    _ext_bool[0] = model->conf.do_fic & (model->conf.max_fic_trials > 0); // _adjust_fic in current sim
     _ext_bool[1] = false; // fic_failed
 }
 
@@ -79,17 +78,17 @@ __device__ void rWWModel::post_bw_step(
         int* ts_bold, rWWModel* model
         ) {
     if (_ext_bool[0]) {
-        if ((*ts_bold >= d_conf.I_SAMPLING_START) & (*ts_bold <= d_conf.I_SAMPLING_END)) {
+        if ((*ts_bold >= d_rWWc.I_SAMPLING_START) & (*ts_bold <= d_rWWc.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
-        if (*ts_bold == d_conf.I_SAMPLING_END) {
+        if (*ts_bold == d_rWWc.I_SAMPLING_END) {
             *restart = false;
             __syncthreads(); // all threads must be at the same time point here given needs_fic_adjustment is shared
-            _intermediate_vars[4] /= d_conf.I_SAMPLING_DURATION;
+            _intermediate_vars[4] /= d_rWWc.I_SAMPLING_DURATION;
             _intermediate_vars[6] = _intermediate_vars[4] - d_rWWc.b_a_ratio_E;
             if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
                 *restart = true;
-                if (_ext_int[0] < model->max_fic_trials) { // only do the adjustment if max trials is not exceeded
+                if (_ext_int[0] < model->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
                     // up- or downregulate inhibition
                     if ((_intermediate_vars[6]) < -0.026) {
                         _regional_params[2] -= _intermediate_vars[5];
@@ -106,7 +105,7 @@ __device__ void rWWModel::post_bw_step(
             // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
             // the simulation until the end
             if (*restart) {
-                if (_ext_int[0] < (model->max_fic_trials)) {
+                if (_ext_int[0] < (model->conf.max_fic_trials)) {
                     _ext_int[0]++; // increment fic_trial
                 } else {
                     // continue the simulation and
@@ -135,7 +134,7 @@ __device__ void rWWModel::post_integration(
         int sim_idx, int nodes, int j,
         rWWModel* model
     ) {
-    if (model->adjust_fic) {
+    if (model->conf.do_fic) {
         // save the wIE adjustment results
         // modified wIE array
         regional_params[2][sim_idx*nodes+j] = _regional_params[2];

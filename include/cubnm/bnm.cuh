@@ -33,17 +33,17 @@ void run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
-    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, int window_size,
-    int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
+    int nodes, int time_steps, int BOLD_TR,int window_size,
+    int N_SIMS, bool extended_output, Model *model,
     ModelConfigs conf
 );
 
 template<typename Model>
 void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
-        int N_SIMS, int nodes, bool do_fic, bool extended_output, int rand_seed,
+        int N_SIMS, int nodes, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        BWConstants bwc, ModelConfigs conf, bool verbose
+        Model *model, BWConstants bwc, ModelConfigs conf, bool verbose
         );
 
 #endif
