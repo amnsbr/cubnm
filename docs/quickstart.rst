@@ -8,7 +8,8 @@ Run a CMAES optimization for 10 iterations with a population size of 20:
 
     from cuBNM import datasets, optimize
 
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (0.5, 2.5),
             'wEE': (0.05, 0.75),
@@ -33,6 +34,7 @@ Run a 10x10 grid search of G, wEE with fixed wEI:
     from cuBNM import datasets, optimize
 
     gs = optimize.GridSearch(
+        model = 'rWW',
         params = {
             'G': (0.5, 2.5, 10),
             'wEE': (0.05, 0.75, 10),

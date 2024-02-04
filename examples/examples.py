@@ -74,8 +74,28 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
         print(f"fc_trils Python {sim_idx}: shape {sim_fc_trils.shape}, idx 30 {sim_fc_trils[sim_idx, 30]}")
         print(f"fcd_trils Python {sim_idx}: shape {sim_fcd_trils.shape}, idx 30 {sim_fcd_trils[sim_idx, 30]}")
 
+def run_sim_group():
+    nodes = 100
+    N_SIMS = 2
+    sim_group = sim.rWWSimGroup(
+        duration=60,
+        TR=1,
+        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.run()
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+    sim_group.score(emp_fc_tril, emp_fcd_tril)
+    sim_group.save()
+    return sim_group
+
 def run_grid():
     gs = optimize.GridSearch(
+        model = 'rWW',
         params = {
             'G': (0.5, 2.5, 4),
             'wEE': 0.15,
@@ -95,6 +115,7 @@ def run_grid():
 
 def run_grid_no_fic():
     gs = optimize.GridSearch(
+        model = 'rWW',
         params = {
             'G': 0.5,
             'wEE': (0.05, 1, 2),
@@ -113,6 +134,7 @@ def run_grid_no_fic():
 
 def run_grid_delay():
     gs = optimize.GridSearch(
+        model = 'rWW',
         params = {
             'G': 0.5,
             'wEE': (0.05, 1, 2),
@@ -132,7 +154,8 @@ def run_grid_delay():
 def run_problem():
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
@@ -156,7 +179,8 @@ def run_problem():
 def run_cmaes_optimizer():
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
@@ -176,7 +200,8 @@ def run_cmaes_optimizer():
 def run_bayes_optimizer():
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
@@ -196,7 +221,8 @@ def run_bayes_optimizer():
 def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
@@ -224,7 +250,8 @@ def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
 def run_cmaes_optimizer_het_nofic():
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
@@ -251,7 +278,8 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
         node_grouping = datasets.load_maps('yeo7', 'schaefer-100', norm=None, return_path=True)
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
@@ -274,7 +302,8 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
 def run_nsga2_optimizer_het(force_cpu=False):
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.RWWProblem(
+    problem = optimize.BNMProblem(
+        model = 'rWW',
         params = {
             'G': (1.0, 3.0),
             'wEE': (0.05, 0.5),
@@ -300,9 +329,10 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    run_sims()
+    # run_sims()
+    # sg = run_sim_group()
     # gs, scores = run_grid()
     # problem, out = run_problem()
-    # cmaes = run_cmaes_optimizer_het()
+    cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()
     # nsga2 = run_nsga2_optimizer_het()

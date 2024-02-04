@@ -537,7 +537,7 @@ void run_simulations_gpu(
     }
     #endif
 
-    if (Model::name == "rWW" && d_model->conf.do_fic) {
+    if (strcmp(Model::name, "rWW")==0 && d_model->conf.do_fic) {
         gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
         double *curr_w_EE = (double *)malloc(nodes * sizeof(double));
         double *curr_w_EI = (double *)malloc(nodes * sizeof(double));
@@ -575,7 +575,7 @@ void run_simulations_gpu(
     // (third argument is extern shared memory size for S_i_1_E)
     // provide NULL for extended output variables and FIC variables
     bool _extended_output = extended_output;
-    if (Model::name == "rWW") {
+    if (strcmp(Model::name, "rWW")==0) {
         // for rWW extended output is needed if requested by user or FIC is done
         _extended_output = extended_output | model->conf.do_fic;
     }
@@ -692,6 +692,8 @@ void run_simulations_gpu(
     if (conf.extended_output_ts) {
         ext_out_size *= output_ts;
     }
+    // TODO: pass the managed arrays data directly
+    // to the python arrays without copying
     for (int sim_idx=0; sim_idx<N_SIMS; sim_idx++) {
         memcpy(BOLD_out, BOLD[sim_idx], sizeof(u_real) * bold_size);
         BOLD_out+=bold_size;
@@ -699,10 +701,10 @@ void run_simulations_gpu(
         fc_trils_out+=n_pairs;
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
-        if (Model::name == "rWW" && model->conf.do_fic) {
-            memcpy(regional_params[2], &(d_regional_params[2][sim_idx*nodes]), sizeof(u_real) * nodes);
-            regional_params[2]+=nodes;
-        }
+    }
+    if (strcmp(Model::name, "rWW")==0 && model->conf.do_fic) {
+        // copy wIE resulted from FIC to regional_params
+        memcpy(regional_params[2], d_regional_params[2], N_SIMS*nodes*sizeof(u_real));
     }
 
     // free delay and conn_state_var_hist memories if allocated
@@ -746,7 +748,7 @@ void init_gpu(
     // copy constants and configs from CPU
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_bwc, &bwc, sizeof(BWConstants)));
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_conf, &conf, sizeof(ModelConfigs)));
-    if (Model::name == "rWW") {
+    if (strcmp(Model::name, "rWW")==0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWc, &Model::mc, sizeof(typename Model::Constants)));
     }
 
@@ -794,7 +796,7 @@ void init_gpu(
 
     // allocate memory for extended output
     bool _extended_output = extended_output;
-    if (Model::name == "rWW") {
+    if (strcmp(Model::name, "rWW")==0) {
         // for rWW extended output is needed if requested by user or FIC is done
         _extended_output = extended_output | model->conf.do_fic;
     }

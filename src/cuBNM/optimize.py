@@ -20,25 +20,29 @@ from cuBNM import sim
 
 class GridSearch:
     # TODO: GridSearch should also be an Optimizer
-    def __init__(self, params, **kwargs):
+    def __init__(self, model, params, **kwargs):
         """
         Grid search of model free parameters
 
         Parameters
         ---------
+        model : :obj:`str`, {'rWW'}
         params : :obj:`dict` of :obj:`tuple` or :obj:`float`
-            a dictionary with G, wEE and wEI (+- wIE, v) keys of
-            floats (fixed values) or tuples (min, max, n)
+            a dictionary including parameter names as keys and their
+            fixed values (:obj:`float`) or discrete range of
+            values (:obj:`tuple` of (min, max, n)) as values.
         **kwargs
             Keyword arguments passed to :class:`cuBNM.sim.SimGroup`
 
         Example
         -------
-        Run a 10x10 grid search of G, wEE with fixed wEI: ::
+        Run a grid search of rWW model with 10 G and 10 wEE values
+        with fixed wEI: ::
 
             from cuBNM import datasets, optimize
         
             gs = optimize.GridSearch(
+                model = 'rWW',
                 params = {
                     'G': (0.5, 2.5, 10),
                     'wEE': (0.05, 0.75, 10),
@@ -52,7 +56,9 @@ class GridSearch:
             emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
             scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
         """
-        self.sim_group = sim.SimGroup(**kwargs)
+        self.model = model
+        sim_group_cls = getattr(sim, f"{self.model}SimGroup")
+        self.sim_group = sim_group_cls(**kwargs)
         param_ranges = {}
         for param, v in params.items():
             if isinstance(v, tuple):
@@ -68,11 +74,14 @@ class GridSearch:
         for param in params.keys():
             self.sim_group.param_lists[param] = []
             for sim_idx in range(self.sim_group.N):
-                if param in ["G", "v"]:
+                if param in (self.sim_group.global_param_names+["v"]):
+                    # global parameters have (sims,) shape
                     self.sim_group.param_lists[param].append(
                         self.param_combs.iloc[sim_idx].loc[param]
                     )
                 else:
+                    # regional parameters have (sims, nodes) shape
+                    # but the same value for each node is repeated
                     self.sim_group.param_lists[param].append(
                         np.repeat(
                             self.param_combs.iloc[sim_idx].loc[param],
@@ -104,9 +113,10 @@ class GridSearch:
         return self.sim_group.score(emp_fc_tril, emp_fcd_tril)
 
 
-class RWWProblem(Problem):
+class BNMProblem(Problem):
     def __init__(
         self,
+        model,
         params,
         emp_fc_tril,
         emp_fcd_tril,
@@ -117,8 +127,8 @@ class RWWProblem(Problem):
         **kwargs,
     ):
         """
-        Reduced Wong Wang model problem. A :class:`pymoo.core.problem.Problem` 
-        that defines the free parameters and their ranges, and target empirical
+        Biophysical network model problem. A :class:`pymoo.core.problem.Problem` 
+        that defines the model, free parameters and their ranges, and target empirical
         data (FC and FCD), and the simulation configurations (through 
         :class:`cuBNM.sim.SimGroup`). 
         :class:`cuBNM.optimize.Optimizer` classes can be
@@ -126,24 +136,25 @@ class RWWProblem(Problem):
 
         Parameters
         ----------
+        model : :obj:`str`, {'rWW'}
         params : :obj:`dict` of :obj:`tuple` or :obj:`float`
-            a dictionary with G, wEE and wEI (+- wIE, v) keys of
-            floats (fixed values) or tuples (min, max)
+            a dictionary including parameter names as keys and their
+            fixed values (:obj:`float`) or continuous range of
+            values (:obj:`tuple` of (min, max)) as values.
         emp_fc_tril : :obj:`np.ndarray`
             lower triangular part of empirical FC. Shape: (edges,)
         emp_fcd_tril : :obj:`np.ndarray`
             lower triangular part of empirical FCD. Shape: (window_pairs,)
         het_params : :obj:`list` of :obj:`str`, optional
-            which local parameters of 'wEE', 'wEI' and 'wIE' are heterogeneous
-            across nodes
+            which regional parameters are heterogeneous across nodes
         maps_path : :obj:`str`, optional
             path to heterogeneity maps as a text file (Shape: (n_maps, nodes)).
-            If provided one free parameter per local parameter per 
+            If provided one free parameter per regional parameter per 
             each map will be added.
         node_grouping : {None, 'node', 'sym', :obj:`str`}, optional
             - None: does not use region-/group-specific parameters
-            - 'node': each node has its own local free parameters
-            - 'sym': uses the same local free parameters for each pair of symmetric nodes \
+            - 'node': each node has its own regional free parameters
+            - 'sym': uses the same regional free parameters for each pair of symmetric nodes \
                 (e.g. L and R hemispheres). Assumes symmetry  of parcels between L and R \
                     hemispheres.
             - :obj:`str`: path to a text file including node grouping array. Shape: (nodes,)
@@ -155,6 +166,7 @@ class RWWProblem(Problem):
             Keyword arguments passed to :class:`cuBNM.sim.SimGroup`
         """
         # set opts
+        self.model = model 
         self.params = params
         self.emp_fc_tril = emp_fc_tril
         self.emp_fcd_tril = emp_fcd_tril
@@ -164,11 +176,12 @@ class RWWProblem(Problem):
         self.node_grouping = kwargs.pop("node_grouping", node_grouping)
         self.multiobj = kwargs.pop("multiobj", multiobj)
         # initialize sim_group (N not known yet)
-        self.sim_group = sim.SimGroup(**kwargs)
+        sim_group_cls = getattr(sim, f"{self.model}SimGroup")
+        self.sim_group = sim_group_cls(**kwargs)
         # raise errors if opts are impossible
-        if (self.sim_group.do_fic) & ("wIE" in self.het_params):
+        if (self.model == 'rWW') & (self.sim_group.do_fic) & ("wIE" in self.het_params):
             raise ValueError(
-                "wIE should not be specified as a heterogeneous parameter when FIC is done"
+                "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
             )
         if (self.node_grouping is not None) & (self.maps_path is not None):
             raise ValueError("Both node_groups and maps_path cannot be used")
@@ -176,8 +189,8 @@ class RWWProblem(Problem):
         self.free_params = []
         self.lb = []
         self.ub = []
-        self.global_params = ["G", "v"]
-        self.local_params = ["wEE", "wEI", "wIE"]
+        self.global_params = self.sim_group.global_param_names + ["v"]
+        self.regional_params = self.sim_group.regional_param_names
         # decide if parameters can be variable across nodes/groups
         # note that this is different from map-based heterogeneity
         self.is_regional = self.node_grouping is not None
@@ -191,7 +204,7 @@ class RWWProblem(Problem):
         # and memberships (from node i to N, which group they belong to)
         if self.is_regional:
             if self.node_grouping == "node":
-                # each node gets its own local free parameters
+                # each node gets its own regional free parameters
                 # therefore each node has its own group and
                 # is the only member of it
                 self.node_groups = np.arange(self.sim_group.nodes)
@@ -209,15 +222,15 @@ class RWWProblem(Problem):
             else:
                 self.memberships = np.loadtxt(self.node_grouping).astype("int")
                 self.node_groups = np.unique(self.memberships)
-        # set up global and local (incl. bias) free parameters
+        # set up global and regional (incl. bias) free parameters
         for param, v in params.items():
             if isinstance(v, tuple):
                 if (
                     self.is_regional
-                    & (param in self.local_params)
+                    & (param in self.regional_params)
                     & (param in self.het_params)
                 ):
-                    # set up local parameters which are regionally variable based on groups
+                    # set up regional parameters which are regionally variable based on groups
                     for group in self.node_groups:
                         param_name = f"{param}{group}"
                         self.free_params.append(param_name)
@@ -275,7 +288,8 @@ class RWWProblem(Problem):
                     self.obj_names.append(term.replace("-", "+"))
                 elif term.startswith("+"):
                     self.obj_names.append(term.replace("+", "-"))
-            if self.sim_group.fic_penalty:
+            if (self.model == 'rWW') & self.sim_group.do_fic & self.sim_group.fic_penalty:
+                # TODO: consider creating separate problem classes for each model
                 self.obj_names.append("+fic_penalty")
         else:
             self.obj_names = ["cost"]
@@ -358,9 +372,9 @@ class RWWProblem(Problem):
 
     def _set_sim_params(self, X):
         """
-        Sets the global (`G`, `v`) and local parameters (`wEE`, `wEI`, 
-        `wIE`) of the problem's :class:`cuBNM.sim.SimGroup` based on the
-        problem free and fixed parameters and type of local parameter
+        Sets the global and regional parameters of the problem's 
+        :class:`cuBNM.sim.SimGroup` based on the
+        problem free and fixed parameters and type of regional parameter
         heterogeneity (map-based, group-based or none).
 
         Parameters
@@ -388,11 +402,11 @@ class RWWProblem(Problem):
         for param in self.free_params:
             if param in self.global_params:
                 self.sim_group.param_lists[param] = Xt.loc[:, param].values
-            elif param in self.local_params:
+            elif param in self.regional_params:
                 self.sim_group.param_lists[param] = np.tile(
                     Xt.loc[:, param].values[:, np.newaxis], self.sim_group.nodes
                 )
-        # then multiply the local parameters by their map-based scalers
+        # then multiply the regional parameters by their map-based scalers
         if self.is_heterogeneous:
             for param in self.het_params:
                 for sim_idx in range(Xt.shape[0]):
@@ -411,7 +425,7 @@ class RWWProblem(Problem):
                         if self.reject_negative:
                             # TODO
                             raise NotImplementedError(
-                                "Rejecting particles due to negative local parameter is not implemented"
+                                "Rejecting particles due to negative regional parameter is not implemented"
                             )
                         else:
                             self.sim_group.param_lists[param][sim_idx, :] -= (
@@ -435,12 +449,12 @@ class RWWProblem(Problem):
             kwargs["scores"].append(scores)
         if self.multiobj:
             out["F"] = -scores.loc[:, self.sim_group.gof_terms].values
-            if self.sim_group.do_fic & self.sim_group.fic_penalty:
+            if (self.model == 'rWW') & self.sim_group.do_fic & self.sim_group.fic_penalty:
                 out["F"] = np.concatenate(
                     [out["F"], -scores.loc[:, ["-fic_penalty"]].values], axis=1
                 )
         else:
-            if self.sim_group.do_fic & self.sim_group.fic_penalty:
+            if (self.model == 'rWW') & self.sim_group.do_fic & self.sim_group.fic_penalty:
                 out["F"] = (
                     -scores.loc[:, "-fic_penalty"] - scores.loc[:, "+gof"]
                 ).values
@@ -612,13 +626,13 @@ class PymooOptimizer(Optimizer):
 
     def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
         """
-        Registers a :class:`cuBNM.optimizer.RWWProblem` 
+        Registers a :class:`cuBNM.optimizer.BNMProblem` 
         with the optimizer, so that the optimizer can optimize
         its free parameters.
 
         Parameters
         ----------
-        problem : :obj:`cuBNM.optimizer.RWWProblem`
+        problem : :obj:`cuBNM.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
         pymoo_verbose : :obj:`bool`, optional
             Flag indicating whether to enable verbose output from pymoo. Default is False.
@@ -642,7 +656,7 @@ class PymooOptimizer(Optimizer):
 
     def optimize(self):
         """
-        Optimizes the associated :class:`cuBNM.optimizer.RWWProblem`
+        Optimizes the associated :class:`cuBNM.optimizer.BNMProblem`
         free parameters through an evolutionary optimization approach by
         running multiple generations of parallel simulations until the
         termination criteria is met or maximum number of iterations is reached.
@@ -726,7 +740,8 @@ class CMAESOptimizer(PymooOptimizer):
 
             from cuBNM import datasets, optimize
 
-            problem = optimize.RWWProblem(
+            problem = optimize.BNMProblem(
+                model = 'rWW',
                 params = {
                     'G': (0.5, 2.5),
                     'wEE': (0.05, 0.75),
@@ -763,7 +778,7 @@ class CMAESOptimizer(PymooOptimizer):
 
         Parameters
         ----------
-        problem : :obj:`cuBNM.optimizer.RWWProblem`
+        problem : :obj:`cuBNM.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
         **kwargs
             Additional keyword arguments to be passed to 
@@ -828,7 +843,7 @@ class BayesOptimizer(Optimizer):
 
         Parameters
         ----------
-        problem : :obj:`cuBNM.optimizer.RWWProblem`
+        problem : :obj:`cuBNM.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
         **kwargs
             Additional keyword arguments to be passed to :class:`skopt.Optimizer`
@@ -844,7 +859,7 @@ class BayesOptimizer(Optimizer):
 
     def optimize(self):
         """
-        Optimizes the associated :class:`cuBNM.optimizer.RWWProblem`
+        Optimizes the associated :class:`cuBNM.optimizer.BNMProblem`
         free parameters through an evolutionary optimization approach by
         running multiple generations of parallel simulations until the
         termination criteria is met or maximum number of iterations is reached.

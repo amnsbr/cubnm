@@ -324,7 +324,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     // copy SC to SC_gsl if FIC is needed
     gsl_matrix *SC_gsl;
-    if (Model::name == "rWW" && model->conf.do_fic) {
+    if (strcmp(Model::name, "rWW")==0 && model->conf.do_fic) {
         SC_gsl = gsl_matrix_alloc(nodes, nodes);
         for (int i = 0; i < nodes; i++) {
             for (int j = 0; j < nodes; j++) {
@@ -440,6 +440,15 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     array_to_np_3d<u_real>(bnm_gpu::states_out, py_states_out);
     array_to_np_2d<bool>(bnm_gpu::global_out_bool, py_global_bools_out);
     array_to_np_2d<int>(bnm_gpu::global_out_int, py_global_ints_out);
+
+    if (strcmp(Model::name, "rWW")==0 && model->conf.do_fic) {
+        gsl_matrix_free(SC_gsl);
+        // copy updated wIE back to py_regional_params
+        int i = 2; // wIE index
+        for (int j = 0; j < N_SIMS*nodes; j++) {
+            ((double*)PyArray_DATA(py_regional_params))[i*N_SIMS*nodes + j] = regional_params[i][j];
+        }
+    }
 
     if (extended_output) {
         return Py_BuildValue("OOOOOO", 
