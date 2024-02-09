@@ -123,16 +123,16 @@ class build_ext_gsl_cuda(build_ext):
     def build_extensions(self):
         # Build GSL (if needed)
         # search for libgsl.a and libgslcblas.a in some common paths
-        lib_dirs = [
-            "/usr/lib", 
-            "/lib", 
-            "/usr/local/lib",
-            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib'), # cibuildwheel
-            # TODO: identify and search current conda env
-            os.path.join(os.environ.get('HOME', '/root'), '.cuBNM', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
-        ] \
-            + os.environ.get("LIBRARY_PATH","").split(":") \
-            + os.environ.get("LD_LIBRARY_PATH","").split(":")
+        lib_dirs = os.environ.get("LIBRARY_PATH","").split(":") + \
+                os.environ.get("LD_LIBRARY_PATH","").split(":") + \
+                [
+                    "/usr/lib", 
+                    "/lib", 
+                    "/usr/local/lib",
+                    os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib'), # cibuildwheel
+                    # TODO: identify and search current conda env
+                    os.path.join(os.environ.get('HOME', '/root'), '.cuBNM', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
+                ]
         found_gsl = False
         for lib_dir in lib_dirs:
             if ((lib_dir!='') & os.path.exists(lib_dir)):

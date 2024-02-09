@@ -828,7 +828,10 @@ void init_gpu(
     n_pairs = ((nodes) * (nodes - 1)) / 2;
     int rh_idx;
     if (conf.exc_interhemispheric) {
-        assert((nodes % 2) == 0);
+        if ((nodes % 2) != 0) {
+            printf("Error: exc_interhemispheric is set but number of nodes is not even\n");
+            exit(1);
+        }
         rh_idx = nodes / 2; // assumes symmetric number of parcels and L->R order
         n_pairs -= pow(rh_idx, 2); // exc the middle square
     }

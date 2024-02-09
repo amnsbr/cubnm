@@ -156,7 +156,7 @@ static PyObject* init(PyObject* self, PyObject* args) {
     // initialize constants and configurations
     // with default values
     init_bw_constants(&bwc);
-    rWWModel::init_constants(&(rWWModel::mc));
+    rWWModel::init_constants();
     init_conf(&conf);
 
     Py_RETURN_NONE;
@@ -311,7 +311,6 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     Model* model = new Model();
     // set model configs
     std::map<std::string, std::string> config_map = dict_to_map(config_dict);
-    model->init_config(&(model->conf)); // initialize to default values
     model->set_config(config_map, &(model->conf)); // update with user values if provided
    
     // printf("N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d do_delay %d use_cpu %d\n", 

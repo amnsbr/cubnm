@@ -32,9 +32,9 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
     w_EE_list = np.repeat(0.21, nodes*N_SIMS)
     w_EI_list = np.repeat(0.15, nodes*N_SIMS)
     w_IE_list = np.repeat(0.0, nodes*N_SIMS)
-    # do_fic = True
-    w_IE_list = np.repeat(1.0, nodes*N_SIMS)
-    do_fic = False
+    do_fic = True
+    # w_IE_list = np.repeat(1.0, nodes*N_SIMS)
+    # do_fic = False
 
     do_delay = False
     # do_delay = True
@@ -329,10 +329,10 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    # run_sims()
+    run_sims()
     # sg = run_sim_group()
     # gs, scores = run_grid()
     # problem, out = run_problem()
-    cmaes = run_cmaes_optimizer_het()
+    # cmaes = run_cmaes_optimizer_het()
     # run_grid_many_nodes()
     # nsga2 = run_nsga2_optimizer_het()
