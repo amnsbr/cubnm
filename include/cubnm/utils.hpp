@@ -1,17 +1,17 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-extern int get_fc_n_pairs(int nodes);
+extern int get_fc_n_pairs(int nodes, bool exc_interhemispheric);
 
 extern int get_dfc_windows(
         std::vector<int> *window_starts_p, std::vector<int> *window_ends_p,
         int corr_len, int output_ts, int n_vols_remove,
-        int window_step, int window_size);
+        int window_step, int window_size, bool drop_edges);
 
 extern int get_dfc_windows(
         int **window_starts_p, int **window_ends_p,
         int corr_len, int output_ts, int n_vols_remove,
-        int window_step, int window_size);
+        int window_step, int window_size, bool drop_edges);
 
 extern void get_shuffled_nodes_ts(
         int **shuffled_nodes_p, int **shuffled_ts_p,

@@ -2,7 +2,8 @@
 Tests for the core run_simulations function
 """
 import pytest
-from cuBNM._core import run_simulations, set_conf, set_const
+from cuBNM._core import run_simulations
+from cuBNM import sim
 from cuBNM import datasets
 from cuBNM.utils import avail_gpus
 import numpy as np
@@ -69,19 +70,19 @@ def test_single_sim(opts, expected):
         w_IE_list = np.repeat(0.0, NODES*N_SIMS)
     else:
         w_IE_list = np.repeat(1.0, NODES*N_SIMS)
+    model_config = {
+        'do_fic': str(int(opts['do_fic'])),
+        'max_fic_trials': '5',
+    }
     if opts['do_delay']:
         v_list = np.repeat(0.5, N_SIMS)
         SC_dist = datasets.load_sc('length', 'schaefer-100').flatten()
-        set_conf("sync_msec", True)
+        model_config["sync_msec"] = "1"
     else:
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(NODES*NODES, dtype=float) # doesn't matter what it is!
     global_params = G_list[np.newaxis, :]
     regional_params = np.vstack([w_EE_list, w_EI_list, w_IE_list])
-    model_config = {
-        'do_fic': str(int(opts['do_fic'])),
-        'max_fic_trials': '5',
-    }
     out = run_simulations(
         'rWW', SC, SC_dist, global_params, regional_params, v_list,
         model_config, EXTENDED_OUTPUT, EXTENDED_OUTPUT_TS,
@@ -90,8 +91,6 @@ def test_single_sim(opts, expected):
         WINDOW_SIZE, WINDOW_STEP, RAND_SEED
     )
     sim_bolds , sim_fc_trils, sim_fcd_trils = out[:3]
-    if opts['do_delay']:
-        set_conf('sync_msec', False) # set to False for next tests
     # TODO: consider comparing the entire arrays
     assert np.isclose(sim_bolds[0, 500], expected['bold'], atol=1e-12)
     assert np.isclose(sim_fc_trils[0, 30], expected['fc'], atol=1e-12)
@@ -128,19 +127,19 @@ def test_identical_sims(opts):
         w_IE_list = np.repeat(0.0, NODES*N_SIMS)
     else:
         w_IE_list = np.repeat(1.0, NODES*N_SIMS)
+    model_config = {
+        'do_fic': str(int(opts['do_fic'])),
+        'max_fic_trials': '5',
+    }
     if opts['do_delay']:
         v_list = np.repeat(1.0, N_SIMS)
         SC_dist = datasets.load_sc('length', 'schaefer-100').flatten()
-        set_conf('sync_msec', True)
+        model_config['sync_msec'] = '1'
     else:
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(NODES*NODES, dtype=float) # doesn't matter what it is!
     global_params = G_list[np.newaxis, :]
     regional_params = np.vstack([w_EE_list, w_EI_list, w_IE_list])
-    model_config = {
-        'do_fic': str(int(opts['do_fic'])),
-        'max_fic_trials': '5',
-    }
     out = run_simulations(
         'rWW', SC, SC_dist, global_params, regional_params, v_list,
         model_config, EXTENDED_OUTPUT, EXTENDED_OUTPUT_TS,
@@ -149,8 +148,6 @@ def test_identical_sims(opts):
         WINDOW_SIZE, WINDOW_STEP, RAND_SEED
     )
     sim_bolds , sim_fc_trils, sim_fcd_trils = out[:3]
-    if opts['do_delay']:
-        set_conf('sync_msec', False) # set to False for next tests
 
     assert (sim_bolds[0] == sim_bolds[1]).all() # consider using np.isclose
     assert (sim_fc_trils[0] == sim_fc_trils[1]).all()

@@ -58,20 +58,16 @@ void rWWModel::init_constants() {
     mc.init_delta = 0.02;
 }
 
-// void rWWModel::init_config(Config* conf) {
-//     conf->do_fic = true;
-//     conf->max_fic_trials = 5;
-//     conf->fic_verbose = false;
-// }
-
-void rWWModel::set_config(std::map<std::string, std::string> config_map, rWWModel::Config* conf) {
+void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
+    set_base_conf(config_map);
     for (const auto& pair : config_map) {
         if (pair.first == "do_fic") {
-            conf->do_fic = (bool)std::stoi(pair.second);
+            this->conf.do_fic = (bool)std::stoi(pair.second);
+            this->base_conf.extended_output = this->conf.do_fic || this->base_conf.extended_output;
         } else if (pair.first == "max_fic_trials") {
-            conf->max_fic_trials = std::stoi(pair.second);
+            this->conf.max_fic_trials = std::stoi(pair.second);
         } else if (pair.first == "fic_verbose") {
-            conf->fic_verbose = (bool)std::stoi(pair.second);
+            this->conf.fic_verbose = (bool)std::stoi(pair.second);
         }
     }
 }

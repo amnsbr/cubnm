@@ -3,10 +3,10 @@ Includes utility functions used by both CPU and GPU
 */
 #include "cubnm/utils.hpp"
 
-int get_fc_n_pairs(int nodes) {
+int get_fc_n_pairs(int nodes, bool exc_interhemispheric) {
     int n_pairs = ((nodes) * (nodes - 1)) / 2;
     int rh_idx;
-    if (conf.exc_interhemispheric) {
+    if (exc_interhemispheric) {
         assert((nodes % 2) == 0);
         rh_idx = nodes / 2; // assumes symmetric number of parcels and L->R order
         n_pairs -= pow(rh_idx, 2); // exc the middle square
@@ -17,11 +17,11 @@ int get_fc_n_pairs(int nodes) {
 int get_dfc_windows(
         std::vector<int> *window_starts_p, std::vector<int> *window_ends_p,
         int corr_len, int output_ts, int n_vols_remove,
-        int window_step, int window_size
+        int window_step, int window_size, bool drop_edges
     ) {
     int n_windows = 0;
     int first_center, last_center, window_center, window_start, window_end;
-    if (conf.drop_edges) {
+    if (drop_edges) {
         first_center = window_size / 2;
         last_center = corr_len - 1 - (window_size / 2);
     } else {
@@ -53,13 +53,13 @@ int get_dfc_windows(
 int get_dfc_windows(
         int **window_starts_p, int **window_ends_p,
         int corr_len, int output_ts, int n_vols_remove,
-        int window_step, int window_size
+        int window_step, int window_size, bool drop_edges
     ) {
     std::vector<int> _window_starts, _window_ends;
     int n_windows = get_dfc_windows(
         &_window_starts, &_window_ends, 
         corr_len, output_ts, n_vols_remove,
-        window_step, window_size);
+        window_step, window_size, drop_edges);
     // copy the vectors to arrays
     *window_starts_p = (int *)malloc(sizeof(int) * n_windows);
     *window_ends_p = (int *)malloc(sizeof(int) * n_windows);

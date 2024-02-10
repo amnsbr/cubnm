@@ -7,7 +7,7 @@ import pandas as pd
 import os
 import gc
 
-from cuBNM._core import run_simulations, set_const, set_conf
+from cuBNM._core import run_simulations, set_const
 from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
 from cuBNM import utils
 
@@ -128,9 +128,16 @@ class SimGroup:
         if self.sc_dist_path:
             self.sc_dist = np.loadtxt(self.sc_dist_path)
             self.do_delay = True
+            print(
+                "Delay is enabled...will sync nodes every 1 msec\n"
+                "to do syncing every 0.1 msec set self.sync_msec to False\n"
+                "but note that this will increase the simulation time\n"
+            )
+            self.sync_msec = True
         else:
             self.sc_dist = np.zeros_like(self.sc, dtype=float)
             self.do_delay = False
+            self.sync_msec = False
         # set Ballon-Windkessel parameters
         self.bw_params = bw_params
         # initialze w_IE_list as all 0s if do_fic
@@ -171,15 +178,6 @@ class SimGroup:
         set_const("k3", params["k3"])
 
     @property
-    def exc_interhemispheric(self):
-        return self._exc_interhemispheric
-
-    @exc_interhemispheric.setter
-    def exc_interhemispheric(self, exc_interhemispheric):
-        self._exc_interhemispheric = exc_interhemispheric
-        set_conf("exc_interhemispheric", self._exc_interhemispheric)
-
-    @property
     def do_delay(self):
         return self._do_delay
 
@@ -193,15 +191,6 @@ class SimGroup:
                 "to do syncing every 0.1 msec set self.sync_msec to False\n"
                 "but note that this will increase the simulation time\n"
             )
-
-    @property
-    def sync_msec(self):
-        return self._sync_msec
-
-    @sync_msec.setter
-    def sync_msec(self, sync_msec):
-        self._sync_msec = sync_msec
-        set_conf("sync_msec", self._sync_msec)
 
     def get_config(self, include_N=False, for_reinit=False):
         """
@@ -240,6 +229,17 @@ class SimGroup:
             if include_N:
                 config["N"] = self.N
         return config
+    
+    @property
+    def _model_config(self):
+        """
+        Internal model configuration used in the simulation
+        """
+        model_config = {
+            'exc_interhemispheric': str(int(self.exc_interhemispheric)),
+            'sync_msec': str(int(self.sync_msec)),
+        }
+        return model_config
 
     def run(self, force_reinit=False):
         """
@@ -505,10 +505,6 @@ class rWWSimGroup(SimGroup):
         self.do_fic = do_fic
         self.max_fic_trials = max_fic_trials
         self.fic_penalty = fic_penalty
-        self._model_config = {
-            'do_fic': str(int(self.do_fic)),
-            'max_fic_trials': str(self.max_fic_trials),
-        }
         # parent init must be called here because
         # it sets .last_config which may include some
         # model-specific attributes (e.g. self.do_fic)
@@ -527,6 +523,19 @@ class rWWSimGroup(SimGroup):
             do_fic=self.do_fic, 
             max_fic_trials=self.max_fic_trials)
         return config
+    
+    @property
+    def _model_config(self):
+        """
+        Internal model configuration used in the simulation
+        """
+        model_config = super()._model_config
+        model_config.update({
+            'do_fic': str(int(self.do_fic)),
+            'max_fic_trials': str(self.max_fic_trials),
+        })
+        print(model_config)
+        return model_config
 
     def _process_out(self, out):
         super()._process_out(out)

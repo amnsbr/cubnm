@@ -36,6 +36,11 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
     # w_IE_list = np.repeat(1.0, nodes*N_SIMS)
     # do_fic = False
 
+    model_config = {
+        'do_fic': str(int(do_fic)),
+        'max_fic_trials': '5',
+        # 'fic_verbose': '0',
+    }
     do_delay = False
     # do_delay = True
     if do_delay:
@@ -46,17 +51,11 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
         # with delay it is recommended to do
         # the syncing of nodes every 1 msec instead
         # of every 0.1 msec. Otherwise it'll be very slow
-        set_conf('sync_msec', True)
-        # TODO: add a function to do bnm.set_conf('sync_msec', True)
+        model_config['sync_msec'] = '1'
     else:
         v_list = np.repeat(0.0, N_SIMS) # doesn't matter what it is!
         SC_dist = np.zeros(nodes*nodes, dtype=float) # doesn't matter what it is!
     force_cpu = force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus()==0)
-    model_config = {
-        'do_fic': str(int(do_fic)),
-        'max_fic_trials': '5',
-        # 'fic_verbose': '0',
-    }
     global_params = G_list[np.newaxis, :]
     regional_params = np.vstack([w_EE_list, w_EI_list, w_IE_list])
     # make sure all the input arrays are of type float/double

@@ -1,6 +1,6 @@
 #ifndef RWW_HPP
 #define RWW_HPP
-class rWWModel {
+class rWWModel : public BaseModel {
 public:
     static constexpr char *name = "rWW";
     static constexpr int n_state_vars = 6; // number of state variables (u_real)
@@ -94,7 +94,7 @@ public:
      via cudaMemcpyToSymbol
      */
 
-    void set_config(std::map<std::string, std::string> config_map, Config* conf);
+    void set_conf(std::map<std::string, std::string> config_map) override;
 
     CUDA_CALLABLE_MEMBER void init(
         u_real* _state_vars, u_real* _intermediate_vars, 
@@ -125,6 +125,21 @@ public:
         u_real* _global_params, u_real* _regional_params,
         int sim_idx, int nodes, int j
     );
+
+    // void init_gpu() override;
+    void init_gpu_(
+        int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
+        int N_SIMS, int nodes, int rand_seed,
+        int BOLD_TR, int time_steps, int window_size, int window_step,
+        BWConstants bwc, bool verbose
+    ) override {
+        bool is_initialized = false; // TODO: use it as a class member
+        init_gpu<rWWModel>(
+            output_ts_p, n_pairs_p, n_window_pairs_p,
+            N_SIMS, nodes, this->base_conf.extended_output, rand_seed, 
+            BOLD_TR, time_steps, window_size, window_step,
+            this, bwc, (!is_initialized));
+    }
 };
 
 #endif

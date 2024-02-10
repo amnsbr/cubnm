@@ -14,13 +14,13 @@ extern void analytical_fic_het(
 template void run_simulations_gpu<rWWModel>(
     double*, double*, double*, 
     u_real**, u_real**, u_real*, u_real*, gsl_matrix*, u_real*, bool,
-    int, int, int, int, int, bool, rWWModel*, ModelConfigs
+    int, int, int, int, int, bool, BaseModel*
 );
 
 template void init_gpu<rWWModel>(
         int*, int*, int*,
         int, int, bool, int,
         int, int, int, int,
-        rWWModel*, BWConstants, ModelConfigs, bool
+        BaseModel*, BWConstants, bool
 );
 #endif

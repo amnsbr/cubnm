@@ -43,10 +43,9 @@ Author: Amin Saberi, Feb 2023
 // Note: 
 #include "cubnm/defines.h"
 #include "./utils.cu"
-#include "cubnm/models/base.cuh"
-__constant__ ModelConfigs d_conf;
-#include "./fc.cu"
 #include "./models/bw.cu"
+#include "cubnm/models/base.cuh"
+#include "./fc.cu"
 #include "cubnm/bnm.cuh"
 #include "./models/rww.cu"
 // other models go here
@@ -176,8 +175,11 @@ __global__ void bnm(
         _regional_params[ii] = regional_params[ii][sim_idx*nodes+j];
     }
 
+    const bool extended_output_ts = model->base_conf.extended_output_ts;
+    const bool sync_msec = model->base_conf.sync_msec;
+
     // initialize extended output sums
-    if (extended_output & (!d_conf.extended_output_ts)) {
+    if (extended_output & (!extended_output_ts)) {
         for (ii=0; ii<Model::n_state_vars; ii++) {
             states_out[ii][sim_idx][j] = 0;
         }
@@ -249,7 +251,7 @@ __global__ void bnm(
     int BOLD_len_i = 0;
     ts_bold = 0;
     while (ts_bold <= time_steps) {
-        if (d_conf.sync_msec) {
+        if (sync_msec) {
             // calculate global input every 1 ms
             // (will be fixed through 10 steps of the millisecond)
             // note that a sync call is needed before using
@@ -266,7 +268,7 @@ __global__ void bnm(
             );
         }
         for (int_i = 0; int_i < 10; int_i++) {
-            if (!d_conf.sync_msec) {
+            if (!sync_msec) {
                 // calculate global input every 0.1 ms
                 __syncthreads();
                 calculateGlobalInput(
@@ -289,7 +291,7 @@ __global__ void bnm(
                 &tmp_globalinput,
                 noise, &noise_idx
             );
-            if (!d_conf.sync_msec) {
+            if (!sync_msec) {
                 if (has_delay) {
                     // go 0.1 ms backward in the buffer and save most recent S_i_E
                     // wait for all regions to have correct (same) buff_idx
@@ -306,7 +308,7 @@ __global__ void bnm(
             }
         }
 
-        if (d_conf.sync_msec) {
+        if (sync_msec) {
             if (has_delay) {
                 // go 1 ms backward in the buffer and save most recent S_i_E
                 // wait for all regions to have correct (same) buff_idx
@@ -337,14 +339,14 @@ __global__ void bnm(
             // calcualte and save BOLD
             BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q) + d_bwc.V_0_k2 * (1 - bw_q/bw_nu) + d_bwc.V_0_k3 * (1 - bw_nu);
             // save time series of extended output if indicated
-            if (extended_output & d_conf.extended_output_ts) {
+            if (extended_output & extended_output_ts) {
                 for (ii=0; ii<Model::n_state_vars; ii++) {
                     states_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[ii];
                 }
             }
             // update sum (later mean) of extended
             // output only after n_vols_remove
-            if ((BOLD_len_i>=n_vols_remove) & extended_output & (!d_conf.extended_output_ts)) {
+            if ((BOLD_len_i>=n_vols_remove) & extended_output & (!extended_output_ts)) {
                 for (ii=0; ii<Model::n_state_vars; ii++) {
                     states_out[ii][sim_idx][j] += _state_vars[ii];
                 }
@@ -425,7 +427,7 @@ __global__ void bnm(
             sim_idx, nodes, j
         );
     }
-    if (extended_output & (!d_conf.extended_output_ts)) {
+    if (extended_output & (!extended_output_ts)) {
         // take average
         int extended_output_time_points = BOLD_len_i - n_vols_remove;
         for (ii=0; ii<Model::n_state_vars; ii++) {
@@ -440,19 +442,16 @@ void run_simulations_gpu(
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
     int nodes, int time_steps, int BOLD_TR, int window_size,
-    int N_SIMS, bool extended_output, Model* model,
-    ModelConfigs conf
+    int N_SIMS, bool extended_output, BaseModel* model
 )
 // TODO: clean the order of args
 {
     using namespace bnm_gpu;
-
+    // copy model to device 
+    Model* h_model = (Model*)model; // cast BaseModel to its specific subclass
     Model* d_model;
     CUDA_CHECK_RETURN(cudaMallocManaged(&d_model, sizeof(Model)));
-    // new (d_model) Model();
-    // copy model to managed memory
-    CUDA_CHECK_RETURN(cudaMemcpy(d_model, model, sizeof(Model), cudaMemcpyHostToDevice));
-
+    CUDA_CHECK_RETURN(cudaMemcpy(d_model, h_model, sizeof(Model), cudaMemcpyHostToDevice));
 
     // copy SC to managed memory
     CUDA_CHECK_RETURN(cudaMemcpy(d_SC, SC, nodes*nodes * sizeof(u_real), cudaMemcpyHostToDevice));
@@ -473,7 +472,7 @@ void run_simulations_gpu(
     u_real **conn_state_var_hist; 
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist, sizeof(u_real*) * N_SIMS)); 
     int **delay;
-    max_delay = 0; // msec or 0.1 msec depending on conf.sync_msec; this is a global variable that will be used in the kernel
+    max_delay = 0; // msec or 0.1 msec depending on base_conf.sync_msec; this is a global variable that will be used in the kernel
     float min_velocity = 1e10; // only used for printing info
     float max_length;
     float curr_length, curr_delay, curr_velocity;
@@ -486,7 +485,7 @@ void run_simulations_gpu(
         for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay[sim_idx], sizeof(int) * nodes * nodes));
             curr_velocity = v_list[sim_idx];
-            if (!conf.sync_msec) {
+            if (!model->base_conf.sync_msec) {
                 curr_velocity /= 10;
             }
             if (curr_velocity < min_velocity) {
@@ -512,7 +511,7 @@ void run_simulations_gpu(
     if (has_delay) {
         std::string velocity_unit = "m/s";
         std::string delay_unit = "msec";
-        if (!conf.sync_msec) {
+        if (!model->base_conf.sync_msec) {
             velocity_unit = "m/0.1s";
             delay_unit = "0.1msec";
         }
@@ -535,7 +534,8 @@ void run_simulations_gpu(
     }
     #endif
 
-    if (strcmp(Model::name, "rWW")==0 && d_model->conf.do_fic) {
+    // TODO: implement this in a specific init function for the model
+    if (strcmp(Model::name, "rWW")==0 && h_model->conf.do_fic) {
         gsl_vector * curr_w_IE = gsl_vector_alloc(nodes);
         double *curr_w_EE = (double *)malloc(nodes * sizeof(double));
         double *curr_w_EI = (double *)malloc(nodes * sizeof(double));
@@ -572,11 +572,11 @@ void run_simulations_gpu(
     dim3 threadsPerBlock(nodes);
     // (third argument is extern shared memory size for S_i_1_E)
     // provide NULL for extended output variables and FIC variables
-    bool _extended_output = extended_output;
-    if (strcmp(Model::name, "rWW")==0) {
-        // for rWW extended output is needed if requested by user or FIC is done
-        _extended_output = extended_output | model->conf.do_fic;
-    }
+    bool _extended_output = model->base_conf.extended_output;
+    // if (strcmp(Model::name, "rWW")==0) {
+    //     // for rWW extended output is needed if requested by user or FIC is done
+    //     _extended_output = extended_output | model->conf.do_fic;
+    // }
     #ifndef MANY_NODES
     size_t shared_mem_extern = nodes*sizeof(u_real);
     #else
@@ -687,7 +687,7 @@ void run_simulations_gpu(
     // copy the output from managed memory to _out arrays (which can be numpy arrays)
     size_t bold_size = nodes * output_ts;
     size_t ext_out_size = nodes;
-    if (conf.extended_output_ts) {
+    if (model->base_conf.extended_output_ts) {
         ext_out_size *= output_ts;
     }
     // TODO: pass the managed arrays data directly
@@ -700,7 +700,8 @@ void run_simulations_gpu(
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * n_window_pairs);
         fcd_trils_out+=n_window_pairs;
     }
-    if (strcmp(Model::name, "rWW")==0 && model->conf.do_fic) {
+    // TODO: implement a post-simulation function in the model
+    if (strcmp(Model::name, "rWW")==0 && h_model->conf.do_fic) {
         // copy wIE resulted from FIC to regional_params
         memcpy(regional_params[2], d_regional_params[2], N_SIMS*nodes*sizeof(u_real));
     }
@@ -736,7 +737,7 @@ void init_gpu(
         int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
         int N_SIMS, int nodes, bool extended_output, int rand_seed,
         int BOLD_TR, int time_steps, int window_size, int window_step,
-        Model *model, BWConstants bwc, ModelConfigs conf, bool verbose
+        BaseModel *model, BWConstants bwc, bool verbose
         )
     {
     using namespace bnm_gpu;
@@ -745,7 +746,6 @@ void init_gpu(
 
     // copy constants and configs from CPU
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_bwc, &bwc, sizeof(BWConstants)));
-    CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_conf, &conf, sizeof(ModelConfigs)));
     if (strcmp(Model::name, "rWW")==0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWc, &Model::mc, sizeof(typename Model::Constants)));
     }
@@ -793,13 +793,13 @@ void init_gpu(
     }
 
     // allocate memory for extended output
-    bool _extended_output = extended_output;
-    if (strcmp(Model::name, "rWW")==0) {
-        // for rWW extended output is needed if requested by user or FIC is done
-        _extended_output = extended_output | model->conf.do_fic;
-    }
+    bool _extended_output = model->base_conf.extended_output;
+    // if (strcmp(Model::name, "rWW")==0) {
+    //     // for rWW extended output is needed if requested by user or FIC is done
+    //     _extended_output = extended_output | model->conf.do_fic;
+    // }
     size_t ext_out_size = nodes;
-    if (conf.extended_output_ts) {
+    if (model->base_conf.extended_output_ts) {
         ext_out_size *= output_ts;
     }
     if (_extended_output) {
@@ -813,7 +813,7 @@ void init_gpu(
     }
 
     // specify n_vols_remove (for extended output and FC calculations)
-    n_vols_remove = conf.bold_remove_s * 1000 / BOLD_TR; // 30 seconds
+    n_vols_remove = model->base_conf.bold_remove_s * 1000 / BOLD_TR; // 30 seconds
 
     // preparing FC calculations
     corr_len = output_ts - n_vols_remove;
@@ -825,7 +825,7 @@ void init_gpu(
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&ssd_bold, sizeof(u_real*) * N_SIMS));
     n_pairs = ((nodes) * (nodes - 1)) / 2;
     int rh_idx;
-    if (conf.exc_interhemispheric) {
+    if (model->base_conf.exc_interhemispheric) {
         if ((nodes % 2) != 0) {
             printf("Error: exc_interhemispheric is set but number of nodes is not even\n");
             exit(1);
@@ -844,7 +844,7 @@ void init_gpu(
     for (int i=0; i < nodes; i++) {
         for (int j=0; j < nodes; j++) {
             if (i > j) {
-                if (conf.exc_interhemispheric) {
+                if (model->base_conf.exc_interhemispheric) {
                     // skip if each node belongs to a different hemisphere
                     if ((i < rh_idx) ^ (j < rh_idx)) {
                         continue;
@@ -865,7 +865,7 @@ void init_gpu(
     int _n_windows = get_dfc_windows(
         &_window_starts, &_window_ends, 
         corr_len, output_ts, n_vols_remove,
-        window_step, window_size);
+        window_step, window_size, model->base_conf.drop_edges);
     n_windows = _n_windows;
     if (n_windows == 0) {
         printf("Error: Number of windows is 0\n");
