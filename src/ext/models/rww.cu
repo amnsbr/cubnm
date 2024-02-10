@@ -36,10 +36,10 @@ __device__ void rWWModel::restart(
 __device__ void rWWModel::step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
-        u_real* tmp_globalinput,
-        u_real* noise, long* noise_idx
+        u_real& tmp_globalinput,
+        u_real* noise, long& noise_idx
         ) {
-    _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _state_vars[4] + (*tmp_globalinput) * _global_params[0] * d_rWWc.J_NMDA - _regional_params[2] * _state_vars[5];
+    _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _state_vars[4] + tmp_globalinput * _global_params[0] * d_rWWc.J_NMDA - _regional_params[2] * _state_vars[5];
     // *tmp_I_E = d_rWWc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
     _state_vars[1] = d_rWWc.w_I__I_0 + _regional_params[1] * _state_vars[4] - _state_vars[5];
     // *tmp_I_I = d_rWWc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I);
@@ -56,9 +56,9 @@ __device__ void rWWModel::step(
     // *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_rWWc.d_E * (*tmp_aIb_E)));
     _state_vars[3] = _intermediate_vars[1] / (1 - exp(-d_rWWc.d_I * _intermediate_vars[1]));
     // *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_rWWc.d_I * (*tmp_aIb_I)));
-    _intermediate_vars[2] = noise[*noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_rWWc.dt_itau_E * _state_vars[4];
+    _intermediate_vars[2] = noise[noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_rWWc.dt_itau_E * _state_vars[4];
     // *dSdt_E = noise[*noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_rWWc.dt_itau_E * (*S_i_E);
-    _intermediate_vars[3] = noise[(*noise_idx)+1] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * _state_vars[3] - d_rWWc.dt_itau_I * _state_vars[5];
+    _intermediate_vars[3] = noise[noise_idx+1] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * _state_vars[3] - d_rWWc.dt_itau_I * _state_vars[5];
     // *dSdt_I = noise[*noise_idx+1] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * (*tmp_r_I) - d_rWWc.dt_itau_I * (*S_i_I);
     _state_vars[4] += _intermediate_vars[2];
     // *S_i_E += *dSdt_E;
@@ -73,21 +73,21 @@ __device__ void rWWModel::step(
 
 __device__ void rWWModel::post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
-        int* _ext_int, bool* _ext_bool, bool* restart,
+        int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
-        int* ts_bold
+        int& ts_bold
         ) {
     if (_ext_bool[0]) {
-        if ((*ts_bold >= d_rWWc.I_SAMPLING_START) & (*ts_bold <= d_rWWc.I_SAMPLING_END)) {
+        if ((ts_bold >= d_rWWc.I_SAMPLING_START) & (ts_bold <= d_rWWc.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
-        if (*ts_bold == d_rWWc.I_SAMPLING_END) {
-            *restart = false;
+        if (ts_bold == d_rWWc.I_SAMPLING_END) {
+            restart = false;
             __syncthreads(); // all threads must be at the same time point here given needs_fic_adjustment is shared
             _intermediate_vars[4] /= d_rWWc.I_SAMPLING_DURATION;
             _intermediate_vars[6] = _intermediate_vars[4] - d_rWWc.b_a_ratio_E;
             if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
-                *restart = true;
+                restart = true;
                 if (_ext_int[0] < this->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
                     // up- or downregulate inhibition
                     if ((_intermediate_vars[6]) < -0.026) {
@@ -104,13 +104,13 @@ __device__ void rWWModel::post_bw_step(
             __syncthreads(); // wait to see if needs_fic_adjustment in any node
             // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
             // the simulation until the end
-            if (*restart) {
+            if (restart) {
                 if (_ext_int[0] < (this->conf.max_fic_trials)) {
                     _ext_int[0]++; // increment fic_trial
                 } else {
                     // continue the simulation and
                     // declare FIC failed
-                    *restart = false;
+                    restart = false;
                     _ext_bool[0] = false; // _adjust_fic
                     _ext_bool[1] = true; // fic_failed
                 }
@@ -131,7 +131,7 @@ __device__ void rWWModel::post_integration(
         int* _ext_int, bool* _ext_bool, 
         u_real** global_params, u_real** regional_params,
         u_real* _global_params, u_real* _regional_params,
-        int sim_idx, int nodes, int j
+        int& sim_idx, const int& nodes, int& j
     ) {
     if (this->conf.do_fic) {
         // save the wIE adjustment results

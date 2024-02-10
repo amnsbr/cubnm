@@ -11,16 +11,12 @@ extern void analytical_fic_het(
 // therefore, from nvcc's perspective, there is no need to compile the
 // function for this model, because it is not used in the cuda code
 // TODO: remove them 
-template void run_simulations_gpu<rWWModel>(
+template void _run_simulations_gpu<rWWModel>(
     double*, double*, double*, 
-    u_real**, u_real**, u_real*, u_real*, gsl_matrix*, u_real*, bool,
-    int, int, int, int, int, bool, BaseModel*
+    u_real**, u_real**, u_real*, 
+    u_real*, gsl_matrix*, u_real*, 
+    BaseModel*
 );
 
-template void init_gpu<rWWModel>(
-        int*, int*, int*,
-        int, int, bool, int,
-        int, int, int, int,
-        BaseModel*, BWConstants, bool
-);
+template void _init_gpu<rWWModel>(BaseModel*, BWConstants);
 #endif

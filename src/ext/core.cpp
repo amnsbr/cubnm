@@ -44,7 +44,6 @@
 // #include "bnm.cpp"
 
 namespace bnm_gpu {
-    extern bool is_initialized;
     extern u_real *** states_out, **BOLD, **fc_trils, **fcd_trils;
     extern int **global_out_int;
     extern bool **global_out_bool;
@@ -53,6 +52,16 @@ namespace bnm_gpu {
 // be needed to determine the size of arrays
 // they are global because init functions may be called only once
 int _output_ts, _n_pairs, _n_window_pairs;
+// create a pointer to the model object in current session
+// so that it can be reused in subsequent calls to run_simulations
+// this approach is an alternative to using `static` members
+// which do not work very well with cuda
+// but at any given time, only one model object 
+// (and a copy of it on GPU) will exist
+// TODO: consider using `static` members but
+// pass a copy of them to the GPU instead of using them directly
+BaseModel *model;
+char *last_model_name;
 
 
 u_real ** np_to_array_2d(PyArrayObject * np_arr) {
@@ -172,13 +181,9 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
     bwc.V_0_k2 = bwc.V_0 * bwc.k2;
     bwc.V_0_k3 = bwc.V_0 * bwc.k3;
 
-    // set is_initialized to false so that the next time run_simulations
-    // is called, the session will be reinitialized
-    // (and new constants will be used)
-    // bnm_cpu::is_initialized = false;
-    #ifdef GPU_ENABLED
-    bnm_gpu::is_initialized = false;
-    #endif
+    // TODO: make sure that from Python side
+    // reinitialization of the session is enforced
+    // when the constants are updated
 
     Py_RETURN_NONE;
 }
@@ -211,13 +216,9 @@ static PyObject* set_conf(PyObject* self, PyObject* args) {
     //     conf.sim_verbose = (bool)value;
     // }
 
-    // set is_initialized to false so that the next time run_simulations
-    // is called, the session will be reinitialized
-    // (and new constants will be used)
-    // bnm_cpu::is_initialized = false;
-    #ifdef GPU_ENABLED
-    bnm_gpu::is_initialized = false;
-    #endif
+    // TODO: make sure that from Python side
+    // reinitialization of the session is enforced
+    // when the constants are updated
 
     Py_RETURN_NONE;
 }
@@ -286,15 +287,30 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         return NULL;
     }
 
-    // initialize the model
-    BaseModel *model;
-    if (strcmp(model_name, "rWW")==0) {
-        model = new rWWModel();
-    // } else if (strcmp(model_name, "rWWEx")==0) {
-    //     model = new rWWExModel();
+    // initialize the model object if needed
+    if (model == nullptr || strcmp(model_name, last_model_name)!=0) {
+        last_model_name = model_name;
+        delete model; // delete the old model to ensure only one model object exists
+        if (strcmp(model_name, "rWW")==0) {
+            model = new rWWModel(
+                nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
+            );
+        } else {
+            printf("Model not found\n");
+            return NULL;
+        }
     } else {
-        printf("Model not found\n");
-        return NULL;
+        model->nodes = nodes;
+        model->N_SIMS = N_SIMS;
+        model->BOLD_TR = BOLD_TR;
+        model->time_steps = time_steps;
+        model->do_delay = do_delay;
+        model->window_size = window_size;
+        model->window_step = window_step;
+        model->rand_seed = rand_seed;
+        // reset base_conf to defaults
+        // TODO: consider alternative approaches
+        model->base_conf = BaseModel::Config();
     }
     // set model configs
     std::map<std::string, std::string> config_map = dict_to_map(config_dict);
@@ -302,13 +318,6 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     model->base_conf.extended_output = extended_output;
     model->base_conf.extended_output_ts = extended_output_ts;
    
-    // printf("N_SIMS %d nodes %d time_steps %d BOLD_TR %d window_size %d window_step %d rand_seed %d extended_output %d do_delay %d use_cpu %d\n", 
-    //     N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, extended_output, do_delay, use_cpu);
-
-    // update base_conf.extended_output_ts based on extended_output_ts
-    // TODO: consider using this approach for other configs as well
-    // (e.g. extended_output), as opposed to passing them as function arguments
-
     // copy SC to SC_gsl if FIC is needed
     gsl_matrix *SC_gsl;
     // if (strcmp(model_name, "rWW")==0 && model->conf.do_fic) {
@@ -331,7 +340,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         // is_initialized = bnm_cpu::is_initialized;
     } else {
         #ifdef GPU_ENABLED
-        is_initialized = bnm_gpu::is_initialized;
+        is_initialized = model->is_initialized;
         #else
         // TODO: write a proper warning + instructions on what to do
         // if the system does have a CUDA-enabled GPU
@@ -355,10 +364,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         } 
         #ifdef GPU_ENABLED
         else {
-            model->init_gpu_(
-                &_output_ts, &_n_pairs, &_n_window_pairs,
-                N_SIMS, nodes, rand_seed, BOLD_TR, time_steps, window_size, window_step,
-                bwc, (!is_initialized));
+            model->init_gpu(bwc);
         }
         #endif
         end = std::chrono::high_resolution_clock::now();
@@ -369,12 +375,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     }
 
     // Create NumPy arrays from BOLD_ex_out, fc_trils_out, and fcd_trils_out
-    npy_intp bold_dims[2] = {N_SIMS, _output_ts*nodes};
-    npy_intp fc_trils_dims[2] = {N_SIMS, _n_pairs};
-    npy_intp fcd_trils_dims[2] = {N_SIMS, _n_window_pairs};
+    npy_intp bold_dims[2] = {N_SIMS, model->output_ts*nodes};
+    npy_intp fc_trils_dims[2] = {N_SIMS, model->n_pairs};
+    npy_intp fcd_trils_dims[2] = {N_SIMS, model->n_window_pairs};
     npy_intp states_dims[3] = {rWWModel::n_state_vars, N_SIMS, nodes};
     if (model->base_conf.extended_output_ts) {
-        states_dims[2] *= _output_ts;
+        states_dims[2] *= model->output_ts;
     }
     npy_intp global_bools_dims[2] = {rWWModel::n_global_out_bool, N_SIMS};
     npy_intp global_ints_dims[2] = {rWWModel::n_global_out_int, N_SIMS};
@@ -409,14 +415,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     }
     #ifdef GPU_ENABLED
     else {
-        run_simulations_gpu<rWWModel>(
+        model->run_simulations_gpu(
             (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
             (double*)PyArray_DATA(py_fcd_trils_out),
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
-            (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
-            time_steps, BOLD_TR,
-            window_size, N_SIMS, extended_output, model
+            (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist)
         );
     }
     #endif

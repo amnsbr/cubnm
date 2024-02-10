@@ -2,6 +2,12 @@
 #define RWW_HPP
 class rWWModel : public BaseModel {
 public:
+    rWWModel(
+        int nodes, int N_SIMS, int BOLD_TR, int time_steps, bool do_delay,
+        int window_size, int window_step, int rand_seed, bool verbose=false
+        ) : BaseModel(nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed, verbose)
+    {};
+
     static constexpr char *name = "rWW";
     static constexpr int n_state_vars = 6; // number of state variables (u_real)
     static constexpr int n_intermediate_vars = 7; // number of intermediate/extra u_real variables
@@ -103,14 +109,14 @@ public:
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
-        u_real* tmp_globalinput,
-        u_real* noise, long* noise_idx
+        u_real& tmp_globalinput,
+        u_real* noise, long& noise_idx
     );
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
-        int* _ext_int, bool* _ext_bool, bool* restart,
+        int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
-        int* ts_bold
+        int& ts_bold
     );
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
@@ -123,22 +129,23 @@ public:
         int* _ext_int, bool* _ext_bool, 
         u_real** global_params, u_real** regional_params,
         u_real* _global_params, u_real* _regional_params,
-        int sim_idx, int nodes, int j
+        int& sim_idx, const int& nodes, int& j
     );
 
-    // void init_gpu() override;
-    void init_gpu_(
-        int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
-        int N_SIMS, int nodes, int rand_seed,
-        int BOLD_TR, int time_steps, int window_size, int window_step,
-        BWConstants bwc, bool verbose
+    void init_gpu(BWConstants bwc) override {
+        _init_gpu<rWWModel>(this, bwc);
+    }
+
+    void run_simulations_gpu(
+        double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+        u_real ** global_params, u_real ** regional_params, u_real * v_list,
+        u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist
     ) override {
-        bool is_initialized = false; // TODO: use it as a class member
-        init_gpu<rWWModel>(
-            output_ts_p, n_pairs_p, n_window_pairs_p,
-            N_SIMS, nodes, this->base_conf.extended_output, rand_seed, 
-            BOLD_TR, time_steps, window_size, window_step,
-            this, bwc, (!is_initialized));
+        _run_simulations_gpu<rWWModel>(
+            BOLD_ex_out, fc_trils_out, fcd_trils_out, 
+            global_params, regional_params, v_list,
+            SC, SC_gsl, SC_dist, this
+        );
     }
 };
 

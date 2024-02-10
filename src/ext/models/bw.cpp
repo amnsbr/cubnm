@@ -2,7 +2,7 @@
 BWConstants bwc;
 
 void init_bw_constants(BWConstants* bwc) {
-    bwc->bw_dt = 0.001; // Time-step of Balloon-Windkessel model (s)
+    bwc->dt = 0.001; // Time-step of Balloon-Windkessel model (s)
     bwc->rho = 0.34;
     bwc->alpha = 0.32;
     bwc->tau = 0.98;
@@ -15,7 +15,7 @@ void init_bw_constants(BWConstants* bwc) {
     bwc->ialpha = 1.0/bwc->alpha; // some pre-calculations
     bwc->itau = 1.0/bwc->tau;
     bwc->oneminrho = (1.0 - bwc->rho);
-    bwc->bw_dt_itau = bwc->bw_dt * bwc->itau;
+    bwc->dt_itau = bwc->dt * bwc->itau;
     bwc->V_0_k1 = bwc->V_0 * bwc->k1;
     bwc->V_0_k2 = bwc->V_0 * bwc->k2;
     bwc->V_0_k3 = bwc->V_0 * bwc->k3;
