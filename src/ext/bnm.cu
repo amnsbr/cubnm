@@ -193,7 +193,7 @@ __global__ void bnm(
     // if (Model::n_ext_bool > 0) {
     //     _ext_bool_shared = new bool[Model::n_ext_bool];
     // }
-    model->init(_state_vars, _intermediate_vars, _ext_int, _ext_bool, model);
+    model->init(_state_vars, _intermediate_vars, _ext_int, _ext_bool);
 
 
     // Ballon-Windkessel model variables
@@ -287,8 +287,7 @@ __global__ void bnm(
                 _state_vars, _intermediate_vars, 
                 _global_params, _regional_params,
                 &tmp_globalinput,
-                noise, &noise_idx,
-                model
+                noise, &noise_idx
             );
             if (!d_conf.sync_msec) {
                 if (has_delay) {
@@ -378,7 +377,7 @@ __global__ void bnm(
                 _state_vars, _intermediate_vars,
                 _ext_int, _ext_bool, &restart,
                 _global_params, _regional_params,
-                &ts_bold, model
+                &ts_bold
             );
         }
 
@@ -386,7 +385,7 @@ __global__ void bnm(
         // reset the simulation and start from the beginning
         if (restart) {
             // model-specific restart
-            model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool, model);
+            model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool);
             // reset indices
             BOLD_len_i = 0;
             ts_bold = 0;
@@ -423,8 +422,7 @@ __global__ void bnm(
             _ext_int, _ext_bool, 
             global_params, regional_params,
             _global_params, _regional_params,
-            sim_idx, nodes, j,
-            model
+            sim_idx, nodes, j
         );
     }
     if (extended_output & (!d_conf.extended_output_ts)) {

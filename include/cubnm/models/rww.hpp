@@ -98,23 +98,23 @@ public:
 
     CUDA_CALLABLE_MEMBER void init(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool, rWWModel* model
+        int* _ext_int, bool* _ext_bool
         );
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real* tmp_globalinput,
-        u_real* noise, long* noise_idx, rWWModel* model
+        u_real* noise, long* noise_idx
     );
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool* restart,
         u_real* _global_params, u_real* _regional_params,
-        int* ts_bold, rWWModel* model
+        int* ts_bold
     );
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool, rWWModel* model
+        int* _ext_int, bool* _ext_bool
         );
     CUDA_CALLABLE_MEMBER void post_integration(
         u_real **BOLD, u_real ***state_vars_out, 
@@ -123,8 +123,7 @@ public:
         int* _ext_int, bool* _ext_bool, 
         u_real** global_params, u_real** regional_params,
         u_real* _global_params, u_real* _regional_params,
-        int sim_idx, int nodes, int j,
-        rWWModel* model
+        int sim_idx, int nodes, int j
     );
 };
 

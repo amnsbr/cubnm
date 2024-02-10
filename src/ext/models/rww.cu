@@ -5,7 +5,7 @@ __constant__ rWWModel::Constants d_rWWc;
 
 __device__ void rWWModel::init(
     u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool, rWWModel* model
+    int* _ext_int, bool* _ext_bool
 ) {
     // Note that rather than harcoding the variable
     // indices it is also possible to do indexing via
@@ -16,13 +16,13 @@ __device__ void rWWModel::init(
     _intermediate_vars[4] = 0.0; // mean_I_E
     _intermediate_vars[5] = d_rWWc.init_delta; // delta
     _ext_int[0] = 0; // fic_trial
-    _ext_bool[0] = model->conf.do_fic & (model->conf.max_fic_trials > 0); // _adjust_fic in current sim
+    _ext_bool[0] = this->conf.do_fic & (this->conf.max_fic_trials > 0); // _adjust_fic in current sim
     _ext_bool[1] = false; // fic_failed
 }
 
 __device__ void rWWModel::restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool, rWWModel* model
+    int* _ext_int, bool* _ext_bool
 ) {
     // this is different from init in that it doesn't
     // reset the numerical FIC variables delta, fic_trial
@@ -37,7 +37,7 @@ __device__ void rWWModel::step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real* tmp_globalinput,
-        u_real* noise, long* noise_idx, rWWModel* model
+        u_real* noise, long* noise_idx
         ) {
     _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _state_vars[4] + (*tmp_globalinput) * _global_params[0] * d_rWWc.J_NMDA - _regional_params[2] * _state_vars[5];
     // *tmp_I_E = d_rWWc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
@@ -75,7 +75,7 @@ __device__ void rWWModel::post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool* restart,
         u_real* _global_params, u_real* _regional_params,
-        int* ts_bold, rWWModel* model
+        int* ts_bold
         ) {
     if (_ext_bool[0]) {
         if ((*ts_bold >= d_rWWc.I_SAMPLING_START) & (*ts_bold <= d_rWWc.I_SAMPLING_END)) {
@@ -88,7 +88,7 @@ __device__ void rWWModel::post_bw_step(
             _intermediate_vars[6] = _intermediate_vars[4] - d_rWWc.b_a_ratio_E;
             if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
                 *restart = true;
-                if (_ext_int[0] < model->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
+                if (_ext_int[0] < this->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
                     // up- or downregulate inhibition
                     if ((_intermediate_vars[6]) < -0.026) {
                         _regional_params[2] -= _intermediate_vars[5];
@@ -105,7 +105,7 @@ __device__ void rWWModel::post_bw_step(
             // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
             // the simulation until the end
             if (*restart) {
-                if (_ext_int[0] < (model->conf.max_fic_trials)) {
+                if (_ext_int[0] < (this->conf.max_fic_trials)) {
                     _ext_int[0]++; // increment fic_trial
                 } else {
                     // continue the simulation and
@@ -131,10 +131,9 @@ __device__ void rWWModel::post_integration(
         int* _ext_int, bool* _ext_bool, 
         u_real** global_params, u_real** regional_params,
         u_real* _global_params, u_real* _regional_params,
-        int sim_idx, int nodes, int j,
-        rWWModel* model
+        int sim_idx, int nodes, int j
     ) {
-    if (model->conf.do_fic) {
+    if (this->conf.do_fic) {
         // save the wIE adjustment results
         // modified wIE array
         regional_params[2][sim_idx*nodes+j] = _regional_params[2];
