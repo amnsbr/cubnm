@@ -92,6 +92,26 @@ def run_sim_group():
     sim_group.save()
     return sim_group
 
+def run_sim_group_rWWEx():
+    nodes = 100
+    N_SIMS = 2
+    sim_group = sim.rWWExSimGroup(
+        duration=60,
+        TR=1,
+        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['w'] = np.full((N_SIMS, nodes), 0.9)
+    sim_group.param_lists['I0'] = np.full((N_SIMS, nodes), 0.3)
+    sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.001)
+    sim_group.run()
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+    sim_group.score(emp_fc_tril, emp_fcd_tril)
+    sim_group.save()
+    return sim_group
+
 def run_grid():
     gs = optimize.GridSearch(
         model = 'rWW',
@@ -328,8 +348,9 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    run_sims()
+    # run_sims()
     # sg = run_sim_group()
+    sg = run_sim_group_rWWEx()
     # gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()

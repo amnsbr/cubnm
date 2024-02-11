@@ -24,14 +24,39 @@ public:
         };
     virtual ~BaseModel() = default;
 
+    // the following static variables do not do anything
+    // they are just used to show the variables that
+    // need to be defined in the derived classes
     static constexpr char *name = "Base";
+    static constexpr int n_state_vars = 0; // number of state variables (u_real)
+    static constexpr int n_intermediate_vars = 0; // number of intermediate/extra u_real variables
+    static constexpr int n_noise = 0; // number of noise elements needed for each node
+    static constexpr int n_global_params = 0;
+    static constexpr int n_regional_params = 0;
+    static constexpr char* state_var_names[] = {};
+    static constexpr char* intermediate_var_names[] = {};
+    static constexpr char* conn_state_var_name = ""; // name of the state variable which sends input to connected nodes
+    static constexpr int conn_state_var_idx = 0;
+    static constexpr char* bold_state_var_name = ""; // name of the state variable which is used for BOLD calculation
+    static constexpr int bold_state_var_idx = 0;
+    static constexpr int n_ext_int = 0; // number of additional int variables for each node
+    static constexpr int n_ext_bool = 0; // number of additional bool variables for each node
+    static constexpr int n_global_out_int = 0; 
+    static constexpr int n_global_out_bool = 0;
+    static constexpr int n_global_out_u_real = 0; // not implemented
+    static constexpr int n_regional_out_int = 0; // not implemented
+    static constexpr int n_regional_out_bool = 0; // not implemented
+    static constexpr int n_regional_out_u_real = 0; // not implemented
+    static constexpr bool has_post_bw_step = false;
+    static constexpr bool has_post_integration = false;
+
 
     int nodes{}, N_SIMS{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
         rand_seed{}, n_pairs{}, n_windows{}, n_window_pairs{}, output_ts{}, bold_size{},
         n_vols_remove{}, corr_len{}, noise_size{}, noise_repeats{},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0};
         // TODO: make some short or size_t
-    bool verbose{false}, is_initialized{false}, do_delay{};
+    bool verbose{false}, is_initialized{false}, modifies_params{false}, do_delay{};
 
     struct Config {
         int bold_remove_s{30};
@@ -75,7 +100,32 @@ public:
     virtual void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist) = 0;
+        u_real * SC, u_real * SC_dist) = 0;
+    virtual void prep_params(u_real ** global_params, u_real ** regional_params, u_real * v_list,
+        u_real * SC, u_real * SC_dist,
+        bool ** global_out_bool, int ** global_out_int) {};
+        // use if additional modification of parameters is needed (e.g. FIC in rWW)
+    // declare getters for some of static variables
+    // note that as these variables must be static
+    // and known at compile time, we cannot define
+    // the implementation in the base class
+    // the only solution I could think of was to
+    // define the (same) implementation in all
+    // derived models to make sure they return
+    // the static member of that particular model
+    // TODO: see if there is a better solution
+    virtual int get_n_state_vars() = 0;
+    virtual int get_n_global_out_bool() = 0;
+    virtual int get_n_global_out_int() = 0;
+    virtual int get_n_global_params() = 0;
+    virtual int get_n_regional_params() = 0;
+
+    // In addition to the above, each derived model
+    // must also define the following __device__
+    // kernels. Note that it is not possible to declare
+    // them virtual, as CUDA does not work very well
+    // with virtual functions: `init`, `step`, `post_bw_step`,
+    // `restart`, `post_integration`. For their arguments see rww.hpp
 protected:
     void set_base_conf(std::map<std::string, std::string> config_map) {
         // Note: some of the base_conf members (extended_output, extended_output_ts) 

@@ -40,6 +40,7 @@
 #include "./models/base.cpp"
 #include "./models/rww.cpp"
 #include "./models/rww_fic.cpp"
+#include "./models/rwwex.cpp"
 #include "./utils.cpp"
 // #include "bnm.cpp"
 
@@ -58,8 +59,6 @@ int _output_ts, _n_pairs, _n_window_pairs;
 // which do not work very well with cuda
 // but at any given time, only one model object 
 // (and a copy of it on GPU) will exist
-// TODO: consider using `static` members but
-// pass a copy of them to the GPU instead of using them directly
 BaseModel *model;
 char *last_model_name;
 
@@ -147,6 +146,7 @@ static PyObject* init(PyObject* self, PyObject* args) {
     // with default values
     init_bw_constants(&bwc);
     rWWModel::init_constants();
+    rWWExModel::init_constants();
 
     Py_RETURN_NONE;
 }
@@ -290,9 +290,15 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     // initialize the model object if needed
     if (model == nullptr || strcmp(model_name, last_model_name)!=0) {
         last_model_name = model_name;
-        delete model; // delete the old model to ensure only one model object exists
+        if (model != nullptr) {
+            delete model; // delete the old model to ensure only one model object exists
+        }
         if (strcmp(model_name, "rWW")==0) {
             model = new rWWModel(
+                nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
+            );
+        } else if (strcmp(model_name, "rWWEx")==0) {
+            model = new rWWExModel(
                 nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
             );
         } else {
@@ -309,7 +315,6 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         model->window_step = window_step;
         model->rand_seed = rand_seed;
         // reset base_conf to defaults
-        // TODO: consider alternative approaches
         model->base_conf = BaseModel::Config();
     }
     // set model configs
@@ -317,19 +322,6 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     model->set_conf(config_map); // update with user values if provided
     model->base_conf.extended_output = extended_output;
     model->base_conf.extended_output_ts = extended_output_ts;
-   
-    // copy SC to SC_gsl if FIC is needed
-    gsl_matrix *SC_gsl;
-    // if (strcmp(model_name, "rWW")==0 && model->conf.do_fic) {
-    if (strcmp(model_name, "rWW")==0) {
-        SC_gsl = gsl_matrix_alloc(nodes, nodes);
-        for (int i = 0; i < nodes; i++) {
-            for (int j = 0; j < nodes; j++) {
-                gsl_matrix_set(SC_gsl, i, j, ((double*)PyArray_DATA(SC))[i*nodes + j]);
-            }
-        }
-    }
-
 
     // time_t start, end;
     std::chrono::time_point<std::chrono::system_clock> start, end;
@@ -378,12 +370,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     npy_intp bold_dims[2] = {N_SIMS, model->output_ts*nodes};
     npy_intp fc_trils_dims[2] = {N_SIMS, model->n_pairs};
     npy_intp fcd_trils_dims[2] = {N_SIMS, model->n_window_pairs};
-    npy_intp states_dims[3] = {rWWModel::n_state_vars, N_SIMS, nodes};
+    npy_intp states_dims[3] = {model->get_n_state_vars(), N_SIMS, nodes};
     if (model->base_conf.extended_output_ts) {
         states_dims[2] *= model->output_ts;
     }
-    npy_intp global_bools_dims[2] = {rWWModel::n_global_out_bool, N_SIMS};
-    npy_intp global_ints_dims[2] = {rWWModel::n_global_out_int, N_SIMS};
+    npy_intp global_bools_dims[2] = {model->get_n_global_out_bool(), N_SIMS};
+    npy_intp global_ints_dims[2] = {model->get_n_global_out_int(), N_SIMS};
 
     PyObject* py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
     PyObject* py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
@@ -420,7 +412,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             (double*)PyArray_DATA(py_fcd_trils_out),
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
-            (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist)
+            (double*)PyArray_DATA(SC), (double*)PyArray_DATA(SC_dist)
         );
     }
     #endif
@@ -432,13 +424,18 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     array_to_np_2d<bool>(bnm_gpu::global_out_bool, py_global_bools_out);
     array_to_np_2d<int>(bnm_gpu::global_out_int, py_global_ints_out);
 
-    // if (strcmp(model_name, "rWW")==0 && model->conf.do_fic) {
-    if (strcmp(model_name, "rWW")==0) {
-        gsl_matrix_free(SC_gsl);
-        // copy updated wIE back to py_regional_params
-        int i = 2; // wIE index
-        for (int j = 0; j < N_SIMS*nodes; j++) {
-            ((double*)PyArray_DATA(py_regional_params))[i*N_SIMS*nodes + j] = regional_params[i][j];
+    if (model->modifies_params) {
+        // copy updated global_params back to py_global_params
+        for (int i = 0; i < model->get_n_global_params(); i++) {
+            for (int j = 0; j < N_SIMS; j++) {
+                ((double*)PyArray_DATA(py_global_params))[i*N_SIMS + j] = global_params[i][j];
+            }
+        }
+        // copy updated regional_params back to py_regional_params
+        for (int i = 0; i < model->get_n_regional_params(); i++) {
+            for (int j = 0; j < N_SIMS*nodes; j++) {
+                ((double*)PyArray_DATA(py_regional_params))[i*N_SIMS*nodes + j] = regional_params[i][j];
+            }
         }
     }
 

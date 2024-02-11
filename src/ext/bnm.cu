@@ -40,7 +40,8 @@ Author: Amin Saberi, Feb 2023
 
 // TODO: clean up the includes
 // and remove unncessary header files
-// Note: 
+// TODO: only include headers and
+// combine source code via compiler
 #include "cubnm/defines.h"
 #include "./utils.cu"
 #include "./models/bw.cu"
@@ -48,6 +49,7 @@ Author: Amin Saberi, Feb 2023
 #include "./fc.cu"
 #include "cubnm/bnm.cuh"
 #include "./models/rww.cu"
+#include "./models/rwwex.cu"
 // other models go here
 
 cudaDeviceProp prop;
@@ -80,6 +82,8 @@ __device__ void calculateGlobalInput(
         u_real** conn_state_var_hist, u_real* conn_state_var_1
         ) {
     // calculates global input from other nodes `k` to current node `j`
+    // Note: this will not skip over self-connections
+    // if they should be ignored, their SC should be set to 0
     tmp_globalinput = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
@@ -423,7 +427,7 @@ template<typename Model>
 void _run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, BaseModel* m
+    u_real * SC, u_real * SC_dist, BaseModel* m
 )
 // TODO: clean the order of args
 {
@@ -448,6 +452,15 @@ void _run_simulations_gpu(
     for (int i=0; i<Model::n_regional_params; i++) {
         CUDA_CHECK_RETURN(cudaMemcpy(d_regional_params[i], regional_params[i], m->N_SIMS*m->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
     }
+
+    // The following currently only does analytical FIC for rWW
+    // but in theory can be used for any model that requires
+    // parameter modifications
+    // TODO: consider doing this in a separate function
+    // called from Python, therefore final params are passed
+    // to _run_simulations_gpu (except that they might be
+    // modified during the simulation, e.g. in numerical FIC)
+    m->prep_params(d_global_params, d_regional_params, v_list, SC, SC_dist, global_out_bool, global_out_int);
 
     // if indicated, calculate delay matrix of each simulation and allocate
     // memory to conn_state_var_hist according to the max_delay among the current simulations
@@ -518,39 +531,6 @@ void _run_simulations_gpu(
         }
     }
     #endif
-
-    // TODO: implement this in a specific init function for the model
-    // e.g. pre_run
-    if (strcmp(Model::name, "rWW")==0 && h_model->conf.do_fic) {
-        gsl_vector * curr_w_IE = gsl_vector_alloc(m->nodes);
-        double *curr_w_EE = (double *)malloc(m->nodes * sizeof(double));
-        double *curr_w_EI = (double *)malloc(m->nodes * sizeof(double));
-        for (int sim_idx=0; sim_idx<m->N_SIMS; sim_idx++) {
-            // make a copy of regional wEE and wEI
-            for (int j=0; j<m->nodes; j++) {
-                curr_w_EE[j] = (double)(d_regional_params[0][sim_idx*m->nodes+j]);
-                curr_w_EI[j] = (double)(d_regional_params[1][sim_idx*m->nodes+j]);
-            }
-            // do FIC for the current particle
-            global_out_bool[0][sim_idx] = false;
-            // bool* _fic_unstable;
-            analytical_fic_het(
-                SC_gsl, d_global_params[0][sim_idx], curr_w_EE, curr_w_EI,
-                // curr_w_IE, _fic_unstable);
-                curr_w_IE, global_out_bool[0]+sim_idx);
-            if (global_out_bool[0][sim_idx]) {
-                printf("In simulation #%d FIC solution is unstable. Setting wIE to 1 in all nodes\n", sim_idx);
-                for (int j=0; j<m->nodes; j++) {
-                    d_regional_params[2][sim_idx*m->nodes+j] = 1.0;
-                }
-            } else {
-                // copy to w_IE_fic which will be passed on to the device
-                for (int j=0; j<m->nodes; j++) {
-                    d_regional_params[2][sim_idx*m->nodes+j] = (u_real)gsl_vector_get(curr_w_IE, j);
-                }
-            }
-        }
-    }
 
     // run simulations
     dim3 numBlocks(m->N_SIMS);
@@ -682,10 +662,14 @@ void _run_simulations_gpu(
         memcpy(fcd_trils_out, fcd_trils[sim_idx], sizeof(u_real) * m->n_window_pairs);
         fcd_trils_out+=m->n_window_pairs;
     }
-    // TODO: implement a post-simulation function in the model
-    if (strcmp(Model::name, "rWW")==0 && h_model->conf.do_fic) {
-        // copy wIE resulted from FIC to regional_params
-        memcpy(regional_params[2], d_regional_params[2], m->N_SIMS*m->nodes*sizeof(u_real));
+    if (m->modifies_params) { // e.g. rWW with FIC
+        // copy (potentially) modified parameters back to the original array
+        for (int i=0; i<Model::n_global_params; i++) {
+            memcpy(global_params[i], d_global_params[i], m->N_SIMS * sizeof(u_real));
+        }
+        for (int i=0; i<Model::n_regional_params; i++) {
+            memcpy(regional_params[i], d_regional_params[i], m->N_SIMS*m->nodes * sizeof(u_real));
+        }
     }
 
     // free delay and conn_state_var_hist memories if allocated
@@ -724,6 +708,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_bwc, &bwc, sizeof(BWConstants)));
     if (strcmp(Model::name, "rWW")==0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWc, &Model::mc, sizeof(typename Model::Constants)));
+    } else if (strcmp(Model::name, "rWWEx")==0) {
+        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWExc, &Model::mc, sizeof(typename Model::Constants)));
     }
 
     // allocate device memory for SC

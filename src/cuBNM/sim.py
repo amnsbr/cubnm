@@ -105,6 +105,14 @@ class SimGroup:
         # get time and TR in msec
         self.duration_msec = int(duration * 1000)  # in msec
         self.TR_msec = int(TR * 1000)
+        # warn user if SC diagonal is not 0
+        if np.any(np.diag(self.sc)):
+            print(
+                "Warning: The diagonal of the SC matrix is not 0. "
+                "Self-connections are not ignored by default in "
+                "the simulations. If you want to ignore them set "
+                "the diagonal of the SC matrix to 0."
+            )
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
         if (self.nodes > 500) & (not many_nodes_flag):
@@ -385,8 +393,6 @@ class SimGroup:
         # + => aim to maximize; - => aim to minimize
         # TODO: add the option to provide empirical BOLD as input
         columns = ["+fc_corr", "-fc_diff", "-fcd_ks", "-fc_normec", "+gof"]
-        if self.do_fic:
-            columns.append("-fic_penalty")
         scores = pd.DataFrame(columns=columns, dtype=float)
         # calculate GOF
         for idx in range(self.N):
@@ -457,7 +463,8 @@ class rWWSimGroup(SimGroup):
                  fic_penalty = True,
                  **kwargs):
         """
-        Group of reduced Wong-Wang simulations that are executed in parallel
+        Group of reduced Wong-Wang simulations (Deco 2014) 
+        that are executed in parallel
 
         Parameters
         ---------
@@ -625,6 +632,94 @@ class rWWSimGroup(SimGroup):
         """
         super().clear()
         for attr in ["sim_states", "fic_unstable", "fic_failed", "fic_ntrials"]:
+            if hasattr(self, attr):
+                delattr(self, attr)
+        gc.collect()
+
+
+class rWWExSimGroup(SimGroup):
+    model_name = "rWWEx"
+    global_param_names = ["G"]
+    regional_param_names = ["w", "I0", "sigma"]
+    def __init__(self, *args, **kwargs):
+        """
+        Group of reduced Wong-Wang simulations (excitatory only, Deco 2013) 
+        that are executed in parallel
+
+        Parameters
+        ---------
+        *args, **kwargs:
+            see :class:`cuBNM.sim.SimGroup` for details
+
+        Attributes
+        ----------
+        param_lists: :obj:`dict` of :obj:`np.ndarray`
+            dictionary of parameter lists, including
+                - 'G': global coupling. Shape: (N_SIMS,)
+                - 'w': local excitatory self-connection strength. Shape: (N_SIMS, nodes)
+                - 'I0': local external input current. Shape: (N_SIMS, nodes)
+                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
+                - 'v': conduction velocity. Shape: (N_SIMS,)
+
+        Example
+        -------
+        To see example usage in grid search and evolutionary algorithms
+        see :mod:`cuBNM.optimize`.
+
+        Here, as an example on how to use SimGroup independently, we
+        will run a single simulation and save the outputs to disk. ::
+
+            from cuBNM import sim, datasets
+
+            sim_group = sim.rWWExSimGroup(
+                duration=60,
+                TR=1,
+                sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+            )
+            sim_group.N = 1
+            sim_group.param_lists['G'] = np.array([0.5])
+            sim_group.param_lists['w'] = np.repeat(0.9, nodes*N_SIMS)
+            sim_group.param_lists['I0'] = np.repeat(0.3, nodes*N_SIMS)
+            sim_group.param_lists['sigma'] = np.repeat(0.001, nodes*N_SIMS)
+            sim_group.run()
+        """
+        super().__init__(*args, **kwargs)
+    
+    def _process_out(self, out):
+        super()._process_out(out)
+        if self.extended_output:
+            # name and reshape the states
+            self.sim_states = {
+                'x': self._sim_states[0],
+                'r': self._sim_states[1],
+                'S': self._sim_states[2],
+            }
+            if self.extended_output_ts:
+                for k in self.sim_states:
+                    self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
+    
+   
+    def _get_save_data(self):
+        """
+        Get the simulation outputs and parameters to be saved to disk
+
+        Returns
+        -------
+        out_data: :obj:`dict`
+            dictionary of simulation outputs and parameters
+        """
+        out_data = super()._get_save_data()
+        out_data.update(
+            sim_states=self.sim_states,
+        )
+        return out_data
+    
+    def clear(self):
+        """
+        Clear the simulation outputs
+        """
+        super().clear()
+        for attr in ["sim_states"]:
             if hasattr(self, attr):
                 delattr(self, attr)
         gc.collect()

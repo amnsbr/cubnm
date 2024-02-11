@@ -64,10 +64,64 @@ void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
         if (pair.first == "do_fic") {
             this->conf.do_fic = (bool)std::stoi(pair.second);
             this->base_conf.extended_output = this->conf.do_fic || this->base_conf.extended_output;
+            this->modifies_params = true;
         } else if (pair.first == "max_fic_trials") {
             this->conf.max_fic_trials = std::stoi(pair.second);
         } else if (pair.first == "fic_verbose") {
             this->conf.fic_verbose = (bool)std::stoi(pair.second);
+        }
+    }
+}
+
+void rWWModel::prep_params(
+        u_real ** global_params, u_real ** regional_params, u_real * v_list,
+        u_real * SC, u_real * SC_dist,
+        bool ** global_out_bool, int ** global_out_int
+        ) {
+    // Set wIE to output of analytical FIC
+    // if FIC is enabled
+    // copy SC to SC_gsl if FIC is needed
+    static gsl_matrix *SC_gsl;
+    if (this->conf.do_fic) {
+        // copy SC to SC_gsl (only once)
+        // TODO: handle following cases:
+        // 1. SC is modified by the user
+        // 2. This function is being called in multiple threads
+        if (SC_gsl == nullptr) {
+            SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
+            for (int i = 0; i < this->nodes; i++) {
+                for (int j = 0; j < this->nodes; j++) {
+                    gsl_matrix_set(SC_gsl, i, j, SC[i*nodes + j]);
+                }
+            }
+        }
+        gsl_vector * curr_w_IE = gsl_vector_alloc(this->nodes);
+        double *curr_w_EE = (double *)malloc(this->nodes * sizeof(double));
+        double *curr_w_EI = (double *)malloc(this->nodes * sizeof(double));
+        for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
+            // make a copy of regional wEE and wEI
+            for (int j=0; j<this->nodes; j++) {
+                curr_w_EE[j] = (double)(regional_params[0][sim_idx*this->nodes+j]);
+                curr_w_EI[j] = (double)(regional_params[1][sim_idx*this->nodes+j]);
+            }
+            // do FIC for the current particle
+            global_out_bool[0][sim_idx] = false;
+            // bool* _fic_unstable;
+            analytical_fic_het(
+                SC_gsl, global_params[0][sim_idx], curr_w_EE, curr_w_EI,
+                // curr_w_IE, _fic_unstable);
+                curr_w_IE, global_out_bool[0]+sim_idx);
+            if (global_out_bool[0][sim_idx]) {
+                printf("In simulation #%d FIC solution is unstable. Setting wIE to 1 in all nodes\n", sim_idx);
+                for (int j=0; j<this->nodes; j++) {
+                    regional_params[2][sim_idx*this->nodes+j] = 1.0;
+                }
+            } else {
+                // copy to w_IE_fic which will be passed on to the device
+                for (int j=0; j<this->nodes; j++) {
+                    regional_params[2][sim_idx*this->nodes+j] = (u_real)gsl_vector_get(curr_w_IE, j);
+                }
+            }
         }
     }
 }

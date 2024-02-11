@@ -52,9 +52,9 @@ __device__ void rWWModel::step(
     if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
     if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
     #endif
-    _state_vars[2] = _intermediate_vars[0] / (1 - exp(-d_rWWc.d_E * _intermediate_vars[0]));
+    _state_vars[2] = _intermediate_vars[0] / (1 - EXP(-d_rWWc.d_E * _intermediate_vars[0]));
     // *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_rWWc.d_E * (*tmp_aIb_E)));
-    _state_vars[3] = _intermediate_vars[1] / (1 - exp(-d_rWWc.d_I * _intermediate_vars[1]));
+    _state_vars[3] = _intermediate_vars[1] / (1 - EXP(-d_rWWc.d_I * _intermediate_vars[1]));
     // *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_rWWc.d_I * (*tmp_aIb_I)));
     _intermediate_vars[2] = noise[noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_rWWc.dt_itau_E * _state_vars[4];
     // *dSdt_E = noise[*noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_rWWc.dt_itau_E * (*S_i_E);

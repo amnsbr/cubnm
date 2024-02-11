@@ -1,5 +1,11 @@
 #ifndef RWW_HPP
 #define RWW_HPP
+
+extern void analytical_fic_het(
+        gsl_matrix * sc, double G, double * w_EE, double * w_EI,
+        gsl_vector * w_IE_out, bool * _unstable
+        );
+
 class rWWModel : public BaseModel {
 public:
     rWWModel(
@@ -105,7 +111,7 @@ public:
     CUDA_CALLABLE_MEMBER void init(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
-        );
+    );
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
@@ -121,7 +127,7 @@ public:
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
-        );
+    );
     CUDA_CALLABLE_MEMBER void post_integration(
         u_real **BOLD, u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
@@ -139,13 +145,33 @@ public:
     void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist
+        u_real * SC, u_real * SC_dist
     ) override {
         _run_simulations_gpu<rWWModel>(
             BOLD_ex_out, fc_trils_out, fcd_trils_out, 
             global_params, regional_params, v_list,
-            SC, SC_gsl, SC_dist, this
+            SC, SC_dist, this
         );
+    }
+
+    void prep_params(u_real ** global_params, u_real ** regional_params, u_real * v_list,
+        u_real * SC, u_real * SC_dist,
+        bool ** global_out_bool, int ** global_out_int) override;
+
+    int get_n_state_vars() override {
+        return n_state_vars;
+    }
+    int get_n_global_out_bool() override {
+        return n_global_out_bool;
+    }
+    int get_n_global_out_int() override {
+        return n_global_out_int;
+    }
+    int get_n_global_params() override {
+        return n_global_params;
+    }
+    int get_n_regional_params() override {
+        return n_regional_params;
     }
 };
 
