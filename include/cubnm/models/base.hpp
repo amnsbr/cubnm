@@ -5,7 +5,7 @@ class BaseModel {
 public:
     BaseModel(
         int nodes, int N_SIMS, int BOLD_TR, int time_steps, bool do_delay, 
-        int window_size, int window_step, int rand_seed, bool verbose=false
+        int window_size, int window_step, int rand_seed
         ) : nodes{nodes},
             N_SIMS{N_SIMS},
             BOLD_TR{BOLD_TR},
@@ -13,8 +13,7 @@ public:
             do_delay{do_delay},
             window_size{window_size},
             window_step{window_step},
-            rand_seed{rand_seed},
-            verbose{verbose}
+            rand_seed{rand_seed}
         {
             u_real TR = (u_real)BOLD_TR / 1000; // TR in seconds
             // calculate length of BOLD time-series
@@ -54,9 +53,10 @@ public:
     int nodes{}, N_SIMS{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
         rand_seed{}, n_pairs{}, n_windows{}, n_window_pairs{}, output_ts{}, bold_size{},
         n_vols_remove{}, corr_len{}, noise_size{}, noise_repeats{},
-        last_nodes{0}, last_time_steps{0}, last_rand_seed{0};
+        last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
+        last_noise_time_steps{0};
         // TODO: make some short or size_t
-    bool verbose{false}, is_initialized{false}, modifies_params{false}, do_delay{};
+    bool is_initialized{false}, modifies_params{false}, do_delay{};
 
     struct Config {
         int bold_remove_s{30};
@@ -70,7 +70,7 @@ public:
         // when time_steps can be divided by 30(000), as the actual duration of
         // simulation (in msec) is always user request time steps + 1)
         int noise_time_steps{30001};
-        bool sim_verbose{false}; // not implemented in GPU
+        bool verbose{false}; // not implemented in GPU
     };
     
     Config base_conf;
@@ -84,10 +84,9 @@ public:
         std::cout << "window_size: " << window_size << std::endl;
         std::cout << "window_step: " << window_step << std::endl;
         std::cout << "rand_seed: " << rand_seed << std::endl;
-        std::cout << "verbose: " << verbose << std::endl;
         std::cout << "exc_interhemispheric: " << base_conf.exc_interhemispheric << std::endl;
         std::cout << "sync_msec: " << base_conf.sync_msec << std::endl;
-        std::cout << "sim_verbose: " << base_conf.sim_verbose << std::endl;
+        std::cout << "verbose: " << base_conf.verbose << std::endl;
         std::cout << "bold_remove_s: " << base_conf.bold_remove_s << std::endl;
         std::cout << "drop_edges: " << base_conf.drop_edges << std::endl;
         std::cout << "noise_time_steps: " << base_conf.noise_time_steps << std::endl;
@@ -135,8 +134,8 @@ protected:
                 this->base_conf.exc_interhemispheric = (bool)std::stoi(pair.second);
             } else if (pair.first == "sync_msec") {
                 this->base_conf.sync_msec = (bool)std::stoi(pair.second);
-            } else if (pair.first == "sim_verbose") {
-                this->base_conf.sim_verbose = (bool)std::stoi(pair.second);
+            } else if (pair.first == "verbose") {
+                this->base_conf.verbose = (bool)std::stoi(pair.second);
             } else if (pair.first == "bold_remove_s") {
                 this->base_conf.bold_remove_s = std::stoi(pair.second);
             } else if (pair.first == "drop_edges") {

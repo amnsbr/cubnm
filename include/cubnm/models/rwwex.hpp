@@ -4,8 +4,8 @@ class rWWExModel : public BaseModel {
 public:
     rWWExModel(
         int nodes, int N_SIMS, int BOLD_TR, int time_steps, bool do_delay, 
-        int window_size, int window_step, int rand_seed, bool verbose=false
-        ) : BaseModel(nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed, verbose)
+        int window_size, int window_step, int rand_seed
+        ) : BaseModel(nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed)
     {};
 
     static constexpr char *name = "rWWEx";

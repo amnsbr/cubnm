@@ -415,7 +415,7 @@ __global__ void bnm(
         );
     }
     if (extended_output & (!extended_output_ts)) {
-        // take average
+        // take average across time points after n_vols_remove
         int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
         for (ii=0; ii<Model::n_state_vars; ii++) {
             states_out[ii][sim_idx][j] /= extended_output_time_points;
@@ -429,10 +429,9 @@ void _run_simulations_gpu(
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, u_real * SC_dist, BaseModel* m
 )
-// TODO: clean the order of args
 {
     using namespace bnm_gpu;
-    if (m->verbose) {
+    if (m->base_conf.verbose) {
         m->print_config();
     }
 
@@ -701,7 +700,7 @@ template<typename Model>
 void _init_gpu(BaseModel *m, BWConstants bwc) {
     using namespace bnm_gpu;
     // check CUDA device avaliability and properties
-    prop = get_device_prop(m->verbose);
+    prop = get_device_prop(m->base_conf.verbose);
 
     // copy constants and configs from CPU
     // TODO: make these members of the model class
@@ -749,16 +748,11 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     }
 
     // allocate memory for extended output
-    bool _extended_output = m->base_conf.extended_output;
-    // if (strcmp(Model::name, "rWW")==0) {
-    //     // for rWW extended output is needed if requested by user or FIC is done
-    //     _extended_output = extended_output | model->conf.do_fic;
-    // }
     size_t ext_out_size = m->nodes;
     if (m->base_conf.extended_output_ts) {
         ext_out_size *= m->output_ts;
     }
-    if (_extended_output) {
+    if (m->base_conf.extended_output) {
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&states_out, sizeof(u_real**) * Model::n_state_vars));
         for (int var_idx=0; var_idx<Model::n_state_vars; var_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&states_out[var_idx], sizeof(u_real*) * m->N_SIMS));
@@ -774,7 +768,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     // preparing FC calculations
     m->corr_len = m->output_ts - m->n_vols_remove;
     if (m->corr_len < 2) {
-        printf("Number of volumes (after removing initial volumes) is too low for FC calculations\n");
+        printf("Number of BOLD volumes (after removing initial volumes) is too low for FC calculations\n");
         exit(1);
     }
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&mean_bold, sizeof(u_real*) * m->N_SIMS));
@@ -789,10 +783,6 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         rh_idx = m->nodes / 2; // assumes symmetric number of parcels and L->R order
         m->n_pairs -= pow(rh_idx, 2); // exclude the middle square
     }
-    // if (n_pairs!=emp_FC_tril->size) { // TODO: do this check on Python side
-    //     printf("Empirical and simulated FC size do not match\n");
-    //     exit(1);
-    // }
     // create a mapping between pair_idx and i and j
     int curr_idx = 0;
     CUDA_CHECK_RETURN(cudaMallocManaged(&pairs_i, sizeof(int) * m->n_pairs));
@@ -888,21 +878,27 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         #endif
     }
 
-    // pre-calculate normally-distributed noise on CPU
-    // this is necessary to ensure consistency of noise given the same seed
-    // doing the same thing directly on the device is more challenging
-    #ifndef NOISE_SEGMENT
-    // precalculate the entire noise needed; can use up a lot of memory
-    // with high N of nodes and longer durations leads maxes out the memory
-    m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise; // +1 for inclusive last time point, 2 for E and I
-    #else
-    // otherwise precalculate a noise segment and arrays of shuffled
-    // nodes and time points and reuse-shuffle the noise segment
-    // throughout the simulation for `noise_repeats`
-    m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
-    m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
-    #endif
-    if ((m->rand_seed != m->last_rand_seed) || (m->time_steps != m->last_time_steps) || (m->nodes != m->last_nodes)) {
+    // check if noise needs to be calculated
+    if (
+        (m->rand_seed != m->last_rand_seed) ||
+        (m->time_steps != m->last_time_steps) ||
+        (m->nodes != m->last_nodes) ||
+        (m->base_conf.noise_time_steps != m->last_noise_time_steps)
+        ) {
+        // pre-calculate normally-distributed noise on CPU
+        // this is necessary to ensure consistency of noise given the same seed
+        // doing the same thing directly on the device is more challenging
+        #ifndef NOISE_SEGMENT
+        // precalculate the entire noise needed; can use up a lot of memory
+        // with high N of nodes and longer durations leads maxes out the memory
+        m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise; // +1 for inclusive last time point, 2 for E and I
+        #else
+        // otherwise precalculate a noise segment and arrays of shuffled
+        // nodes and time points and reuse-shuffle the noise segment
+        // throughout the simulation for `noise_repeats`
+        m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
+        m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
+        #endif
         printf("Precalculating %d noise elements...\n", m->noise_size);
         if (m->last_nodes != 0) {
             // noise is being recalculated, free the previous one
@@ -915,6 +911,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         m->last_time_steps = m->time_steps;
         m->last_nodes = m->nodes;
         m->last_rand_seed = m->rand_seed;
+        m->last_noise_time_steps = m->base_conf.noise_time_steps;
         std::mt19937 rand_gen(m->rand_seed);
         std::normal_distribution<float> normal_dist(0, 1);
         CUDA_CHECK_RETURN(cudaMallocManaged(&noise, sizeof(u_real) * m->noise_size));

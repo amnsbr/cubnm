@@ -29,6 +29,10 @@ class SimGroup:
         force_cpu=False,
         gof_terms=["+fc_corr", "-fc_diff", "-fcd_ks"],
         bw_params="friston2003",
+        bold_remove_s=30,
+        fcd_drop_edges=True,
+        noise_segment_length=30,
+        sim_verbose=False,
     ):
         """
         Group of simulations that are executed in parallel
@@ -79,6 +83,23 @@ class SimGroup:
                 divided by max EC [sqrt(n_pairs*4)]
         bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}, optional
             see :func:`cuBNM.utils.get_bw_params` for details
+        bold_remove_s: :obj:`float`, optional
+            remove the first bold_remove_s seconds from the simulated BOLD
+            in FC, FCD and mean state calculations (but the entire BOLD will
+            be returned to .sim_bold)
+        fcd_drop_edges: :obj:`bool`, optional
+            drop the edge windows in FCD calculations
+        noise_segment_length: :obj:`float` or None, optional
+            in seconds, length of the noise segments in the simulations
+            The noise segment will be repeated after shuffling
+            of nodes and time points. To generate noise for the entire
+            simulation without repetition, set this to None.
+            Note that varying the noise segment length will result
+            in a different noise array even if seed is fixed (but
+            fixed combination of seed and noise_segment_length will
+            result in reproducible noise)
+        sim_verbose: :obj:`bool`, optional
+            verbose output of the simulation
 
         Attributes
         ---------
@@ -102,6 +123,12 @@ class SimGroup:
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
         self.gof_terms = gof_terms
+        self.bold_remove_s = bold_remove_s
+        self.fcd_drop_edges = fcd_drop_edges
+        self.noise_segment_length = noise_segment_length
+        if self.noise_segment_length is None:
+            self.noise_segment_length = self.duration
+        self.sim_verbose = sim_verbose
         # get time and TR in msec
         self.duration_msec = int(duration * 1000)  # in msec
         self.TR_msec = int(TR * 1000)
@@ -230,6 +257,9 @@ class SimGroup:
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
             "bw_params": self.bw_params,
+            "bold_remove_s": self.bold_remove_s,
+            "fcd_drop_edges": self.fcd_drop_edges,
+            "noise_segment_length": self.noise_segment_length,
         }
         if not for_reinit:
             config["out_dir"] = self.out_dir
@@ -246,6 +276,11 @@ class SimGroup:
         model_config = {
             'exc_interhemispheric': str(int(self.exc_interhemispheric)),
             'sync_msec': str(int(self.sync_msec)),
+            'bold_remove_s': str(self.bold_remove_s),
+            'drop_edges': str(int(self.fcd_drop_edges)),
+            'noise_time_steps': str(int(self.noise_segment_length*1000)+1), 
+                # msec, inclusive of last time point
+            'verbose': str(int(self.sim_verbose)),
         }
         return model_config
 
@@ -541,7 +576,6 @@ class rWWSimGroup(SimGroup):
             'do_fic': str(int(self.do_fic)),
             'max_fic_trials': str(self.max_fic_trials),
         })
-        print(model_config)
         return model_config
 
     def _process_out(self, out):
