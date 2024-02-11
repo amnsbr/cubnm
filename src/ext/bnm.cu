@@ -109,7 +109,7 @@ __global__ void bnm(
         #ifdef NOISE_SEGMENT
         int *shuffled_nodes, int *shuffled_ts,
         #endif
-        u_real *noise, int* progress
+        u_real *noise, uint* progress
     ) {
     // convert block to a cooperative group
     // get simulation and node indices
@@ -125,7 +125,6 @@ __global__ void bnm(
     const bool extended_output = model->base_conf.extended_output;
     const bool extended_output_ts = model->base_conf.extended_output_ts;
     const bool sync_msec = model->base_conf.sync_msec;
-    const bool verbose = model->base_conf.verbose;
     #ifdef NOISE_SEGMENT
     const int noise_time_steps = model->base_conf.noise_time_steps;
     #endif
@@ -342,7 +341,7 @@ __global__ void bnm(
                 }
             }
             BOLD_len_i++;
-            if (verbose && (j==0)) {
+            if (model->base_conf.verbose && (j==0)) {
                 atomicAdd(progress, 1);
             }
 
@@ -383,7 +382,7 @@ __global__ void bnm(
             // model-specific restart
             model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool);
             // subtract progress of current simulation
-            if (verbose && (j==0)) {
+            if (model->base_conf.verbose && (j==0)) {
                 atomicAdd(progress, -BOLD_len_i);
             }
             // reset indices
@@ -556,9 +555,9 @@ void _run_simulations_gpu(
     // Note: based on BOLD TRs reached in the first node
     // of each simulation (therefore the progress will be
     // an approximation of the real progress)
-    int* progress;
-    CUDA_CHECK_RETURN(cudaMallocManaged(&progress, sizeof(int)));
-    int progress_final = m->output_ts * m->N_SIMS;
+    uint* progress;
+    CUDA_CHECK_RETURN(cudaMallocManaged(&progress, sizeof(uint)));
+    uint progress_final = m->output_ts * m->N_SIMS;
     *progress = 0;
     bnm<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
         d_model,
@@ -574,7 +573,7 @@ void _run_simulations_gpu(
     // asynchroneously print out the progress
     // if verbose
     if (m->base_conf.verbose) {
-        int last_progress = 0;
+        uint last_progress = 0;
         while (*progress < progress_final) {
             // Print progress as percentage
             printf("%.2f%%\r", ((double)*progress / progress_final) * 100);
