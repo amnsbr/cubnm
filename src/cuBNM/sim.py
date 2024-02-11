@@ -33,6 +33,7 @@ class SimGroup:
         fcd_drop_edges=True,
         noise_segment_length=30,
         sim_verbose=False,
+        progress_interval=500
     ):
         """
         Group of simulations that are executed in parallel
@@ -99,7 +100,12 @@ class SimGroup:
             fixed combination of seed and noise_segment_length will
             result in reproducible noise)
         sim_verbose: :obj:`bool`, optional
-            verbose output of the simulation
+            verbose output of the simulation including details of
+            simulations and a progress bar. This may slightly make
+            the simulations slower.
+        progress_interval: :obj:`int`, optional
+            msec; interval of progress updates in the simulation
+            Only used if sim_verbose is True
 
         Attributes
         ---------
@@ -129,6 +135,7 @@ class SimGroup:
         if self.noise_segment_length is None:
             self.noise_segment_length = self.duration
         self.sim_verbose = sim_verbose
+        self.progress_interval = progress_interval
         # get time and TR in msec
         self.duration_msec = int(duration * 1000)  # in msec
         self.TR_msec = int(TR * 1000)
@@ -281,6 +288,7 @@ class SimGroup:
             'noise_time_steps': str(int(self.noise_segment_length*1000)+1), 
                 # msec, inclusive of last time point
             'verbose': str(int(self.sim_verbose)),
+            'progress_interval': str(int(self.progress_interval)),
         }
         return model_config
 

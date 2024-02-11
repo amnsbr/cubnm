@@ -70,7 +70,8 @@ public:
         // when time_steps can be divided by 30(000), as the actual duration of
         // simulation (in msec) is always user request time steps + 1)
         int noise_time_steps{30001};
-        bool verbose{false}; // not implemented in GPU
+        bool verbose{false}; // print simulation info + progress
+        int progress_interval{500}; // msec; interval for updating progress
     };
     
     Config base_conf;
@@ -87,6 +88,7 @@ public:
         std::cout << "exc_interhemispheric: " << base_conf.exc_interhemispheric << std::endl;
         std::cout << "sync_msec: " << base_conf.sync_msec << std::endl;
         std::cout << "verbose: " << base_conf.verbose << std::endl;
+        std::cout << "progress_interval: " << base_conf.progress_interval << std::endl;
         std::cout << "bold_remove_s: " << base_conf.bold_remove_s << std::endl;
         std::cout << "drop_edges: " << base_conf.drop_edges << std::endl;
         std::cout << "noise_time_steps: " << base_conf.noise_time_steps << std::endl;
@@ -142,6 +144,8 @@ protected:
                 this->base_conf.drop_edges = (bool)std::stoi(pair.second);
             } else if (pair.first == "noise_time_steps") {
                 this->base_conf.noise_time_steps = std::stoi(pair.second);
+            } else if (pair.first == "progress_interval") {
+                this->base_conf.progress_interval = std::stoi(pair.second);
             }
         }
     }

@@ -37,6 +37,8 @@ Author: Amin Saberi, Feb 2023
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_roots.h>
+#include <thread>
+#include <chrono>
 
 // TODO: clean up the includes
 // and remove unncessary header files
@@ -107,7 +109,7 @@ __global__ void bnm(
         #ifdef NOISE_SEGMENT
         int *shuffled_nodes, int *shuffled_ts,
         #endif
-        u_real *noise
+        u_real *noise, int* progress
     ) {
     // convert block to a cooperative group
     // get simulation and node indices
@@ -123,6 +125,7 @@ __global__ void bnm(
     const bool extended_output = model->base_conf.extended_output;
     const bool extended_output_ts = model->base_conf.extended_output_ts;
     const bool sync_msec = model->base_conf.sync_msec;
+    const bool verbose = model->base_conf.verbose;
     #ifdef NOISE_SEGMENT
     const int noise_time_steps = model->base_conf.noise_time_steps;
     #endif
@@ -165,7 +168,7 @@ __global__ void bnm(
     }
 
     // initialize extended output sums
-    if (extended_output & (!extended_output_ts)) {
+    if (extended_output && (!extended_output_ts)) {
         for (ii=0; ii<Model::n_state_vars; ii++) {
             states_out[ii][sim_idx][j] = 0;
         }
@@ -326,19 +329,23 @@ __global__ void bnm(
             // calcualte and save BOLD
             BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q) + d_bwc.V_0_k2 * (1 - bw_q/bw_nu) + d_bwc.V_0_k3 * (1 - bw_nu);
             // save time series of extended output if indicated
-            if (extended_output & extended_output_ts) {
+            if (extended_output && extended_output_ts) {
                 for (ii=0; ii<Model::n_state_vars; ii++) {
                     states_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[ii];
                 }
             }
             // update sum (later mean) of extended
             // output only after n_vols_remove
-            if ((BOLD_len_i>=model->n_vols_remove) & extended_output & (!extended_output_ts)) {
+            if ((BOLD_len_i>=model->n_vols_remove) && extended_output && (!extended_output_ts)) {
                 for (ii=0; ii<Model::n_state_vars; ii++) {
                     states_out[ii][sim_idx][j] += _state_vars[ii];
                 }
             }
             BOLD_len_i++;
+            if (verbose && (j==0)) {
+                atomicAdd(progress, 1);
+            }
+
         }
         ts_bold++;
 
@@ -375,6 +382,10 @@ __global__ void bnm(
         if (restart) {
             // model-specific restart
             model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool);
+            // subtract progress of current simulation
+            if (verbose && (j==0)) {
+                atomicAdd(progress, -BOLD_len_i);
+            }
             // reset indices
             BOLD_len_i = 0;
             ts_bold = 0;
@@ -414,7 +425,7 @@ __global__ void bnm(
             sim_idx, nodes, j
         );
     }
-    if (extended_output & (!extended_output_ts)) {
+    if (extended_output && (!extended_output_ts)) {
         // take average across time points after n_vols_remove
         int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
         for (ii=0; ii<Model::n_state_vars; ii++) {
@@ -541,6 +552,14 @@ void _run_simulations_gpu(
     #else
     size_t shared_mem_extern = 0;
     #endif 
+    // keep track of progress
+    // Note: based on BOLD TRs reached in the first node
+    // of each simulation (therefore the progress will be
+    // an approximation of the real progress)
+    int* progress;
+    CUDA_CHECK_RETURN(cudaMallocManaged(&progress, sizeof(int)));
+    int progress_final = m->output_ts * m->N_SIMS;
+    *progress = 0;
     bnm<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
         d_model,
         BOLD, states_out, 
@@ -551,9 +570,39 @@ void _run_simulations_gpu(
     #ifdef NOISE_SEGMENT
         shuffled_nodes, shuffled_ts,
     #endif
-        noise);
+        noise, progress);
+    // asynchroneously print out the progress
+    // if verbose
+    if (m->base_conf.verbose) {
+        int last_progress = 0;
+        while (*progress < progress_final) {
+            // Print progress as percentage
+            printf("%.2f%%\r", ((double)*progress / progress_final) * 100);
+            fflush(stdout);
+            // Sleep for interval ms
+            std::this_thread::sleep_for(std::chrono::milliseconds(m->base_conf.progress_interval));
+            // make sure it doesn't get stuck
+            // by checking if there has been any progress
+            if (*progress == last_progress) {
+                printf("No progress detected in the last %d ms.\n", m->base_conf.progress_interval);
+                break;
+            }
+            last_progress = *progress;
+        }
+        if (*progress == progress_final) {
+            printf("100.00%\n");
+        } else {
+            printf("If no errors are shown, the simulation is still running "
+                "but the progress is not being updated as there was no progress in the "
+                "last %d ms, which may be too fast for current GPU and simulations\n", 
+                m->base_conf.progress_interval);
+        }
+    }
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+    if (m->base_conf.verbose) {
+        printf("Simulation completed\n");
+    }
 
     // calculate mean and sd bold for FC calculation
     bold_stats<<<numBlocks, threadsPerBlock>>>(

@@ -80,6 +80,7 @@ def run_sim_group():
         duration=60,
         TR=1,
         sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sim_verbose=True,
     )
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
@@ -99,6 +100,7 @@ def run_sim_group_rWWEx():
         duration=60,
         TR=1,
         sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sim_verbose=True,
     )
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
