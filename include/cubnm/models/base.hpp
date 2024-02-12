@@ -32,11 +32,11 @@ public:
     static constexpr int n_noise = 0; // number of noise elements needed for each node
     static constexpr int n_global_params = 0;
     static constexpr int n_regional_params = 0;
-    static constexpr char* state_var_names[] = {};
-    static constexpr char* intermediate_var_names[] = {};
-    static constexpr char* conn_state_var_name = ""; // name of the state variable which sends input to connected nodes
+    // static constexpr char* state_var_names[] = {};
+    // static constexpr char* intermediate_var_names[] = {};
+    // static constexpr char* conn_state_var_name = ""; // name of the state variable which sends input to connected nodes
     static constexpr int conn_state_var_idx = 0;
-    static constexpr char* bold_state_var_name = ""; // name of the state variable which is used for BOLD calculation
+    // static constexpr char* bold_state_var_name = ""; // name of the state variable which is used for BOLD calculation
     static constexpr int bold_state_var_idx = 0;
     static constexpr int n_ext_int = 0; // number of additional int variables for each node
     static constexpr int n_ext_bool = 0; // number of additional bool variables for each node
@@ -56,7 +56,8 @@ public:
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
         last_noise_time_steps{0};
         // TODO: make some short or size_t
-    bool is_initialized{false}, modifies_params{false}, do_delay{};
+    bool gpu_initialized{false}, cpu_initialized{false},
+        modifies_params{false}, do_delay{};
 
     struct Config {
         int bold_remove_s{30};
@@ -98,7 +99,12 @@ public:
         set_base_conf(config_map);
     }
     virtual void init_gpu(BWConstants bwc) = 0;
+    virtual void init_cpu() = 0;
     virtual void run_simulations_gpu(
+        double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+        u_real ** global_params, u_real ** regional_params, u_real * v_list,
+        u_real * SC, u_real * SC_dist) = 0;
+    virtual void run_simulations_cpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
         u_real * SC, u_real * SC_dist) = 0;
@@ -121,12 +127,46 @@ public:
     virtual int get_n_global_params() = 0;
     virtual int get_n_regional_params() = 0;
 
+    virtual void h_init(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) = 0;
+    virtual void h_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
+        u_real& tmp_globalinput,
+        u_real* noise, long& noise_idx
+    ) = 0;
+    virtual void h_post_bw_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        int* _ext_int, bool* _ext_bool, bool& restart,
+        u_real* _global_params, u_real* _regional_params,
+        int& ts_bold
+    ) {};
+    virtual void h_restart(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) {};
+    virtual void h_post_integration(
+        u_real ***state_vars_out, 
+        int **global_out_int, bool **global_out_bool,
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool, 
+        u_real** global_params, u_real** regional_params,
+        u_real* _global_params, u_real* _regional_params,
+        int& sim_idx, const int& nodes, int& j
+    ) {};
+
     // In addition to the above, each derived model
     // must also define the following __device__
     // kernels. Note that it is not possible to declare
     // them virtual, as CUDA does not work very well
     // with virtual functions: `init`, `step`, `post_bw_step`,
     // `restart`, `post_integration`. For their arguments see rww.hpp
+
+    virtual gsl_vector * calculate_fc_tril(gsl_matrix * bold);
+    virtual gsl_vector * calculate_fcd_tril(gsl_matrix * bold, int * window_starts, int * window_ends);
+
 protected:
     void set_base_conf(std::map<std::string, std::string> config_map) {
         // Note: some of the base_conf members (extended_output, extended_output_ts) 

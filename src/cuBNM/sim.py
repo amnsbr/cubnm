@@ -317,8 +317,6 @@ class SimGroup:
             | (curr_config != self.last_config)
         )
         use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)
-        if use_cpu:
-            raise NotImplementedError("CPU is not supported yet")
         # convert self.param_lists to flattened and contiguous arrays of global
         # and local parameters
         global_params_arrays = []

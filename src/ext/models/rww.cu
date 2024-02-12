@@ -125,7 +125,7 @@ __device__ void rWWModel::post_bw_step(
 }
 
 __device__ void rWWModel::post_integration(
-        u_real **BOLD, u_real ***state_vars_out, 
+        u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool, 

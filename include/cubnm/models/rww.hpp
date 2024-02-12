@@ -20,15 +20,17 @@ public:
     static constexpr int n_noise = 2; // number of noise elements needed for each node
     static constexpr int n_global_params = 1;
     static constexpr int n_regional_params = 3;
-    static constexpr char* state_var_names[] = {"I_E", "I_I", "r_E", "r_I", "S_E", "S_I"};
-    static constexpr char* intermediate_var_names[] = {"aIb_E", "aIb_I", "dSdt_E", "dSdt_I", "mean_I_E", "delta", "I_E_ba_diff"};
-    static constexpr char* conn_state_var_name = "S_E"; // name of the state variable which sends input to connected nodes
+    // static constexpr char* state_var_names[] = {"I_E", "I_I", "r_E", "r_I", "S_E", "S_I"};
+    // static constexpr char* intermediate_var_names[] = {"aIb_E", "aIb_I", "dSdt_E", "dSdt_I", "mean_I_E", "delta", "I_E_ba_diff"};
+    // static constexpr char* conn_state_var_name = "S_E"; // name of the state variable which sends input to connected nodes
     static constexpr int conn_state_var_idx = 4;
-    static constexpr char* bold_state_var_name = "S_E"; // name of the state variable which is used for BOLD calculation
+    // static constexpr char* bold_state_var_name = "S_E"; // name of the state variable which is used for BOLD calculation
     static constexpr int bold_state_var_idx = 4;
     // the following are needed for numerical FIC
     static constexpr int n_ext_int = 1; // number of additional int variables for each node; fic_trial
     static constexpr int n_ext_bool = 2; // number of additional bool variables for each node; _adjust_fic, fic_failed
+        // note that these variables are going to be the same in every node
+        // therefore it is better to have them as shared variables => TODO:
     // static constexpr int n_ext_int_shared = 1; // number of additional int variables shared; TODO: make the fic int and bools shared
     // static constexpr int n_ext_bool_shared = 2; // number of additional bool variables shared
     static constexpr int n_global_out_int = 1; // fic_trials
@@ -112,24 +114,47 @@ public:
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
+    void h_init(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
+
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real& tmp_globalinput,
         u_real* noise, long& noise_idx
     );
+    void h_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
+        u_real& tmp_globalinput,
+        u_real* noise, long& noise_idx
+    ) override;
+
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
     );
+    void h_post_bw_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        int* _ext_int, bool* _ext_bool, bool& restart,
+        u_real* _global_params, u_real* _regional_params,
+        int& ts_bold
+    ) override;
+
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
+    void h_restart(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
     CUDA_CALLABLE_MEMBER void post_integration(
-        u_real **BOLD, u_real ***state_vars_out, 
+        u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool, 
@@ -137,9 +162,22 @@ public:
         u_real* _global_params, u_real* _regional_params,
         int& sim_idx, const int& nodes, int& j
     );
+    void h_post_integration(
+        u_real ***state_vars_out, 
+        int **global_out_int, bool **global_out_bool,
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool, 
+        u_real** global_params, u_real** regional_params,
+        u_real* _global_params, u_real* _regional_params,
+        int& sim_idx, const int& nodes, int& j
+    ) override;
 
     void init_gpu(BWConstants bwc) override {
         _init_gpu<rWWModel>(this, bwc);
+    }
+
+    void init_cpu() override {
+        _init_cpu<rWWModel>(this);
     }
 
     void run_simulations_gpu(
@@ -148,6 +186,18 @@ public:
         u_real * SC, u_real * SC_dist
     ) override {
         _run_simulations_gpu<rWWModel>(
+            BOLD_ex_out, fc_trils_out, fcd_trils_out, 
+            global_params, regional_params, v_list,
+            SC, SC_dist, this
+        );
+    }
+
+    void run_simulations_cpu(
+        double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+        u_real ** global_params, u_real ** regional_params, u_real * v_list,
+        u_real * SC, u_real * SC_dist
+    ) override {
+        _run_simulations_cpu<rWWModel>(
             BOLD_ex_out, fc_trils_out, fcd_trils_out, 
             global_params, regional_params, v_list,
             SC, SC_dist, this

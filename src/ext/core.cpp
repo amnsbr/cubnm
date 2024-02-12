@@ -36,13 +36,14 @@
 #include <algorithm>
 #include <memory>
 #include "cubnm/defines.h"
+#include "utils.cpp"
 #include "./models/bw.cpp"
 #include "./models/base.cpp"
+#include "fc.cpp"
+#include "bnm.cpp"
 #include "./models/rww.cpp"
 #include "./models/rww_fic.cpp"
 #include "./models/rwwex.cpp"
-#include "./utils.cpp"
-// #include "bnm.cpp"
 
 namespace bnm_gpu {
     extern u_real *** states_out, **BOLD, **fc_trils, **fcd_trils;
@@ -297,11 +298,13 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             model = new rWWModel(
                 nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
             );
-        } else if (strcmp(model_name, "rWWEx")==0) {
+        } 
+        else if (strcmp(model_name, "rWWEx")==0) {
             model = new rWWExModel(
                 nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
             );
-        } else {
+        } 
+        else {
             printf("Model not found\n");
             return NULL;
         }
@@ -327,13 +330,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     std::chrono::time_point<std::chrono::system_clock> start, end;
     std::chrono::duration<double> elapsed_seconds;
 
-    bool is_initialized;
-    if (use_cpu) {
-        // is_initialized = bnm_cpu::is_initialized;
-    } else {
-        #ifdef GPU_ENABLED
-        is_initialized = model->is_initialized;
-        #else
+    if (!use_cpu) {
+        #ifndef GPU_ENABLED
         // TODO: write a proper warning + instructions on what to do
         // if the system does have a CUDA-enabled GPU
         printf("Library not compiled with GPU support and cannot use GPU.\n");
@@ -343,26 +341,23 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     // Initialize GPU/CPU if it's not already done in current session
     // it does memory allocation and noise precalculation among other things
-    if ((!is_initialized) | (force_reinit)) {
-        printf("Initializing the session...");
-        start = std::chrono::high_resolution_clock::now();
-        if (use_cpu) {
-            printf("\nCurrently only GPU is supported...Exiting\n");
-            return NULL;
-            // init_cpu(
-            //     &_output_ts, &_n_pairs, &_n_window_pairs,
-            //     nodes,rand_seed, BOLD_TR, time_steps, window_size, window_step,
-            //     mc, conf);
-        } 
-        #ifdef GPU_ENABLED
-        else {
-            model->init_gpu(bwc);
-        }
-        #endif
+    start = std::chrono::high_resolution_clock::now();
+    if (use_cpu & ((!model->cpu_initialized) | (force_reinit))) {
+        printf("Initializing CPU session...");
+        model->init_cpu();
+        end = std::chrono::high_resolution_clock::now();
+        elapsed_seconds = end - start;
+    } 
+    #ifdef GPU_ENABLED
+    else if (!use_cpu & ((!model->gpu_initialized) | (force_reinit))) {
+        printf("Initializing GPU session...");
+        model->init_gpu(bwc);
         end = std::chrono::high_resolution_clock::now();
         elapsed_seconds = end - start;
         printf("took %lf s\n", elapsed_seconds.count());
-    } else {
+    }
+    #endif
+    else {
         printf("Current session is already initialized\n");
     }
 
@@ -388,22 +383,13 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     start = std::chrono::high_resolution_clock::now();
     // TODO: cast the arrays to double if u_real is float
     if (use_cpu) {
-        // run_simulations_cpu(
-        //     (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
-        //     (double*)PyArray_DATA(py_fcd_trils_out),
-        //     (double*)PyArray_DATA(py_S_E_out), (double*)PyArray_DATA(py_S_I_out),
-        //     (double*)PyArray_DATA(py_r_E_out), (double*)PyArray_DATA(py_r_I_out),
-        //     (double*)PyArray_DATA(py_I_E_out), (double*)PyArray_DATA(py_I_I_out),
-        //     (bool*)PyArray_DATA(py_fic_unstable_out), (bool*)PyArray_DATA(py_fic_failed_out),
-        //     (double*)PyArray_DATA(G_list), (double*)PyArray_DATA(w_EE_list), 
-        //     (double*)PyArray_DATA(w_EI_list), (double*)PyArray_DATA(w_IE_list),
-        //     (double*)PyArray_DATA(v_list),
-        //     (double*)PyArray_DATA(SC), SC_gsl, (double*)PyArray_DATA(SC_dist), do_delay, nodes,
-        //     time_steps, BOLD_TR, _max_fic_trials,
-        //     window_size, window_step,
-        //     N_SIMS, do_fic, only_wIE_free, extended_output, 
-        //     mc, conf, rand_seed
-        // );
+        model->run_simulations_cpu(
+            (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
+            (double*)PyArray_DATA(py_fcd_trils_out),
+            global_params, regional_params, 
+            (double*)PyArray_DATA(v_list),
+            (double*)PyArray_DATA(SC), (double*)PyArray_DATA(SC_dist)
+        );
     }
     #ifdef GPU_ENABLED
     else {
@@ -420,9 +406,15 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     elapsed_seconds = end - start;
     printf("took %lf s\n", elapsed_seconds.count());
 
-    array_to_np_3d<u_real>(bnm_gpu::states_out, py_states_out);
-    array_to_np_2d<bool>(bnm_gpu::global_out_bool, py_global_bools_out);
-    array_to_np_2d<int>(bnm_gpu::global_out_int, py_global_ints_out);
+    if (use_cpu) {
+        array_to_np_3d<u_real>(bnm_cpu::states_out, py_states_out);
+        array_to_np_2d<bool>(bnm_cpu::global_out_bool, py_global_bools_out);
+        array_to_np_2d<int>(bnm_cpu::global_out_int, py_global_ints_out);
+    } else {
+        array_to_np_3d<u_real>(bnm_gpu::states_out, py_states_out);
+        array_to_np_2d<bool>(bnm_gpu::global_out_bool, py_global_bools_out);
+        array_to_np_2d<int>(bnm_gpu::global_out_int, py_global_ints_out);
+    }
 
     if (model->modifies_params) {
         // copy updated global_params back to py_global_params

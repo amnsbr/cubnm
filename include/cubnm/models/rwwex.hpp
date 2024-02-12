@@ -14,11 +14,11 @@ public:
     static constexpr int n_noise = 1; // number of noise elements needed for each node
     static constexpr int n_global_params = 1; // G
     static constexpr int n_regional_params = 3; // w, I0, sigma
-    static constexpr char* state_var_names[] = {"x", "r", "S"};
-    static constexpr char* intermediate_var_names[] = {"axb", "dSdt"};
-    static constexpr char* conn_state_var_name = "S"; // name of the state variable which sends input to connected nodes
+    // static constexpr char* state_var_names[] = {"x", "r", "S"};
+    // static constexpr char* intermediate_var_names[] = {"axb", "dSdt"};
+    // static constexpr char* conn_state_var_name = "S"; // name of the state variable which sends input to connected nodes
     static constexpr int conn_state_var_idx = 2;
-    static constexpr char* bold_state_var_name = "S"; // name of the state variable which is used for BOLD calculation
+    // static constexpr char* bold_state_var_name = "S"; // name of the state variable which is used for BOLD calculation
     static constexpr int bold_state_var_idx = 2;
     // the following are needed for numerical FIC
     static constexpr int n_ext_int = 0; // number of additional int variables for each node
@@ -61,24 +61,41 @@ public:
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
+    void h_init(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
+
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real& tmp_globalinput,
         u_real* noise, long& noise_idx
     );
+    void h_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
+        u_real& tmp_globalinput,
+        u_real* noise, long& noise_idx
+    ) override;
+
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
     ); // does nothing
+    // no need to override h_post_bw_step
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
+    void h_restart(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
     CUDA_CALLABLE_MEMBER void post_integration(
-        u_real **BOLD, u_real ***state_vars_out, 
+        u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool, 
@@ -86,9 +103,14 @@ public:
         u_real* _global_params, u_real* _regional_params,
         int& sim_idx, const int& nodes, int& j
     ); // does nothing
+    // no need to override h_post_integration
 
     void init_gpu(BWConstants bwc) override {
         _init_gpu<rWWExModel>(this, bwc);
+    }
+
+    void init_cpu() override {
+        _init_cpu<rWWExModel>(this);
     }
 
     void run_simulations_gpu(
@@ -97,6 +119,18 @@ public:
         u_real * SC, u_real * SC_dist
     ) override {
         _run_simulations_gpu<rWWExModel>(
+            BOLD_ex_out, fc_trils_out, fcd_trils_out, 
+            global_params, regional_params, v_list,
+            SC, SC_dist, this
+        );
+    }
+
+    void run_simulations_cpu(
+        double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+        u_real ** global_params, u_real ** regional_params, u_real * v_list,
+        u_real * SC, u_real * SC_dist
+    ) override {
+        _run_simulations_cpu<rWWExModel>(
             BOLD_ex_out, fc_trils_out, fcd_trils_out, 
             global_params, regional_params, v_list,
             SC, SC_dist, this

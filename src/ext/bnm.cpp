@@ -9,272 +9,109 @@ Author: Amin Saberi, Feb 2023
 
 // use a namespace dedicated to cpu implementation
 // to avoid overlaps with similar variables on gpu
+#include "cubnm/bnm.hpp"
 namespace bnm_cpu {
-    bool is_initialized = false;
-    int last_time_steps = 0; // to avoid recalculating noise in subsequent calls of the function with force_reinit
-    int last_nodes = 0;
-    int last_rand_seed = 0;
+    u_real ***states_out;
+    int **global_out_int;
+    bool **global_out_bool;
     #ifdef NOISE_SEGMENT
     int *shuffled_nodes, *shuffled_ts;
-    // set a default length of noise (msec)
-    // (+1 to avoid having an additional repeat for a single time point
-    // when time_steps can be divided by 30(000), as the actual duration of
-    // simulation (in msec) is always user request time steps + 1)
-    int noise_time_steps = 30001; 
-    int noise_repeats; // number of noise segment repeats
     #endif
-    int noise_size;
     u_real *noise;
-    int n_pairs, n_window_pairs, n_windows, output_ts, corr_len, n_vols_remove;
-    size_t bold_size;
     int *window_starts, *window_ends;
 }
 
-gsl_vector * calculate_fc_tril(gsl_matrix * bold) {
-    /*
-     Given empirical/simulated bold (n_vols x nodes) returns
-     the lower triangle of the FC
-    */
-    using namespace bnm_cpu; // n_pairs is in here
-    int nodes = bold->size2;
-    int n_vols = bold->size1;
-    int rh_idx = bold->size2 / 2; // assumes symmetric number of parcels and L->R order
-    int i, j;
-    double corr;
-    gsl_vector * FC_tril = gsl_vector_alloc(n_pairs);
-    int curr_idx = 0;
-    for (i = 0; i<(bold->size2); i++) {
-        for (j = 0; j<(bold->size2); j++) {
-            if (i > j) {
-                if (conf.exc_interhemispheric) {
-                    // skip if each node belongs to a different hemisphere
-                    if ((i < rh_idx) ^ (j < rh_idx)) {
-                        continue;
-                    }
-                }
-                gsl_vector_view ts_i = gsl_matrix_column(bold, i);
-                gsl_vector_view ts_j = gsl_matrix_column(bold, j);
-                corr = gsl_stats_correlation(
-                    ts_i.vector.data, ts_i.vector.stride,
-                    ts_j.vector.data, ts_j.vector.stride,
-                    (bold->size1)
-                );
-                if (std::isnan(corr)) {
-                    return NULL;
-                }
-                gsl_vector_set(FC_tril, curr_idx, corr);
-                curr_idx ++;
-            }
-        }
-    }
-    return FC_tril;
-}
-
-gsl_vector * calculate_fcd_tril(gsl_matrix * bold) {
-    /*
-     Calculates the functional connectivity dynamics matrix (lower triangle)
-     given BOLD, step and window size. Note that the actual window size is +1 higher.
-     The FCD matrix shows similarity of FC patterns between the windows.
-    */
-    using namespace bnm_cpu; // includes window info which is already calculated in init_cpu
-    int n_vols = bold->size1;
-    int nodes = bold->size2;
-    gsl_vector * FCD_tril = gsl_vector_alloc(n_window_pairs);
-    gsl_matrix * window_FC_trils = gsl_matrix_alloc(n_pairs, n_windows);
-    if (n_windows < 10) {
-        printf("Warning: Too few FC windows: %d\n", n_windows);
-    }
-    // calculate dynamic FC
-    for (int i=0; i<n_windows; i++) {
-        gsl_matrix_view bold_window =  gsl_matrix_submatrix(
-            bold, 
-            window_starts[i], 0, 
-            window_ends[i]-window_starts[i]+1, nodes);
-        gsl_vector * window_FC_tril = calculate_fc_tril(&bold_window.matrix);
-        if (window_FC_tril==NULL) {
-            printf("Error: Dynamic FC calculation failed\n");
-            return NULL;
-        }
-        gsl_matrix_set_col(window_FC_trils, i, window_FC_tril);
-        gsl_vector_free(window_FC_tril);
-    }
-    // calculate the FCD matrix (lower triangle)
-    int window_i, window_j;
-    double corr;
-    int curr_idx = 0;
-    for (window_i=0; window_i<n_windows; window_i++) {
-        for (window_j=0; window_j<n_windows; window_j++) {
-            if (window_i > window_j) {
-                gsl_vector_view FC_i = gsl_matrix_column(window_FC_trils, window_i);
-                gsl_vector_view FC_j = gsl_matrix_column(window_FC_trils, window_j);
-                corr = gsl_stats_correlation(
-                    FC_i.vector.data, FC_i.vector.stride,
-                    FC_j.vector.data, FC_j.vector.stride,
-                    n_pairs
-                );
-                if (std::isnan(corr)) {
-                    printf("Error: FCD[%d,%d] is NaN\n", window_i, window_j);
-                    return NULL;
-                }
-                gsl_vector_set(FCD_tril, curr_idx, corr);
-                curr_idx ++;
-            }
-        }
-    }
-    return FCD_tril;
-}
-
-void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
-        double * S_E_out, double * S_I_out,
-        double * r_E_out, double * r_I_out,
-        double * I_E_out, double * I_I_out,
-        bool * fic_unstable_p, bool * fic_failed_p,
-        int nodes, u_real * SC, gsl_matrix * SC_gsl,
-        u_real G, u_real * w_EE,  u_real * w_EI, u_real * w_IE,
-        bool do_fic, int time_steps, int BOLD_TR, int rand_seed, int _max_fic_trials,
-        int window_step, int window_size, 
-        bool extended_output, int sim_idx,
-        struct ModelConstants mc, struct ModelConfigs conf) {
+template <typename Model>
+void bnm(
+        Model* model, int sim_idx,
+        double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
+        u_real *SC, u_real **global_params, u_real **regional_params
+    ) {
     using namespace bnm_cpu;
-    time_t start = time(NULL);
-    /*
-     Allocate and Initialize arrays
-     */
-    u_real *_w_EE                    = (u_real *)malloc(nodes * sizeof(u_real));  // regional w_EE
-    u_real *_w_EI                    = (u_real *)malloc(nodes * sizeof(u_real));  // regional w_EI
-    u_real *_w_IE                    = (u_real *)malloc(nodes * sizeof(u_real));  // regional w_IE
-    // size_t bold_size = nodes * output_ts;
-    // u_real *BOLD_ex                  = (u_real *)malloc((bold_size * sizeof(u_real)));
-    u_real *S_i_E                    = (u_real *)malloc(nodes * sizeof(u_real));
-    u_real *S_i_I                    = (u_real *)malloc(nodes * sizeof(u_real));
-    u_real *r_i_E                    = (u_real *)malloc(nodes * sizeof(u_real));
-    u_real *r_i_I                    = (u_real *)malloc(nodes * sizeof(u_real));
-    u_real *I_i_E                    = (u_real *)malloc(nodes * sizeof(u_real));
-    u_real *I_i_I                    = (u_real *)malloc(nodes * sizeof(u_real));
-    u_real *bw_x                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 1 of BW-model
-    u_real *bw_f                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 2 of BW-model
-    u_real *bw_nu                 = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 3 of BW-model
-    u_real *bw_q                  = (u_real *)malloc(nodes * sizeof(u_real));  // State-variable 4 of BW-model
 
-    if (S_i_E == NULL || S_i_I == NULL || _w_EE == NULL || _w_EI == NULL || _w_IE == NULL || 
-        bw_x == NULL || bw_f == NULL || bw_nu == NULL || bw_q == NULL ||
-        r_i_E == NULL || r_i_I == NULL || I_i_E == NULL || I_i_I == NULL) {
-        printf("Error: Failed to allocate memory to internal simulation variables\n");
-        exit(1);
+    // copy parameters to local memory as vectors
+    // note that to mimick the GPU implementation
+    // in regional arrays the first index is node index
+    // and second index is the variable or parameter index
+    u_real* _global_params = (u_real*)malloc(Model::n_global_params * sizeof(u_real));
+    for (int ii = 0; ii < Model::n_global_params; ii++) {
+        _global_params[ii] = global_params[ii][sim_idx];
     }
-    bool _extended_output = (do_fic || extended_output);
-    for (int j = 0; j < nodes; j++) {
-        _w_EE[j] = w_EE[j]; // this is redundant for wee and wei but needed for wie (in FIC+ case)
-        _w_EI[j] = w_EI[j];
-        _w_IE[j] = w_IE[j];
-        S_i_E[j] = 0.001;
-        S_i_I[j] = 0.001;
-        r_i_E[j] = 0;
-        r_i_I[j] = 0;
-        I_i_E[j] = 0;
-        I_i_I[j] = 0;
+    u_real** _regional_params = (u_real**)malloc(model->nodes * sizeof(u_real*));
+    for (int j = 0; j < model->nodes; j++) {
+        _regional_params[j] = (u_real*)malloc(Model::n_regional_params * sizeof(u_real));
+        for (int ii = 0; ii < Model::n_regional_params; ii++) {
+            _regional_params[j][ii] = regional_params[ii][sim_idx * model->nodes + j];
+        }
+    }
+    // create vectors for state variables, intermediate variables
+    // and additional ints and bools
+    u_real** _state_vars = (u_real**)malloc(model->nodes * sizeof(u_real*));
+    for (int j = 0; j < model->nodes; j++) {
+        _state_vars[j] = (u_real*)malloc(Model::n_state_vars * sizeof(u_real));
+    }
+    u_real** _intermediate_vars = (u_real**)malloc(model->nodes * sizeof(u_real*));
+    for (int j = 0; j < model->nodes; j++) {
+        _intermediate_vars[j] = (u_real*)malloc(Model::n_intermediate_vars * sizeof(u_real));
+    }
+    int** _ext_int = (int**)malloc(model->nodes * sizeof(int*));
+    for (int j = 0; j < model->nodes; j++) {
+        _ext_int[j] = (int*)malloc(Model::n_ext_int * sizeof(int));
+    }
+    bool** _ext_bool = (bool**)malloc(model->nodes * sizeof(bool*));
+    for (int j = 0; j < model->nodes; j++) {
+        _ext_bool[j] = (bool*)malloc(Model::n_ext_bool * sizeof(bool));
+    }
+
+    // initialze the sum (eventually mean) of states_out to 0
+    // if not asked to return timeseries
+    // initialize extended output sums
+    if (model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
+        for (int j=0; j<model->nodes; j++) {
+            for (int ii=0; ii<Model::n_state_vars; ii++) {
+                states_out[ii][sim_idx][j] = 0;
+            }
+        }
+    }
+
+    // initialze simulation variables
+    for (int j=0; j<model->nodes; j++) {
+        model->h_init(
+            _state_vars[j], _intermediate_vars[j],
+            _ext_int[j], _ext_bool[j]
+        );
+    }
+
+    // Balloon-Windkessel model variables
+    u_real* bw_x = (u_real*)malloc(model->nodes * sizeof(u_real));
+    u_real* bw_f = (u_real*)malloc(model->nodes * sizeof(u_real));
+    u_real* bw_nu = (u_real*)malloc(model->nodes * sizeof(u_real));
+    u_real* bw_q = (u_real*)malloc(model->nodes * sizeof(u_real));
+    u_real tmp_f;
+    for (int j=0; j<model->nodes; j++) {
         bw_x[j] = 0.0;
         bw_f[j] = 1.0;
         bw_nu[j] = 1.0;
         bw_q[j] = 1.0;
-        if (_extended_output & (!conf.extended_output_ts)) {
-            S_E_out[j] = 0; // initialize sum (mean) of extended output to 0
-            S_I_out[j] = 0;
-            r_E_out[j] = 0;
-            r_I_out[j] = 0;
-            I_E_out[j] = 0;
-            I_I_out[j] = 0;
-        }
-    }
-    // do FIC if indicated
-    double *_dw_EE, *_dw_EI;
-    gsl_vector * _w_IE_vector;
-    if (do_fic) {
-        _w_IE_vector = gsl_vector_alloc(nodes);
-        // make a double copy of the wEE and wEI arrays (if needed in USE_FLOATS)
-        #ifdef USE_FLOATS
-            _dw_EE = (double *)malloc(nodes * sizeof(double));
-            _dw_EI = (double *)malloc(nodes * sizeof(double));
-            for (int j = 0; j < nodes; j++) {
-                _dw_EE[j] = (double)_w_EE[j];
-                _dw_EI[j] = (double)_w_EI[j];
-            }
-        #else
-            #define _dw_EE _w_EE
-            #define _dw_EI _w_EI
-        #endif
-        *fic_unstable_p = false;
-        analytical_fic_het(
-            SC_gsl, G, _dw_EE, _dw_EI,
-            _w_IE_vector, fic_unstable_p);
-        // analytical fic is run as a critical step to avoid racing conditions
-        // between the OMP threads
-        if (*fic_unstable_p) {
-            printf("In simulation #%d FIC solution is unstable. Setting wIE to 1 in all nodes\n", sim_idx);
-            for (int j=0; j<nodes; j++) {
-                _w_IE[j] = 1.0;
-            }
-        } else {
-            // copy to w_IE_fic which will be passed on to the device
-            for (int j=0; j<nodes; j++) {
-                _w_IE[j] = (u_real)(gsl_vector_get(_w_IE_vector, j));
-            }
-        }
-        gsl_vector_free(_w_IE_vector);
     }
 
-    // make a local copy of SC and noise specific to this thread
-    u_real *_SC = (u_real *)malloc(nodes * nodes * sizeof(u_real));
-    u_real *_noise = (u_real *)malloc(noise_size * sizeof(u_real));
-    #ifdef NOISE_SEGMENT
-    int *_shuffled_nodes = (int *)malloc(sizeof(int) * noise_repeats * nodes);
-    int *_shuffled_ts = (int *)malloc(sizeof(int) * noise_repeats * noise_time_steps);
-    #endif
+    // TODO: delay setup
 
-    if (_SC == NULL || _noise == NULL
-    #ifdef NOISE_SEGMENT
-        || _shuffled_nodes == NULL || _shuffled_ts == NULL
-    #endif
-    ) {
-        printf("Error: Failed to allocate memory\n");
-        exit(1);
+    // store history of conn_state_vars
+    u_real* conn_state_var_1 = (u_real*)malloc(model->nodes * sizeof(u_real));
+    for (int j=0; j<model->nodes; j++) {
+        conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
     }
-    memcpy(_SC, SC, nodes * nodes * sizeof(u_real));
-    memcpy(_noise, noise, noise_size * sizeof(u_real));
-    #ifdef NOISE_SEGMENT
-    memcpy(_shuffled_nodes, shuffled_nodes, sizeof(int) * noise_repeats * nodes);
-    memcpy(_shuffled_ts, shuffled_ts, sizeof(int) * noise_repeats * noise_time_steps);
-    #endif
-    // make a local copy of mc
-    struct ModelConstants _mc = mc;
-    memcpy(&_mc, &mc, sizeof(struct ModelConstants));
 
     // allocate memory to BOLD gsl matrix used for FC and FCD calculation
-    gsl_matrix * bold_gsl = gsl_matrix_alloc(output_ts, nodes);
+    gsl_matrix * bold_gsl = gsl_matrix_alloc(model->output_ts, model->nodes);
 
     // Integration
-    bool adjust_fic = (do_fic && conf.numerical_fic);
-    u_real *S_i_1_E, *mean_I_E, *delta;
-    S_i_1_E = (u_real *)malloc(nodes * sizeof(u_real));
-    for (int j = 0; j < nodes; j++) {
-        S_i_1_E[j] = S_i_E[j];
-    }
-    if (adjust_fic) {
-        mean_I_E = (u_real *)malloc(nodes * sizeof(u_real)); // this is different from I_E_mean, which starts after bold_remove_s
-        delta = (u_real *)malloc(nodes * sizeof(u_real));
-        for (int j = 0; j < nodes; j++) {
-            mean_I_E[j] = 0;
-            delta[j] = conf.init_delta;
-        }
-    }
-    int fic_trial = 0;
-    *fic_failed_p = false;
-    bool _adjust_fic = adjust_fic; // whether to adjust FIC in the next trial
-    bool needs_fic_adjustment;
-    u_real tmp_globalinput, tmp_rand_E, tmp_rand_I, 
-        dSdt_E, dSdt_I, tmp_f, tmp_aIb_E, tmp_aIb_I,
-        I_E_ba_diff;
-    int j, k, noise_idx;
+    bool restart = false;
+    u_real tmp_globalinput = 0.0;
+    int j = 0;
+    int k = 0;
+    long noise_idx = 0;
     int BOLD_len_i = 0;
     int ts_bold = 0;
     int bold_idx = 0;
@@ -299,56 +136,37 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     // current node, ts
     int sh_j, sh_ts_noise;
     #endif
-    bool _sim_verbose = conf.sim_verbose;
-    while (ts_bold <= time_steps) {
-        if (_sim_verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)time_steps) * 100.0f );
+    while (ts_bold <= model->time_steps) {
+        if (model->base_conf.verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)model->time_steps) * 100.0f );
+        // TODO: similar to CPU add the option for sync_msec
         #ifdef NOISE_SEGMENT
-        sh_ts_noise = _shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
+        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
         #endif
         for (int int_i = 0; int_i < 10; int_i++) {
-            // copy S_E of previous time point to S_i_1_E
-            for (j=0; j<nodes; j++) {
-                S_i_1_E[j] = S_i_E[j];
+            // copy conn_sate of previous time point to conn_state_var_1
+            for (j=0; j<model->nodes; j++) {
+                conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
             }
-            for (j=0; j<nodes; j++) {
+            for (j=0; j<model->nodes; j++) {
                 // calculate global input
                 tmp_globalinput = 0;
-                for (k=0; k<nodes; k++) {
-                    tmp_globalinput += _SC[j*nodes+k] * S_i_1_E[k];
+                for (k=0; k<model->nodes; k++) {
+                    // TODO: after adding delay make this a separate function
+                    tmp_globalinput += SC[j*model->nodes+k] * conn_state_var_1[k];
                 }
                 // equations
-                I_i_E[j] = _mc.w_E__I_0 + _w_EE[j] * S_i_E[j] + tmp_globalinput * G * _mc.J_NMDA - _w_IE[j]*S_i_I[j];
-                I_i_I[j] = _mc.w_I__I_0 + _w_EI[j] * S_i_E[j] - S_i_I[j];
-                tmp_aIb_E = _mc.a_E * I_i_E[j] - _mc.b_E;
-                tmp_aIb_I = _mc.a_I * I_i_I[j] - _mc.b_I;
-                #ifdef USE_FLOATS
-                // to avoid firing rate approaching infinity near I = b/a
-                if (abs(tmp_aIb_E) < 1e-4) tmp_aIb_E = 1e-4;
-                if (abs(tmp_aIb_I) < 1e-4) tmp_aIb_I = 1e-4;
-                #endif
-                r_i_E[j] = tmp_aIb_E / (1 - EXP(-_mc.d_E * tmp_aIb_E));
-                r_i_I[j] = tmp_aIb_I / (1 - EXP(-_mc.d_I * tmp_aIb_I));
                 #ifdef NOISE_SEGMENT
                 // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
-                sh_j = _shuffled_nodes[curr_noise_repeat*nodes+j];
-                noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * 2) + (sh_j * 2));
+                sh_j = shuffled_nodes[curr_noise_repeat*model->nodes+j];
+                noise_idx = (((sh_ts_noise * 10 + int_i) * model->nodes * Model::n_noise) + (sh_j * Model::n_noise));
                 #else
-                noise_idx = (((ts_bold * 10 + int_i) * nodes * 2) + (j * 2));
+                noise_idx = (((ts_bold * 10 + int_i) * model->nodes * Model::n_noise) + (j * Model::n_noise));
                 #endif
-                tmp_rand_E = _noise[noise_idx];
-                tmp_rand_I = _noise[noise_idx+1];
-                dSdt_E = tmp_rand_E * _mc.sigma_model * _mc.sqrt_dt + _mc.dt * ((1 - S_i_E[j]) * _mc.gamma_E * r_i_E[j] - (S_i_E[j] * _mc.itau_E));
-                dSdt_I = tmp_rand_I * _mc.sigma_model * _mc.sqrt_dt + _mc.dt * (_mc.gamma_I * r_i_I[j] - (S_i_I[j] * _mc.itau_I));
-                S_i_E[j] += dSdt_E;
-                S_i_I[j] += dSdt_I;
-                // clip S to 0-1
-                #ifdef USE_FLOATS
-                S_i_E[j] = std::max(0.0f, std::min(S_i_E[j], 1.0f));
-                S_i_I[j] = std::max(0.0f, std::min(S_i_I[j], 1.0f));
-                #else
-                S_i_E[j] = std::max(0.0, std::min(S_i_E[j], 1.0));
-                S_i_I[j] = std::max(0.0, std::min(S_i_I[j], 1.0));
-                #endif
+                model->h_step(
+                    _state_vars[j], _intermediate_vars[j],
+                    _global_params, _regional_params[j],
+                    tmp_globalinput, noise, noise_idx
+                );
             }
         }
 
@@ -356,36 +174,30 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         Compute BOLD for that time-step (subsampled to 1 ms)
         save BOLD in addition to S_E, S_I, and r_E, r_I if requested
         */
-        for (j=0; j<nodes; j++) {
-            bw_x[j]  = bw_x[j]  +  _mc.bw_dt * (S_i_E[j] - _mc.kappa * bw_x[j] - _mc.y * (bw_f[j] - 1.0));
-            tmp_f       = bw_f[j]  +  _mc.bw_dt * bw_x[j];
-            bw_nu[j] = bw_nu[j] +  _mc.bw_dt * _mc.itau * (bw_f[j] - POW(bw_nu[j], _mc.ialpha));
-            bw_q[j]  = bw_q[j]  +  _mc.bw_dt * _mc.itau * (bw_f[j] * (1.0 - POW(_mc.oneminrho,(1.0/bw_f[j]))) / _mc.rho  - POW(bw_nu[j],_mc.ialpha) * bw_q[j] / bw_nu[j]);
-            bw_f[j]  = tmp_f;   
+        for (j=0; j<model->nodes; j++) {
+            h_bw_step(
+                bw_x[j], bw_f[j], bw_nu[j], bw_q[j], tmp_f,
+                _state_vars[j][Model::bold_state_var_idx]
+            );
+            // bw_x[j]  = bw_x[j]  +  _mc.bw_dt * (S_i_E[j] - _mc.kappa * bw_x[j] - _mc.y * (bw_f[j] - 1.0));
+            // tmp_f       = bw_f[j]  +  _mc.bw_dt * bw_x[j];
+            // bw_nu[j] = bw_nu[j] +  _mc.bw_dt * _mc.itau * (bw_f[j] - POW(bw_nu[j], _mc.ialpha));
+            // bw_q[j]  = bw_q[j]  +  _mc.bw_dt * _mc.itau * (bw_f[j] * (1.0 - POW(_mc.oneminrho,(1.0/bw_f[j]))) / _mc.rho  - POW(bw_nu[j],_mc.ialpha) * bw_q[j] / bw_nu[j]);
+            // bw_f[j]  = tmp_f;   
         }
-        if (ts_bold % BOLD_TR == 0) {
-            for (j = 0; j<nodes; j++) {
-                bold_idx = BOLD_len_i*nodes+j;
-                BOLD_ex[bold_idx] = _mc.V_0 * (_mc.k1 * (1 - bw_q[j]) + _mc.k2 * (1 - bw_q[j]/bw_nu[j]) + _mc.k3 * (1 - bw_nu[j]));
+        if (ts_bold % model->BOLD_TR == 0) {
+            for (j = 0; j<model->nodes; j++) {
+                bold_idx = BOLD_len_i*model->nodes+j;
+                BOLD_ex[bold_idx] = bwc.V_0 * (bwc.k1 * (1 - bw_q[j]) + bwc.k2 * (1 - bw_q[j]/bw_nu[j]) + bwc.k3 * (1 - bw_nu[j]));
                 gsl_matrix_set(bold_gsl, BOLD_len_i, j, BOLD_ex[bold_idx]);
-                if (_extended_output & conf.extended_output_ts) {
-                    S_E_out[bold_idx] = S_i_E[j];
-                    S_I_out[bold_idx] = S_i_I[j];
-                    r_E_out[bold_idx] = r_i_E[j];
-                    r_I_out[bold_idx] = r_i_I[j];
-                    I_E_out[bold_idx] = I_i_E[j];
-                    I_I_out[bold_idx] = I_i_I[j];
+                if (model->base_conf.extended_output && model->base_conf.extended_output_ts) {
+                    for (int ii=0; ii<Model::n_state_vars; ii++) {
+                        states_out[ii][sim_idx][bold_idx] = _state_vars[j][ii];
+                    }
                 }
-                if (_extended_output & (!conf.extended_output_ts)) {
-                    // save data to extended output means
-                    // only after n_vols_remove
-                    if ((BOLD_len_i>=n_vols_remove)) {
-                            S_E_out[j] += S_i_E[j];
-                            S_I_out[j] += S_i_I[j];
-                            r_E_out[j] += r_i_E[j];
-                            r_I_out[j] += r_i_I[j];
-                            I_E_out[j] += I_i_E[j];
-                            I_I_out[j] += I_i_I[j];
+                if ((BOLD_len_i>=model->n_vols_remove) && model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
+                    for (int ii=0; ii<Model::n_state_vars; ii++) {
+                        states_out[ii][sim_idx][j] += _state_vars[j][ii];
                     }
                 }
             }
@@ -399,96 +211,87 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         // reset noise segment time 
         // and shuffle nodes if the segment
         // has reached to the end
-        if (ts_noise % noise_time_steps == 0) {
+        if (ts_noise % model->base_conf.noise_time_steps == 0) {
             curr_noise_repeat++;
             ts_noise = 0;
         }
         #endif
 
-        // adjust FIC according to Deco2014
-        if (_adjust_fic) {
-            if ((ts_bold >= conf.I_SAMPLING_START) && (ts_bold <= conf.I_SAMPLING_END)) {
-                for (j = 0; j<nodes; j++) {
-                    mean_I_E[j] += I_i_E[j];
-                }
+        if (Model::has_post_bw_step) {
+            for (j=0; j<model->nodes; j++) {
+                bool j_restart = false;
+                model->h_post_bw_step(
+                    _state_vars[j], _intermediate_vars[j],
+                    _ext_int[j], _ext_bool[j], j_restart,
+                    _global_params, _regional_params[j],
+                    ts_bold
+                );
+                // restart if any node needs to restart
+                restart = restart || j_restart;
             }
-            if (ts_bold == conf.I_SAMPLING_END) {
-                needs_fic_adjustment = false;
-                if (conf.fic_verbose) printf("FIC adjustment trial %d\nnode\tIE_ba_diff\tdelta\tnew_w_IE\n", fic_trial);
-                for (j = 0; j<nodes; j++) {
-                    mean_I_E[j] /= conf.I_SAMPLING_DURATION;
-                    I_E_ba_diff = mean_I_E[j] - _mc.b_a_ratio_E;
-                    if (abs(I_E_ba_diff + 0.026) > 0.005) {
-                        needs_fic_adjustment = true;
-                        if (fic_trial < _max_fic_trials) { // only do the adjustment if max trials is not exceeded
-                            // up- or downregulate inhibition
-                            if ((I_E_ba_diff) < -0.026) {
-                                _w_IE[j] -= delta[j];
-                                if (conf.fic_verbose) printf("%d\t%f\t-%f\t%f\n", j, I_E_ba_diff, delta[j], _w_IE[j]);
-                                delta[j] -= 0.001;
-                                delta[j] = fmaxf(delta[j], 0.001);
-                            } else {
-                                _w_IE[j] += delta[j];
-                                if (conf.fic_verbose) printf("%d\t%f\t+%f\t%f\n", j, I_E_ba_diff, delta[j], _w_IE[j]);
-                            }
-                        }
-                    }
-                }
-                if (needs_fic_adjustment) {
-                    if (fic_trial < _max_fic_trials) {
-                        // reset time
-                        ts_bold = 0;
-                        BOLD_len_i = 0;
-                        fic_trial++;
-                        #ifdef NOISE_SEGMENT
-                        curr_noise_repeat = 0;
-                        ts_noise = 0;
-                        #endif
-                        // reset states
-                        for (j = 0; j < nodes; j++) {
-                            S_i_E[j] = 0.001;
-                            S_i_I[j] = 0.001;
-                            bw_x[j] = 0.0;
-                            bw_f[j] = 1.0;
-                            bw_nu[j] = 1.0;
-                            bw_q[j] = 1.0;
-                            mean_I_E[j] = 0;
-                            if (_extended_output & (!conf.extended_output_ts)) {
-                                S_E_out[j] = 0;
-                                S_I_out[j] = 0;
-                                r_E_out[j] = 0;
-                                r_I_out[j] = 0;
-                                I_E_out[j] = 0;
-                                I_I_out[j] = 0;
-                            }
-                        }
-                    } else {
-                        // continue the simulation but
-                        // declare FIC failed
-                        *fic_failed_p = true;
-                        _adjust_fic = false;
-                    }
-                }
-                else {
-                    // if no node needs fic adjustment don't run
-                    // this block of code any more
-                    _adjust_fic = false;
-                }
+        }
+
+        // if restart is indicated (e.g. FIC failed in rWW)
+        // reset the simulation and start from the beginning
+        if (restart) {
+            for (j=0; j<model->nodes; j++) {
+                // model-specific restart
+                model->h_restart(
+                    _state_vars[j], _intermediate_vars[j],
+                    _ext_int[j], _ext_bool[j]
+                );
+                // reset Balloon-Windkessel model variables
+                bw_x[j] = 0.0;
+                bw_f[j] = 1.0;
+                bw_nu[j] = 1.0;
+                bw_q[j] = 1.0;
+                // reset conn_state_var_1
+                conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
             }
+            // // subtract progress of current simulation
+            // if (model->base_conf.verbose && (j==0)) {
+            //     atomicAdd(progress, -BOLD_len_i);
+            // }
+            // reset indices
+            BOLD_len_i = 0;
+            ts_bold = 0;
+            // // reset delay buffer index
+            // if (has_delay) {
+            //     // initialize conn_state_var_hist in every time point at initial value
+            //     for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
+            //         conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
+            //     }
+            //     buff_idx = max_delay-1;
+            // }
+            #ifdef NOISE_SEGMENT
+            curr_noise_repeat = 0;
+            ts_noise = 0;
+            #endif
+            restart = false; // restart is done
+        }
+    }
+
+    if (Model::has_post_integration) {
+        for (j=0; j<model->nodes; j++) {
+            model->h_post_integration(
+                states_out, global_out_int, global_out_bool,
+                _state_vars[j], _intermediate_vars[j], 
+                _ext_int[j], _ext_bool[j], 
+                global_params, regional_params,
+                _global_params, _regional_params[j],
+                sim_idx, model->nodes, j
+            );
         }
     }
 
     // divide sum of extended output by number of time points
     // to calculate the mean
-    if (_extended_output & (!conf.extended_output_ts)) {
-        int extended_output_time_points = BOLD_len_i - n_vols_remove;
-        for (int j=0; j<nodes; j++) {
-            S_E_out[j] /= extended_output_time_points;
-            S_I_out[j] /= extended_output_time_points;
-            r_E_out[j] /= extended_output_time_points;
-            r_I_out[j] /= extended_output_time_points;
-            I_E_out[j] /= extended_output_time_points;
-            I_I_out[j] /= extended_output_time_points;
+    if (model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
+        int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
+        for (int j=0; j<model->nodes; j++) {
+            for (int ii=0; ii<Model::n_state_vars; ii++) {
+                states_out[ii][sim_idx][j] /= extended_output_time_points;
+            }
         }
     }
 
@@ -498,57 +301,68 @@ void bnm(double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
     // starts after n_vols_remove, as calcualated in get_dfc_windows)
     gsl_matrix_view bold_window =  gsl_matrix_submatrix(
         bold_gsl, 
-        n_vols_remove, 0, 
-        output_ts-n_vols_remove, nodes);
-    gsl_vector * fc_tril = calculate_fc_tril(&bold_window.matrix);
-    gsl_vector * fcd_tril = calculate_fcd_tril(bold_gsl);
+        model->n_vols_remove, 0, 
+        model->output_ts-model->n_vols_remove, model->nodes);
+    gsl_vector * fc_tril = model->calculate_fc_tril(&bold_window.matrix);
+    gsl_vector * fcd_tril = model->calculate_fcd_tril(bold_gsl, window_starts, window_ends);
 
     // copy FC and FCD to numpy arrays
-    memcpy(fc_tril_out, gsl_vector_ptr(fc_tril, 0), sizeof(double) * n_pairs);
-    memcpy(fcd_tril_out, gsl_vector_ptr(fcd_tril, 0), sizeof(double) * n_window_pairs);
+    memcpy(fc_tril_out, gsl_vector_ptr(fc_tril, 0), sizeof(double) * model->n_pairs);
+    memcpy(fcd_tril_out, gsl_vector_ptr(fcd_tril, 0), sizeof(double) * model->n_window_pairs);
 
-    // Free memory (last to first)
+    // Free memory
     gsl_vector_free(fcd_tril); gsl_vector_free(fc_tril); gsl_matrix_free(bold_gsl);
-    if (adjust_fic) {
-        free(delta); free(mean_I_E); 
+    free(bw_x); free(bw_f); free(bw_nu); free(bw_q); free(conn_state_var_1);
+    for (int j=0; j<model->nodes; j++) {
+        free(_state_vars[j]); free(_intermediate_vars[j]);
+        free(_ext_int[j]); free(_ext_bool[j]);
     }
-    free(S_i_1_E);
-    free(_SC); free(_noise);
-    #ifdef NOISE_SEGMENT
-    free(_shuffled_nodes); free(_shuffled_ts);
-    #endif
-    free(I_i_I); free(I_i_E); free(r_i_I); free(r_i_E);
-    free(bw_q); free(bw_nu); free(bw_f); free(bw_x); 
-    free(_w_IE); free(_w_EI); free(_w_EE); 
-    free(S_i_I); free(S_i_E); 
+    free(_state_vars); free(_intermediate_vars);
+    free(_ext_int); free(_ext_bool);
+    for (int j=0; j<model->nodes; j++) {
+        free(_regional_params[j]);
+    }
+    free(_regional_params);
+    free(_global_params);
+    // other variables are freed automatically
+    // or should not be freed
 }
 
-void run_simulations_cpu(
+template <typename Model>
+void _run_simulations_cpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
-    double * S_E_out, double * S_I_out,
-    double * r_E_out, double * r_I_out,
-    double * I_E_out, double * I_I_out,
-    bool * fic_unstable_out, bool * fic_failed_out,
-    u_real * G_list, u_real * w_EE_list, u_real * w_EI_list, u_real * w_IE_list, u_real * v_list,
-    u_real * SC, gsl_matrix * SC_gsl, u_real * SC_dist, bool do_delay,
-    int nodes, int time_steps, int BOLD_TR, int _max_fic_trials, 
-    int window_size, int window_step,
-    int N_SIMS, bool do_fic, bool only_wIE_free, bool extended_output,
-    struct ModelConstants mc, struct ModelConfigs conf, int rand_seed
+    u_real ** global_params, u_real ** regional_params, u_real * v_list,
+    u_real * SC, u_real * SC_dist, BaseModel* m
 ) {
     using namespace bnm_cpu;
+    if (m->base_conf.verbose) {
+        m->print_config();
+    }
+
+    // The following currently only does analytical FIC for rWW
+    // but in theory can be used for any model that requires
+    // parameter modifications
+    // TODO: consider doing this in a separate function
+    // called from Python, therefore final params are passed
+    // to _run_simulations_cpu (except that they might be
+    // modified during the simulation, e.g. in numerical FIC)
+    m->prep_params(global_params, regional_params, v_list, SC, 
+        SC_dist, global_out_bool, global_out_int);
+
     // run the simulations
     size_t ext_out_size;
-    if (conf.extended_output_ts) {
-        ext_out_size = bold_size;
+    if (m->base_conf.extended_output_ts) {
+        ext_out_size = m->bold_size;
     } else {
-        ext_out_size = nodes;
+        ext_out_size = m->nodes;
     }
+    // TODO keep track of a global progress
+    // similar to the GPU implementation
     #ifdef OMP_ENABLED
     #pragma omp parallel
 	#pragma omp for
     #endif
-    for(int sim_idx = 0; sim_idx < N_SIMS; sim_idx++) {
+    for(int sim_idx = 0; sim_idx < m->N_SIMS; sim_idx++) {
         // write thread info with the time
         std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
         std::time_t current_time = std::chrono::system_clock::to_time_t(now);
@@ -563,70 +377,108 @@ void run_simulations_cpu(
         // run the simulation and calcualte FC and FC
         // write the output to chunks of output variables
         // dedicated to the current simulation
-        bnm(
-            BOLD_ex_out+(sim_idx*bold_size), 
-            fc_trils_out+(sim_idx*n_pairs), 
-            fcd_trils_out+(sim_idx*n_window_pairs),
-            S_E_out+(sim_idx*ext_out_size),
-            S_I_out+(sim_idx*ext_out_size),
-            r_E_out+(sim_idx*ext_out_size),
-            r_I_out+(sim_idx*ext_out_size),
-            I_E_out+(sim_idx*ext_out_size),
-            I_I_out+(sim_idx*ext_out_size),
-            fic_unstable_out+sim_idx,
-            fic_failed_out+sim_idx,
-            nodes, SC, SC_gsl,
-            G_list[sim_idx], 
-            w_EE_list+(sim_idx*nodes),
-            w_EI_list+(sim_idx*nodes),
-            w_IE_list+(sim_idx*nodes),
-            do_fic, time_steps, BOLD_TR, rand_seed, _max_fic_trials,
-            window_step, window_size,
-            extended_output,
-            sim_idx, mc, conf);
+        bnm<Model>(
+            (Model*)m, sim_idx,
+            BOLD_ex_out+(sim_idx*m->bold_size), 
+            fc_trils_out+(sim_idx*m->n_pairs), 
+            fcd_trils_out+(sim_idx*m->n_window_pairs),
+            SC, global_params, regional_params
+        );
     }
 }
 
-void init_cpu(
-        int *output_ts_p, int *n_pairs_p, int *n_window_pairs_p,
-        int nodes, int rand_seed,
-        int BOLD_TR, int time_steps, int window_size, int window_step,
-        struct ModelConstants mc, struct ModelConfigs conf) {
+template <typename Model>
+void _init_cpu(BaseModel *m) {
     using namespace bnm_cpu;
-    // precalculate noise (segments) similar to GPU
-    // to have a similar noise array given the same seed
-    // between CPU and GPU + for better performance
-    #ifndef NOISE_SEGMENT
-    // precalculate the entire noise needed; can use up a lot of memory
-    // with high N of nodes and longer durations leads maxes out the memory
-    noise_size = nodes * (time_steps+1) * 10 * 2; // +1 for inclusive last time point, 2 for E and I
-    #else
-    // otherwise precalculate a noise segment and arrays of shuffled
-    // nodes and time points and reuse-shuffle the noise segment
-    // throughout the simulation for `noise_repeats`
-    noise_size = nodes * (noise_time_steps) * 10 * 2;
-    noise_repeats = ceil((float)(time_steps+1) / (float)noise_time_steps); // +1 for inclusive last time point
-    #endif
-    if ((rand_seed != last_rand_seed) || (time_steps != last_time_steps) || (nodes != last_nodes)) {
-        printf("Precalculating %d noise elements...\n", noise_size);
-        if (last_nodes != 0) {
+
+    // set up global int and bool outputs
+    if (Model::n_global_out_int > 0) {
+        global_out_int = (int**)malloc(Model::n_global_out_int * sizeof(int*));
+        for (int i = 0; i < Model::n_global_out_int; i++) {
+            global_out_int[i] = (int*)malloc(m->N_SIMS * sizeof(int));
+        }
+    }
+    
+    if (Model::n_global_out_bool > 0) {
+        global_out_bool = (bool**)malloc(Model::n_global_out_bool * sizeof(bool*));
+        for (int i = 0; i < Model::n_global_out_bool; i++) {
+            global_out_bool[i] = (bool*)malloc(m->N_SIMS * sizeof(bool));
+        }
+    }
+
+    // allocate memory for extended output
+    size_t ext_out_size = m->nodes;
+    if (m->base_conf.extended_output_ts) {
+        ext_out_size *= m->output_ts;
+    }
+    if (m->base_conf.extended_output) {
+        states_out = (u_real***)(malloc(Model::n_state_vars * sizeof(u_real**)));
+        for (int i = 0; i < Model::n_state_vars; i++) {
+            states_out[i] = (u_real**)(malloc(m->N_SIMS * sizeof(u_real*)));
+            for (int sim_idx = 0; sim_idx < m->N_SIMS; sim_idx++) {
+                states_out[i][sim_idx] = (u_real*)(malloc(ext_out_size * sizeof(u_real)));
+            }
+        }
+    }
+
+    // specify n_vols_remove (for extended output and FC calculations)
+    m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR; 
+    // calculate length of BOLD after removing initial volumes
+    m->corr_len = m->output_ts - m->n_vols_remove;
+    if (m->corr_len < 2) {
+        printf("Number of BOLD volumes (after removing initial volumes) is too low for FC calculations\n");
+        exit(1);
+    }
+    // calculate the number of FC pairs
+    m->n_pairs = get_fc_n_pairs(m->nodes, m->base_conf.exc_interhemispheric);
+    // calculate the number of windows and their start-ends
+    m->n_windows = get_dfc_windows(
+        &window_starts, &window_ends, 
+        m->corr_len, m->output_ts, m->n_vols_remove,
+        m->window_step, m->window_size,
+        m->base_conf.drop_edges
+        );
+    // calculate the number of window pairs
+    m->n_window_pairs = (m->n_windows * (m->n_windows-1)) / 2;
+
+    // check if noise needs to be calculated
+    if (
+        (m->rand_seed != m->last_rand_seed) ||
+        (m->time_steps != m->last_time_steps) ||
+        (m->nodes != m->last_nodes) ||
+        (m->base_conf.noise_time_steps != m->last_noise_time_steps) ||
+        (!m->cpu_initialized)
+        ) {
+        // precalculate noise (segments) similar to GPU
+        #ifndef NOISE_SEGMENT
+        // precalculate the entire noise needed; can use up a lot of memory
+        // with high N of nodes and longer durations leads maxes out the memory
+        m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise;
+            // +1 for inclusive last time point, *10 for 0.1msec
+        #else
+        // otherwise precalculate a noise segment and arrays of shuffled
+        // nodes and time points and reuse-shuffle the noise segment
+        // throughout the simulation for `noise_repeats`
+        m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
+        m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
+        #endif
+        printf("Precalculating %d noise elements...\n", m->noise_size);
+        if (m->last_nodes != 0) {
             // noise is being recalculated, free the previous one
-            free(noise);
+            delete[] noise;
             #ifdef NOISE_SEGMENT
-            free(shuffled_nodes);
-            free(shuffled_ts);
+            delete[] shuffled_nodes;
+            delete[] shuffled_ts;
             #endif
         }
-        last_time_steps = time_steps;
-        last_nodes = nodes;
-        last_rand_seed = rand_seed;
-        std::mt19937 rand_gen(rand_seed);
-        // generating random numbers as floats regardless of USE_FLOATS
-        // for better performance and consistency of the noise for the same
-        // seed regardless of USE_FLOATS
+        m->last_time_steps = m->time_steps;
+        m->last_nodes = m->nodes;
+        m->last_rand_seed = m->rand_seed;
+        m->last_noise_time_steps = m->base_conf.noise_time_steps;
+        std::mt19937 rand_gen(m->rand_seed);
         std::normal_distribution<float> normal_dist(0, 1);
-        noise = (u_real *)malloc(sizeof(u_real) * noise_size);
-        for (int i = 0; i < noise_size; i++) {
+        noise = new u_real[m->noise_size];
+        for (int i = 0; i < m->noise_size; i++) {
             #ifdef USE_FLOATS
             noise[i] = normal_dist(rand_gen);
             #else
@@ -636,42 +488,16 @@ void init_cpu(
         #ifdef NOISE_SEGMENT
         // create shuffled nodes and ts indices for each repeat of the 
         // precalculaed noise 
-        printf("noise will be repeated %d times (nodes [rows] and timepoints [columns] will be shuffled in each repeat)\n", noise_repeats);
-        shuffled_nodes = (int *)malloc(sizeof(int) * noise_repeats * nodes);
-        shuffled_ts = (int *)malloc(sizeof(int) * noise_repeats * noise_time_steps);
+        printf("noise will be repeated %d times (nodes [rows] and "
+            "timepoints [columns] will be shuffled in each repeat)\n", m->noise_repeats);
+        shuffled_nodes = new int[m->noise_repeats * m->nodes];
+        shuffled_ts = new int[m->noise_repeats * m->base_conf.noise_time_steps];
         get_shuffled_nodes_ts(&shuffled_nodes, &shuffled_ts,
-            nodes, noise_time_steps, noise_repeats, &rand_gen);
+            m->nodes, m->base_conf.noise_time_steps, m->noise_repeats, &rand_gen);
         #endif
     } else {
         printf("Noise already precalculated\n");
     }
-    // calculate bold size for properly allocating parts
-    // of BOLD_ex_out to the simulations
-    u_real TR = (u_real)BOLD_TR / 1000; // (s) TR of fMRI data
-    output_ts = (time_steps / (TR / mc.bw_dt))+1; // Length of BOLD time-series written to HDD
-    bold_size = nodes * output_ts;
-    // specify n_vols_remove (for extended output and FC calculations)
-    n_vols_remove = conf.bold_remove_s * 1000 / BOLD_TR; // 30 seconds
-    // calculate length of BOLD after removing initial volumes
-    corr_len = output_ts - n_vols_remove;
-    if (corr_len < 2) {
-        printf("Number of BOLD timepoints (after removing initial %ds of the simulation) is too low for FC calculations\n", conf.bold_remove_s);
-        exit(1);
-    }
-    // calculate the number of FC pairs
-    n_pairs = get_fc_n_pairs(nodes);
-    // calculate the number of windows and their start-ends
-    n_windows = get_dfc_windows(
-        &window_starts, &window_ends, 
-        corr_len, output_ts, n_vols_remove,
-        window_step, window_size);
-    // calculate the number of window pairs
-    n_window_pairs = (n_windows * (n_windows-1)) / 2;
-
-    // pass on output_ts etc. to the run_simulations_interface
-    *output_ts_p = output_ts;
-    *n_pairs_p = n_pairs;
-    *n_window_pairs_p = n_window_pairs;
-
-    is_initialized = true;
+    
+    m->cpu_initialized = true;
 }

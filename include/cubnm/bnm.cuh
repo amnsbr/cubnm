@@ -1,5 +1,6 @@
 #ifndef BNM_CUH
 #define BNM_CUH
+#include "bnm.hpp"
 __device__ void calculateGlobalInput(
         u_real* tmp_globalinput, int* k_buff_idx,
         int* nodes, int* sim_idx, int* j, int *k, 

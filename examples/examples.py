@@ -39,6 +39,7 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
     model_config = {
         'do_fic': str(int(do_fic)),
         'max_fic_trials': '5',
+        'verbose': '1',
         # 'fic_verbose': '0',
     }
     do_delay = False
@@ -73,7 +74,7 @@ def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False
         print(f"fc_trils Python {sim_idx}: shape {sim_fc_trils.shape}, idx 30 {sim_fc_trils[sim_idx, 30]}")
         print(f"fcd_trils Python {sim_idx}: shape {sim_fcd_trils.shape}, idx 30 {sim_fcd_trils[sim_idx, 30]}")
 
-def run_sim_group():
+def run_sim_group(force_cpu=False):
     nodes = 100
     N_SIMS = 2
     sim_group = sim.rWWSimGroup(
@@ -81,6 +82,7 @@ def run_sim_group():
         TR=1,
         sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
         sim_verbose=True,
+        force_cpu=force_cpu
     )
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
@@ -93,7 +95,7 @@ def run_sim_group():
     sim_group.save()
     return sim_group
 
-def run_sim_group_rWWEx():
+def run_sim_group_rWWEx(force_cpu=False):
     nodes = 100
     N_SIMS = 2
     sim_group = sim.rWWExSimGroup(
@@ -101,6 +103,7 @@ def run_sim_group_rWWEx():
         TR=1,
         sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
         sim_verbose=True,
+        force_cpu=force_cpu
     )
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
@@ -350,9 +353,9 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    # run_sims()
-    # sg = run_sim_group()
-    sg = run_sim_group_rWWEx()
+    run_sims(2, force_cpu=False)
+    # sg = run_sim_group(force_cpu=False)
+    # sg = run_sim_group_rWWEx(force_cpu=False)
     # gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()

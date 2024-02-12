@@ -415,8 +415,7 @@ __global__ void bnm(
     }
     if (Model::has_post_integration) {
         model->post_integration(
-            BOLD, states_out, 
-            global_out_int, global_out_bool,
+            states_out, global_out_int, global_out_bool,
             _state_vars, _intermediate_vars, 
             _ext_int, _ext_bool, 
             global_params, regional_params,
@@ -433,7 +432,7 @@ __global__ void bnm(
     }
 }
 
-template<typename Model>
+template <typename Model>
 void _run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
@@ -744,7 +743,7 @@ void _run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist));
 }
 
-template<typename Model>
+template <typename Model>
 void _init_gpu(BaseModel *m, BWConstants bwc) {
     using namespace bnm_gpu;
     // check CUDA device avaliability and properties
@@ -755,7 +754,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_bwc, &bwc, sizeof(BWConstants)));
     if (strcmp(Model::name, "rWW")==0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWc, &Model::mc, sizeof(typename Model::Constants)));
-    } else if (strcmp(Model::name, "rWWEx")==0) {
+    } 
+    else if (strcmp(Model::name, "rWWEx")==0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWExc, &Model::mc, sizeof(typename Model::Constants)));
     }
 
@@ -931,7 +931,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         (m->rand_seed != m->last_rand_seed) ||
         (m->time_steps != m->last_time_steps) ||
         (m->nodes != m->last_nodes) ||
-        (m->base_conf.noise_time_steps != m->last_noise_time_steps)
+        (m->base_conf.noise_time_steps != m->last_noise_time_steps) ||
+        (!m->gpu_initialized)
         ) {
         // pre-calculate normally-distributed noise on CPU
         // this is necessary to ensure consistency of noise given the same seed
@@ -939,7 +940,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         #ifndef NOISE_SEGMENT
         // precalculate the entire noise needed; can use up a lot of memory
         // with high N of nodes and longer durations leads maxes out the memory
-        m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise; // +1 for inclusive last time point, 2 for E and I
+        m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise; 
+            // +1 for inclusive last time point, *10 for 0.1msec
         #else
         // otherwise precalculate a noise segment and arrays of shuffled
         // nodes and time points and reuse-shuffle the noise segment
@@ -983,5 +985,5 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         printf("Noise already precalculated\n");
     }
 
-    m->is_initialized = true;
+    m->gpu_initialized = true;
 }
