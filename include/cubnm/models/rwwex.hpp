@@ -1,5 +1,6 @@
 #ifndef RWWEX_HPP
 #define RWWEX_HPP
+#include "cubnm/models/base.hpp"
 class rWWExModel : public BaseModel {
 public:
     rWWExModel(
@@ -57,43 +58,27 @@ public:
     // in set_conf we have nothing to add beyond BaseModel
     // void set_conf(std::map<std::string, std::string> config_map) override;
 
+    #ifdef _GPU_ENABLED
     CUDA_CALLABLE_MEMBER void init(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
-    void h_init(
-        u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
-    ) override;
-
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real& tmp_globalinput,
         u_real* noise, long& noise_idx
     );
-    void h_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
-    ) override;
-
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
     ); // does nothing
-    // no need to override h_post_bw_step
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
-    void h_restart(
-        u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
-    ) override;
     CUDA_CALLABLE_MEMBER void post_integration(
         u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
@@ -103,14 +88,9 @@ public:
         u_real* _global_params, u_real* _regional_params,
         int& sim_idx, const int& nodes, int& j
     ); // does nothing
-    // no need to override h_post_integration
 
     void init_gpu(BWConstants bwc) override {
         _init_gpu<rWWExModel>(this, bwc);
-    }
-
-    void init_cpu() override {
-        _init_cpu<rWWExModel>(this);
     }
 
     void run_simulations_gpu(
@@ -123,6 +103,27 @@ public:
             global_params, regional_params, v_list,
             SC, SC_dist, this
         );
+    }
+    #endif
+
+    void h_init(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
+    void h_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
+        u_real& tmp_globalinput,
+        u_real* noise, long& noise_idx
+    ) override;
+    void h_restart(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
+
+
+    void init_cpu() override {
+        _init_cpu<rWWExModel>(this);
     }
 
     void run_simulations_cpu(

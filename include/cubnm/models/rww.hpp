@@ -1,5 +1,6 @@
 #ifndef RWW_HPP
 #define RWW_HPP
+#include "cubnm/models/base.hpp"
 
 extern void analytical_fic_het(
         gsl_matrix * sc, double G, double * w_EE, double * w_EI,
@@ -110,49 +111,27 @@ public:
 
     void set_conf(std::map<std::string, std::string> config_map) override;
 
+    #ifdef _GPU_ENABLED
     CUDA_CALLABLE_MEMBER void init(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
-    void h_init(
-        u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
-    ) override;
-
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real& tmp_globalinput,
         u_real* noise, long& noise_idx
     );
-    void h_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
-    ) override;
-
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
     );
-    void h_post_bw_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        int* _ext_int, bool* _ext_bool, bool& restart,
-        u_real* _global_params, u_real* _regional_params,
-        int& ts_bold
-    ) override;
-
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     );
-    void h_restart(
-        u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
-    ) override;
     CUDA_CALLABLE_MEMBER void post_integration(
         u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
@@ -162,24 +141,9 @@ public:
         u_real* _global_params, u_real* _regional_params,
         int& sim_idx, const int& nodes, int& j
     );
-    void h_post_integration(
-        u_real ***state_vars_out, 
-        int **global_out_int, bool **global_out_bool,
-        u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool, 
-        u_real** global_params, u_real** regional_params,
-        u_real* _global_params, u_real* _regional_params,
-        int& sim_idx, const int& nodes, int& j
-    ) override;
-
     void init_gpu(BWConstants bwc) override {
         _init_gpu<rWWModel>(this, bwc);
     }
-
-    void init_cpu() override {
-        _init_cpu<rWWModel>(this);
-    }
-
     void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
@@ -190,6 +154,41 @@ public:
             global_params, regional_params, v_list,
             SC, SC_dist, this
         );
+    }
+    #endif
+
+    void h_init(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
+    void h_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
+        u_real& tmp_globalinput,
+        u_real* noise, long& noise_idx
+    ) override;
+    void h_post_bw_step(
+        u_real* _state_vars, u_real* _intermediate_vars,
+        int* _ext_int, bool* _ext_bool, bool& restart,
+        u_real* _global_params, u_real* _regional_params,
+        int& ts_bold
+    ) override;
+    void h_restart(
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool
+    ) override;
+    void h_post_integration(
+        u_real ***state_vars_out, 
+        int **global_out_int, bool **global_out_bool,
+        u_real* _state_vars, u_real* _intermediate_vars, 
+        int* _ext_int, bool* _ext_bool, 
+        u_real** global_params, u_real** regional_params,
+        u_real* _global_params, u_real* _regional_params,
+        int& sim_idx, const int& nodes, int& j
+    ) override;
+
+    void init_cpu() override {
+        _init_cpu<rWWModel>(this);
     }
 
     void run_simulations_cpu(

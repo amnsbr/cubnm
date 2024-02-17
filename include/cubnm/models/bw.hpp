@@ -20,5 +20,5 @@ struct BWConstants {
     u_real V_0_k3;
 };
 
-extern void init_bw_constants(BWConstants* bwc);
+void init_bw_constants(BWConstants* bwc);
 #endif

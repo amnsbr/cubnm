@@ -29,14 +29,4 @@ __global__ void bnm(
     int corr_len
     );
 
-template<typename Model>
-void _run_simulations_gpu(
-    double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
-    u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real * SC, u_real * SC_dist, BaseModel *model
-);
-
-template<typename Model>
-void _init_gpu(BaseModel *model, BWConstants bwc);
-
 #endif

@@ -1,5 +1,6 @@
 #ifndef BASE_HPP
 #define BASE_HPP
+#include "cubnm/models/bw.hpp" // will be used by all derived models
 
 class BaseModel {
 public:
@@ -56,8 +57,10 @@ public:
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
         last_noise_time_steps{0};
         // TODO: make some short or size_t
-    bool gpu_initialized{false}, cpu_initialized{false},
-        modifies_params{false}, do_delay{};
+    bool cpu_initialized{false}, modifies_params{false}, do_delay{};
+    #ifdef _GPU_ENABLED
+    bool gpu_initialized{false};
+    #endif
 
     struct Config {
         int bold_remove_s{30};
@@ -98,12 +101,14 @@ public:
     virtual void set_conf(std::map<std::string, std::string> config_map) {
         set_base_conf(config_map);
     }
+    #ifdef _GPU_ENABLED
     virtual void init_gpu(BWConstants bwc) = 0;
-    virtual void init_cpu() = 0;
     virtual void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
         u_real * SC, u_real * SC_dist) = 0;
+    #endif
+    virtual void init_cpu() = 0;
     virtual void run_simulations_cpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
@@ -190,4 +195,27 @@ protected:
         }
     }
 };
+
+// following templates will be used by each derived model
+#ifdef _GPU_ENABLED
+template<typename Model>
+extern void _run_simulations_gpu(
+    double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
+    u_real ** global_params, u_real ** regional_params, u_real * v_list,
+    u_real * SC, u_real * SC_dist, BaseModel *model
+);
+
+template<typename Model>
+extern void _init_gpu(BaseModel *model, BWConstants bwc);
+#endif
+
+template <typename Model>
+void _run_simulations_cpu(
+    double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
+    u_real ** global_params, u_real ** regional_params, u_real * v_list,
+    u_real * SC, u_real * SC_dist, BaseModel* m
+);
+
+template <typename Model>
+void _init_cpu(BaseModel *m);
 #endif

@@ -45,11 +45,13 @@
 #include "./models/rww_fic.cpp"
 #include "./models/rwwex.cpp"
 
+#ifdef GPU_ENABLED
 namespace bnm_gpu {
     extern u_real *** states_out, **BOLD, **fc_trils, **fcd_trils;
     extern int **global_out_int;
     extern bool **global_out_bool;
 }
+#endif
 // the following variables are calcualted during init functions and will
 // be needed to determine the size of arrays
 // they are global because init functions may be called only once
@@ -410,11 +412,14 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         array_to_np_3d<u_real>(bnm_cpu::states_out, py_states_out);
         array_to_np_2d<bool>(bnm_cpu::global_out_bool, py_global_bools_out);
         array_to_np_2d<int>(bnm_cpu::global_out_int, py_global_ints_out);
-    } else {
+    } 
+    #ifdef GPU_ENABLED
+    else {
         array_to_np_3d<u_real>(bnm_gpu::states_out, py_states_out);
         array_to_np_2d<bool>(bnm_gpu::global_out_bool, py_global_bools_out);
         array_to_np_2d<int>(bnm_gpu::global_out_int, py_global_ints_out);
     }
+    #endif
 
     if (model->modifies_params) {
         // copy updated global_params back to py_global_params

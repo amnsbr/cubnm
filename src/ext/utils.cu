@@ -1,4 +1,18 @@
+#include "cubnm/includes.cuh"
+#include "cubnm/defines.h"
 #include "cubnm/utils.cuh"
+void checkLast(const char* const file, const int line) {
+    // from https://leimao.github.io/blog/Proper-CUDA-Error-Checking/
+    cudaError_t err{cudaGetLastError()};
+    if (err != cudaSuccess)
+    {
+        std::cerr << "CUDA Runtime Error at: " << file << ":" << line
+                  << std::endl;
+        std::cerr << cudaGetErrorString(err) << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+}
+
 __global__ void float2double(double **dst, float **src, size_t rows, size_t cols) {
     int row = blockIdx.x;
     int col = blockIdx.y;

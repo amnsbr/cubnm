@@ -180,13 +180,42 @@ class build_ext_gsl_cuda(build_ext):
                 conf_flags.append("MANY_NODES")
             conf_flags = " ".join([f"-D {f}" for f in conf_flags])
             include_flags = " ".join([f"-I {p}" for p in shared_includes])
+            source_files = ["bnm.cu", "utils.cu", "fc.cu", 
+                             "models/bw.cu", "models/rww.cu",
+                             "models/rwwex.cu"] # TODO: search for all .cu files
+            # compile_commands = []
+            # obj_paths = []
+            # for source_file in source_files:
+            #     source_path = os.path.join(cuda_dir, source_file)
+            #     obj_path = source_path.replace('.cu', '.o')
+            #     obj_paths.append(obj_path)
+            #     compile_commands.append(
+            #         f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {obj_path} {source_path} "
+            #         f"{include_flags} {conf_flags}"
+            #     )
+            # compile_commands += [
+            #     # link the individual object files + the dependency libraries
+            #     f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/bnm_linked.o {' '.join(obj_paths)} "
+            #         f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
+            #     # create libbnm.a
+            #     f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/bnm_linked.o {' '.join(obj_paths)}",
+            #     f"ranlib {cuda_dir}/libbnm.a",
+            # ]
+
+            # create a unified source file including all .cu files
+            # this offers significantly better performance than 
+            # compiling each file separately and linking them later
+            # (the code commented out above)
+            unified_source_path = os.path.join(cuda_dir, "_bnm.cu")
+            with open(unified_source_path, 'w') as unified_file:
+                for source_file in source_files:
+                    unified_file.write(f'#include "{source_file}"\n')
             compile_commands = [
-                f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/bnm_tmp.o {cuda_dir}/bnm.cu "
-                    f"{include_flags} {conf_flags}",
-                f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o "
+                f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/_bnm.o {unified_source_path} "
+                f"{include_flags} {conf_flags}",
+                f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o "
                     f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
-                f"rm -f {cuda_dir}/libbnm.a",  # remove the previously created .a
-                f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/bnm.o {cuda_dir}/bnm_tmp.o",
+                f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o",
                 f"ranlib {cuda_dir}/libbnm.a",
             ]
 

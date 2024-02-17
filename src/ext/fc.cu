@@ -1,3 +1,6 @@
+#include "cubnm/includes.cuh"
+#include "cubnm/defines.h"
+#include "cubnm/fc.cuh"
 __global__ void bold_stats(
     u_real **mean_bold, u_real **ssd_bold,
     u_real **BOLD, int N_SIMS, int nodes,

@@ -28,8 +28,16 @@
 
 #ifdef __CUDACC__
 #define CUDA_CALLABLE_MEMBER __device__
-// #define CUDA_CONSTANT __constant__
 #else
 #define CUDA_CALLABLE_MEMBER
-// #define CUDA_CONSTANT
 #endif 
+
+#if defined(__CUDACC__) || defined(GPU_ENABLED)
+#define _GPU_ENABLED
+// this is used to determine if the GPU-related
+// declarations should be done, either if
+// nvcc is compiling the cuda source code
+// or the C++ is being compiled but will be
+// linked with the nvcc compiled library
+// i.e., GPU_ENABLED is defined
+#endif

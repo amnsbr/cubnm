@@ -11,18 +11,7 @@
 	} }
 
 #define CUDA_CHECK_LAST_ERROR() checkLast(__FILE__, __LINE__)
-void checkLast(const char* const file, const int line)
-{
-    // from https://leimao.github.io/blog/Proper-CUDA-Error-Checking/
-    cudaError_t err{cudaGetLastError()};
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA Runtime Error at: " << file << ":" << line
-                  << std::endl;
-        std::cerr << cudaGetErrorString(err) << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-}
+void checkLast(const char* const file, const int line);
 
 __global__ void float2double(double **dst, float **src, size_t rows, size_t cols);
 cudaDeviceProp get_device_prop(int verbose = 1);

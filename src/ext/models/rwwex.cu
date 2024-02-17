@@ -1,8 +1,6 @@
+#include "cubnm/includes.cuh"
 #include "cubnm/defines.h"
-#include "cubnm/models/rwwex.hpp"
 #include "cubnm/models/rwwex.cuh"
-__constant__ rWWExModel::Constants d_rWWExc;
-
 __device__ void rWWExModel::init(
     u_real* _state_vars, u_real* _intermediate_vars, 
     int* _ext_int, bool* _ext_bool

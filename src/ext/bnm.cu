@@ -15,43 +15,15 @@ https://github.com/murraylab/hbnm & https://github.com/decolab/cb-neuromod
 
 Author: Amin Saberi, Feb 2023
 */
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <string.h>
-#include <math.h>
-#include <sys/stat.h>
-#include <iostream>
-#include <fstream>
-#include <cmath>
-#include <string>
-#include <cstdlib>
-#include <cuda_runtime.h>
-#include <cooperative_groups.h>
-#include <random>
-#include <algorithm>
-#include <map>
-#include <gsl/gsl_matrix_double.h>
-#include <gsl/gsl_vector_double.h>
-#include <gsl/gsl_blas.h>
-#include <gsl/gsl_math.h>
-#include <gsl/gsl_errno.h>
-#include <gsl/gsl_roots.h>
-#include <thread>
-#include <chrono>
-
-// TODO: clean up the includes
-// and remove unncessary header files
-// TODO: only include headers and
-// combine source code via compiler
+#include "cubnm/includes.cuh"
 #include "cubnm/defines.h"
-#include "./utils.cu"
-#include "./models/bw.cu"
+#include "cubnm/utils.cuh"
+#include "cubnm/models/bw.cuh"
 #include "cubnm/models/base.cuh"
-#include "./fc.cu"
+#include "cubnm/fc.cuh"
 #include "cubnm/bnm.cuh"
-#include "./models/rww.cu"
-#include "./models/rwwex.cu"
+#include "cubnm/models/rww.cuh"
+#include "cubnm/models/rwwex.cuh"
 // other models go here
 
 cudaDeviceProp prop;
