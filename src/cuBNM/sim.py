@@ -583,6 +583,17 @@ class rWWSimGroup(SimGroup):
             'max_fic_trials': str(self.max_fic_trials),
         })
         return model_config
+    
+    def _set_default_params(self):
+        """
+        Set default parameters for the simulations.
+        This is used in tests.
+        """
+        self.param_lists["G"] = np.repeat(0.5, self.N)
+        self.param_lists["wEE"] = np.full((self.N, self.nodes), 0.21)
+        self.param_lists["wEI"] = np.full((self.N, self.nodes), 0.15)
+        if not self.do_fic:
+            self.param_lists["wIE"] = np.full((self.N, self.nodes), 1.0)
 
     def _process_out(self, out):
         super()._process_out(out)
@@ -724,6 +735,16 @@ class rWWExSimGroup(SimGroup):
             sim_group.run()
         """
         super().__init__(*args, **kwargs)
+
+    def _set_default_params(self):
+        """
+        Set default parameters for the simulations.
+        This is used in tests.
+        """
+        self.param_lists["G"] = np.repeat(0.5, self.N)
+        self.param_lists["w"] = np.full((self.N, self.nodes), 0.9)
+        self.param_lists["I0"] = np.full((self.N, self.nodes), 0.3)
+        self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.001)
     
     def _process_out(self, out):
         super()._process_out(out)
