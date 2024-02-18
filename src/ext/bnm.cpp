@@ -10,16 +10,6 @@ Author: Amin Saberi, Feb 2023
 // use a namespace dedicated to cpu implementation
 // to avoid overlaps with similar variables on gpu
 #include "cubnm/bnm.hpp"
-namespace bnm_cpu {
-    u_real ***states_out;
-    int **global_out_int;
-    bool **global_out_bool;
-    #ifdef NOISE_SEGMENT
-    int *shuffled_nodes, *shuffled_ts;
-    #endif
-    u_real *noise;
-    int *window_starts, *window_ends;
-}
 
 template <typename Model>
 void bnm(
@@ -27,8 +17,6 @@ void bnm(
         double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         u_real *SC, u_real **global_params, u_real **regional_params
     ) {
-    using namespace bnm_cpu;
-
     // copy parameters to local memory as vectors
     // note that to mimick the GPU implementation
     // in regional arrays the first index is node index
@@ -69,7 +57,7 @@ void bnm(
     if (model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
         for (int j=0; j<model->nodes; j++) {
             for (int ii=0; ii<Model::n_state_vars; ii++) {
-                states_out[ii][sim_idx][j] = 0;
+                model->states_out[ii][sim_idx][j] = 0;
             }
         }
     }
@@ -140,7 +128,7 @@ void bnm(
         if (model->base_conf.verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)model->time_steps) * 100.0f );
         // TODO: similar to CPU add the option for sync_msec
         #ifdef NOISE_SEGMENT
-        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
+        sh_ts_noise = model->shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
         #endif
         for (int int_i = 0; int_i < 10; int_i++) {
             // copy conn_sate of previous time point to conn_state_var_1
@@ -157,7 +145,7 @@ void bnm(
                 // equations
                 #ifdef NOISE_SEGMENT
                 // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
-                sh_j = shuffled_nodes[curr_noise_repeat*model->nodes+j];
+                sh_j = model->shuffled_nodes[curr_noise_repeat*model->nodes+j];
                 noise_idx = (((sh_ts_noise * 10 + int_i) * model->nodes * Model::n_noise) + (sh_j * Model::n_noise));
                 #else
                 noise_idx = (((ts_bold * 10 + int_i) * model->nodes * Model::n_noise) + (j * Model::n_noise));
@@ -165,7 +153,7 @@ void bnm(
                 model->h_step(
                     _state_vars[j], _intermediate_vars[j],
                     _global_params, _regional_params[j],
-                    tmp_globalinput, noise, noise_idx
+                    tmp_globalinput, model->noise, noise_idx
                 );
             }
         }
@@ -192,12 +180,12 @@ void bnm(
                 gsl_matrix_set(bold_gsl, BOLD_len_i, j, BOLD_ex[bold_idx]);
                 if (model->base_conf.extended_output && model->base_conf.extended_output_ts) {
                     for (int ii=0; ii<Model::n_state_vars; ii++) {
-                        states_out[ii][sim_idx][bold_idx] = _state_vars[j][ii];
+                        model->states_out[ii][sim_idx][bold_idx] = _state_vars[j][ii];
                     }
                 }
                 if ((BOLD_len_i>=model->n_vols_remove) && model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
                     for (int ii=0; ii<Model::n_state_vars; ii++) {
-                        states_out[ii][sim_idx][j] += _state_vars[j][ii];
+                        model->states_out[ii][sim_idx][j] += _state_vars[j][ii];
                     }
                 }
             }
@@ -274,7 +262,7 @@ void bnm(
     if (Model::has_post_integration) {
         for (j=0; j<model->nodes; j++) {
             model->h_post_integration(
-                states_out, global_out_int, global_out_bool,
+                model->states_out, model->global_out_int, model->global_out_bool,
                 _state_vars[j], _intermediate_vars[j], 
                 _ext_int[j], _ext_bool[j], 
                 global_params, regional_params,
@@ -290,7 +278,7 @@ void bnm(
         int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
         for (int j=0; j<model->nodes; j++) {
             for (int ii=0; ii<Model::n_state_vars; ii++) {
-                states_out[ii][sim_idx][j] /= extended_output_time_points;
+                model->states_out[ii][sim_idx][j] /= extended_output_time_points;
             }
         }
     }
@@ -304,7 +292,7 @@ void bnm(
         model->n_vols_remove, 0, 
         model->output_ts-model->n_vols_remove, model->nodes);
     gsl_vector * fc_tril = model->calculate_fc_tril(&bold_window.matrix);
-    gsl_vector * fcd_tril = model->calculate_fcd_tril(bold_gsl, window_starts, window_ends);
+    gsl_vector * fcd_tril = model->calculate_fcd_tril(bold_gsl, model->window_starts, model->window_ends);
 
     // copy FC and FCD to numpy arrays
     memcpy(fc_tril_out, gsl_vector_ptr(fc_tril, 0), sizeof(double) * model->n_pairs);
@@ -334,7 +322,6 @@ void _run_simulations_cpu(
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
     u_real * SC, u_real * SC_dist, BaseModel* m
 ) {
-    using namespace bnm_cpu;
     if (m->base_conf.verbose) {
         m->print_config();
     }
@@ -347,7 +334,7 @@ void _run_simulations_cpu(
     // to _run_simulations_cpu (except that they might be
     // modified during the simulation, e.g. in numerical FIC)
     m->prep_params(global_params, regional_params, v_list, SC, 
-        SC_dist, global_out_bool, global_out_int);
+        SC_dist, m->global_out_bool, m->global_out_int);
 
     // run the simulations
     size_t ext_out_size;
@@ -389,20 +376,18 @@ void _run_simulations_cpu(
 
 template <typename Model>
 void _init_cpu(BaseModel *m) {
-    using namespace bnm_cpu;
-
     // set up global int and bool outputs
     if (Model::n_global_out_int > 0) {
-        global_out_int = (int**)malloc(Model::n_global_out_int * sizeof(int*));
+        m->global_out_int = (int**)malloc(Model::n_global_out_int * sizeof(int*));
         for (int i = 0; i < Model::n_global_out_int; i++) {
-            global_out_int[i] = (int*)malloc(m->N_SIMS * sizeof(int));
+            m->global_out_int[i] = (int*)malloc(m->N_SIMS * sizeof(int));
         }
     }
     
     if (Model::n_global_out_bool > 0) {
-        global_out_bool = (bool**)malloc(Model::n_global_out_bool * sizeof(bool*));
+        m->global_out_bool = (bool**)malloc(Model::n_global_out_bool * sizeof(bool*));
         for (int i = 0; i < Model::n_global_out_bool; i++) {
-            global_out_bool[i] = (bool*)malloc(m->N_SIMS * sizeof(bool));
+            m->global_out_bool[i] = (bool*)malloc(m->N_SIMS * sizeof(bool));
         }
     }
 
@@ -412,11 +397,11 @@ void _init_cpu(BaseModel *m) {
         ext_out_size *= m->output_ts;
     }
     if (m->base_conf.extended_output) {
-        states_out = (u_real***)(malloc(Model::n_state_vars * sizeof(u_real**)));
+        m->states_out = (u_real***)(malloc(Model::n_state_vars * sizeof(u_real**)));
         for (int i = 0; i < Model::n_state_vars; i++) {
-            states_out[i] = (u_real**)(malloc(m->N_SIMS * sizeof(u_real*)));
+            m->states_out[i] = (u_real**)(malloc(m->N_SIMS * sizeof(u_real*)));
             for (int sim_idx = 0; sim_idx < m->N_SIMS; sim_idx++) {
-                states_out[i][sim_idx] = (u_real*)(malloc(ext_out_size * sizeof(u_real)));
+                m->states_out[i][sim_idx] = (u_real*)(malloc(ext_out_size * sizeof(u_real)));
             }
         }
     }
@@ -433,7 +418,7 @@ void _init_cpu(BaseModel *m) {
     m->n_pairs = get_fc_n_pairs(m->nodes, m->base_conf.exc_interhemispheric);
     // calculate the number of windows and their start-ends
     m->n_windows = get_dfc_windows(
-        &window_starts, &window_ends, 
+        &(m->window_starts), &(m->window_ends), 
         m->corr_len, m->output_ts, m->n_vols_remove,
         m->window_step, m->window_size,
         m->base_conf.drop_edges
@@ -465,10 +450,10 @@ void _init_cpu(BaseModel *m) {
         printf("Precalculating %d noise elements...\n", m->noise_size);
         if (m->last_nodes != 0) {
             // noise is being recalculated, free the previous one
-            delete[] noise;
+            free(m->noise);
             #ifdef NOISE_SEGMENT
-            delete[] shuffled_nodes;
-            delete[] shuffled_ts;
+            free(m->shuffled_nodes);
+            free(m->shuffled_ts);
             #endif
         }
         m->last_time_steps = m->time_steps;
@@ -477,12 +462,12 @@ void _init_cpu(BaseModel *m) {
         m->last_noise_time_steps = m->base_conf.noise_time_steps;
         std::mt19937 rand_gen(m->rand_seed);
         std::normal_distribution<float> normal_dist(0, 1);
-        noise = new u_real[m->noise_size];
+        m->noise = (u_real*)malloc(m->noise_size * sizeof(u_real));
         for (int i = 0; i < m->noise_size; i++) {
             #ifdef USE_FLOATS
-            noise[i] = normal_dist(rand_gen);
+            m->noise[i] = normal_dist(rand_gen);
             #else
-            noise[i] = (double)normal_dist(rand_gen);
+            m->noise[i] = (double)normal_dist(rand_gen);
             #endif
         }
         #ifdef NOISE_SEGMENT
@@ -490,9 +475,9 @@ void _init_cpu(BaseModel *m) {
         // precalculaed noise 
         printf("noise will be repeated %d times (nodes [rows] and "
             "timepoints [columns] will be shuffled in each repeat)\n", m->noise_repeats);
-        shuffled_nodes = new int[m->noise_repeats * m->nodes];
-        shuffled_ts = new int[m->noise_repeats * m->base_conf.noise_time_steps];
-        get_shuffled_nodes_ts(&shuffled_nodes, &shuffled_ts,
+        m->shuffled_nodes = (int*)malloc(m->noise_repeats * m->nodes * sizeof(int));
+        m->shuffled_ts = (int*)malloc(m->noise_repeats * m->base_conf.noise_time_steps * sizeof(int));
+        get_shuffled_nodes_ts(&(m->shuffled_nodes), &(m->shuffled_ts),
             m->nodes, m->base_conf.noise_time_steps, m->noise_repeats, &rand_gen);
         #endif
     } else {
@@ -500,4 +485,49 @@ void _init_cpu(BaseModel *m) {
     }
     
     m->cpu_initialized = true;
+}
+
+
+void BaseModel::free_cpu() {
+    if (strcmp(this->get_name(), "Base")==0) {
+        // skip freeing memory for BaseModel
+        // though free_gpu normally is not called for BaseModel
+        // but keeping it here for safety
+        return;
+    }
+    if (!this->cpu_initialized) {
+        // if cpu not initialized, skip freeing memory
+        return;
+    }
+    if (this->base_conf.verbose) {
+        printf("Freeing CPU memory (%s)\n", this->get_name());
+    }
+    #ifdef NOISE_SEGMENT
+    free(this->shuffled_nodes);
+    free(this->shuffled_ts);
+    #endif
+    free(this->noise);
+    free(this->window_ends);
+    free(this->window_starts);
+    if (this->base_conf.extended_output) {
+        for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {
+            for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
+                free(this->states_out[var_idx][sim_idx]);
+            }
+            free(this->states_out[var_idx]);
+        }
+        free(this->states_out);
+    }
+    if (this->get_n_global_out_bool() > 0) {
+        for (int i=0; i<this->get_n_global_out_bool(); i++) {
+            free(this->global_out_bool[i]);
+        }
+        free(this->global_out_bool);
+    }
+    if (this->get_n_global_out_int() > 0) {
+        for (int i=0; i<this->get_n_global_out_int(); i++) {
+            free(this->global_out_int[i]);
+        }
+        free(this->global_out_int);
+    }
 }

@@ -45,17 +45,6 @@
 #include "./models/rww_fic.cpp"
 #include "./models/rwwex.cpp"
 
-#ifdef GPU_ENABLED
-namespace bnm_gpu {
-    extern u_real *** states_out, **BOLD, **fc_trils, **fcd_trils;
-    extern int **global_out_int;
-    extern bool **global_out_bool;
-}
-#endif
-// the following variables are calcualted during init functions and will
-// be needed to determine the size of arrays
-// they are global because init functions may be called only once
-int _output_ts, _n_pairs, _n_window_pairs;
 // create a pointer to the model object in current session
 // so that it can be reused in subsequent calls to run_simulations
 // this approach is an alternative to using `static` members
@@ -291,7 +280,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     }
 
     // initialize the model object if needed
-    if (model == nullptr || strcmp(model_name, last_model_name)!=0) {
+    if (
+            model == nullptr || // first call
+            strcmp(model_name, last_model_name)!=0 || // different model
+            model->cpu_initialized && (!use_cpu) || // CPU initialized but GPU is requested
+            model->gpu_initialized && (use_cpu) // GPU initialized but CPU is requested
+        ) {
         last_model_name = model_name;
         if (model != nullptr) {
             delete model; // delete the old model to ensure only one model object exists
@@ -408,18 +402,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     elapsed_seconds = end - start;
     printf("took %lf s\n", elapsed_seconds.count());
 
-    if (use_cpu) {
-        array_to_np_3d<u_real>(bnm_cpu::states_out, py_states_out);
-        array_to_np_2d<bool>(bnm_cpu::global_out_bool, py_global_bools_out);
-        array_to_np_2d<int>(bnm_cpu::global_out_int, py_global_ints_out);
-    } 
-    #ifdef GPU_ENABLED
-    else {
-        array_to_np_3d<u_real>(bnm_gpu::states_out, py_states_out);
-        array_to_np_2d<bool>(bnm_gpu::global_out_bool, py_global_bools_out);
-        array_to_np_2d<int>(bnm_gpu::global_out_int, py_global_ints_out);
-    }
-    #endif
+
+    array_to_np_3d<u_real>(model->states_out, py_states_out);
+    array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
+    array_to_np_2d<int>(model->global_out_int, py_global_ints_out);
 
     if (model->modifies_params) {
         // copy updated global_params back to py_global_params
@@ -435,7 +421,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             }
         }
     }
-
+    
     if (extended_output) {
         return Py_BuildValue("OOOOOO", 
             py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out,

@@ -9,6 +9,17 @@ public:
         ) : BaseModel(nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed)
     {};
 
+    ~rWWExModel() {
+        if (cpu_initialized) {
+            this->free_cpu();
+        }
+        #ifdef _GPU_ENABLED
+        if (gpu_initialized) {
+            this->free_gpu();
+        }
+        #endif
+    }
+
     static constexpr char *name = "rWWEx";
     static constexpr int n_state_vars = 3; // number of state variables (u_real)
     static constexpr int n_intermediate_vars = 2; // number of intermediate/extra u_real variables
@@ -152,6 +163,9 @@ public:
     }
     int get_n_regional_params() override {
         return n_regional_params;
+    }
+    char * get_name() override {
+        return name;
     }
 };
 

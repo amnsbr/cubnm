@@ -15,6 +15,23 @@ public:
         ) : BaseModel(nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed)
     {};
 
+    ~rWWModel() {
+        // model-specific destructor
+        // note that while the same code is being
+        // used in all derived models, it is not
+        // possible to have a virtual destructor
+        // in the base class that accesses the correct
+        // static members of the derived class
+        if (cpu_initialized) {
+            this->free_cpu();
+        }
+        #ifdef _GPU_ENABLED
+        if (gpu_initialized) {
+            this->free_gpu();
+        }
+        #endif
+    }
+
     static constexpr char *name = "rWW";
     static constexpr int n_state_vars = 6; // number of state variables (u_real)
     static constexpr int n_intermediate_vars = 7; // number of intermediate/extra u_real variables
@@ -221,6 +238,9 @@ public:
     }
     int get_n_regional_params() override {
         return n_regional_params;
+    }
+    char * get_name() override {
+        return name;
     }
 };
 

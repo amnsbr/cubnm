@@ -22,34 +22,14 @@ public:
             output_ts = (time_steps / (TR / 0.001))+1;
             bold_size = output_ts * nodes;
         };
+    // create virtual destructor and free
+    // the memory allocated for the arrays
     virtual ~BaseModel() = default;
 
-    // the following static variables do not do anything
-    // they are just used to show the variables that
-    // need to be defined in the derived classes
     static constexpr char *name = "Base";
-    static constexpr int n_state_vars = 0; // number of state variables (u_real)
-    static constexpr int n_intermediate_vars = 0; // number of intermediate/extra u_real variables
-    static constexpr int n_noise = 0; // number of noise elements needed for each node
-    static constexpr int n_global_params = 0;
-    static constexpr int n_regional_params = 0;
-    // static constexpr char* state_var_names[] = {};
-    // static constexpr char* intermediate_var_names[] = {};
-    // static constexpr char* conn_state_var_name = ""; // name of the state variable which sends input to connected nodes
-    static constexpr int conn_state_var_idx = 0;
-    // static constexpr char* bold_state_var_name = ""; // name of the state variable which is used for BOLD calculation
-    static constexpr int bold_state_var_idx = 0;
-    static constexpr int n_ext_int = 0; // number of additional int variables for each node
-    static constexpr int n_ext_bool = 0; // number of additional bool variables for each node
-    static constexpr int n_global_out_int = 0; 
-    static constexpr int n_global_out_bool = 0;
-    static constexpr int n_global_out_u_real = 0; // not implemented
-    static constexpr int n_regional_out_int = 0; // not implemented
-    static constexpr int n_regional_out_bool = 0; // not implemented
-    static constexpr int n_regional_out_u_real = 0; // not implemented
-    static constexpr bool has_post_bw_step = false;
-    static constexpr bool has_post_integration = false;
 
+    virtual void free_gpu();
+    virtual void free_cpu();
 
     int nodes{}, N_SIMS{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
         rand_seed{}, n_pairs{}, n_windows{}, n_window_pairs{}, output_ts{}, bold_size{},
@@ -60,6 +40,22 @@ public:
     bool cpu_initialized{false}, modifies_params{false}, do_delay{};
     #ifdef _GPU_ENABLED
     bool gpu_initialized{false};
+    #endif
+
+    u_real ***states_out;
+    u_real *noise;
+    int **global_out_int;
+    bool **global_out_bool;
+    int *window_starts, *window_ends;
+    #ifdef NOISE_SEGMENT
+    int *shuffled_nodes, *shuffled_ts;
+    #endif
+    #ifdef _GPU_ENABLED
+    u_real **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
+        **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils,
+        *d_SC, **d_global_params, **d_regional_params;
+    double **d_fc_trils, **d_fcd_trils;
+    int *pairs_i, *pairs_j, *window_pairs_i, *window_pairs_j;
     #endif
 
     struct Config {
@@ -131,6 +127,9 @@ public:
     virtual int get_n_global_out_int() = 0;
     virtual int get_n_global_params() = 0;
     virtual int get_n_regional_params() = 0;
+    virtual char * get_name() {
+        return name;
+    }
 
     virtual void h_init(
         u_real* _state_vars, u_real* _intermediate_vars, 
