@@ -234,6 +234,16 @@ class SimGroup:
                 "but note that this will increase the simulation time\n"
             )
 
+    def _set_default_params(self):
+        """
+        Set default parameters for the simulations.
+        This is used in tests.
+        """
+        if self.do_delay:
+            # a low velocity is chosen to make the delay more visible
+            # in the tests
+            self.param_lists["v"] = np.repeat(0.5, self.N)
+
     def get_config(self, include_N=False, for_reinit=False):
         """
         Get the configuration of the simulation group
@@ -589,6 +599,7 @@ class rWWSimGroup(SimGroup):
         Set default parameters for the simulations.
         This is used in tests.
         """
+        super()._set_default_params()
         self.param_lists["G"] = np.repeat(0.5, self.N)
         self.param_lists["wEE"] = np.full((self.N, self.nodes), 0.21)
         self.param_lists["wEI"] = np.full((self.N, self.nodes), 0.15)
@@ -741,6 +752,7 @@ class rWWExSimGroup(SimGroup):
         Set default parameters for the simulations.
         This is used in tests.
         """
+        super()._set_default_params()
         self.param_lists["G"] = np.repeat(0.5, self.N)
         self.param_lists["w"] = np.full((self.N, self.nodes), 0.9)
         self.param_lists["I0"] = np.full((self.N, self.nodes), 0.3)

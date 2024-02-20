@@ -27,8 +27,8 @@ def no_gpu():
         pytest.param('force_cpu:0,do_delay:1,do_fic:0', marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
         pytest.param('force_cpu:1,do_delay:0,do_fic:1'),
         pytest.param('force_cpu:1,do_delay:0,do_fic:0'),
-        pytest.param('force_cpu:1,do_delay:1,do_fic:1', marks=pytest.mark.skip(reason="not implemented")),
-        pytest.param('force_cpu:1,do_delay:1,do_fic:0', marks=pytest.mark.skip(reason="not implemented")),
+        pytest.param('force_cpu:1,do_delay:1,do_fic:1'),
+        pytest.param('force_cpu:1,do_delay:1,do_fic:0'),
     ])
 def test_single_sim(opts):
     """
@@ -85,8 +85,8 @@ def test_single_sim(opts):
         pytest.param('force_cpu:0,do_delay:1,do_fic:0', marks=pytest.mark.skipif(no_gpu(), reason="No GPU available")),
         pytest.param('force_cpu:1,do_delay:0,do_fic:1'),
         pytest.param('force_cpu:1,do_delay:0,do_fic:0'),
-        pytest.param('force_cpu:1,do_delay:1,do_fic:1', marks=pytest.mark.skip(reason="not implemented")),
-        pytest.param('force_cpu:1,do_delay:1,do_fic:0', marks=pytest.mark.skip(reason="not implemented")),
+        pytest.param('force_cpu:1,do_delay:1,do_fic:1'),
+        pytest.param('force_cpu:1,do_delay:1,do_fic:0'),
     ])
 def test_identical_sims(opts):
     """
@@ -128,8 +128,8 @@ def test_identical_sims(opts):
     [
         pytest.param('do_delay:0,do_fic:1'),
         pytest.param('do_delay:0,do_fic:0'),
-        pytest.param('do_delay:1,do_fic:1', marks=pytest.mark.skip(reason="not implemented")),
-        pytest.param('do_delay:1,do_fic:0', marks=pytest.mark.skip(reason="not implemented")),
+        pytest.param('do_delay:1,do_fic:1'),
+        pytest.param('do_delay:1,do_fic:0'),
     ])
 def test_identical_cpu_gpu(opts):
     """

@@ -11,11 +11,39 @@ Author: Amin Saberi, Feb 2023
 // to avoid overlaps with similar variables on gpu
 #include "cubnm/bnm.hpp"
 
+inline void h_calculateGlobalInput(
+        u_real& tmp_globalinput, int& k_buff_idx,
+        const int& nodes, const int& j, 
+        int& k, int& buff_idx, u_real* SC, 
+        int* delay, const bool& has_delay, const int& max_delay,
+        u_real* conn_state_var_hist, u_real* conn_state_var_1
+        ) {
+    // calculates global input from other nodes `k` to current node `j`
+    // Note: this will not skip over self-connections
+    // if they should be ignored, their SC should be set to 0
+    // Note: inlining considerably improves performance for this function
+    tmp_globalinput = 0;
+    if (has_delay) {
+        for (k=0; k<nodes; k++) {
+            // calculate correct index of the other region in the buffer based on j-k delay
+            // buffer is moving backward, therefore the delay timesteps back in history
+            // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
+            k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
+            tmp_globalinput += SC[j*nodes+k] * conn_state_var_hist[k_buff_idx*nodes+k];
+        }
+    } else {
+        for (k=0; k<nodes; k++) {
+            tmp_globalinput += SC[j*nodes+k] * conn_state_var_1[k];
+        }            
+    }
+}
+
 template <typename Model>
 void bnm(
         Model* model, int sim_idx,
         double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
-        u_real *SC, u_real **global_params, u_real **regional_params
+        u_real **global_params, u_real **regional_params, u_real *v_list,
+        u_real *SC, u_real *SC_dist
     ) {
     // copy parameters to local memory as vectors
     // note that to mimick the GPU implementation
@@ -83,26 +111,97 @@ void bnm(
         bw_q[j] = 1.0;
     }
 
-    // TODO: delay setup
+    // if indicated, calculate delay matrix of this simulation and allocate
+    // memory to conn_state_var_hist according to the max_delay
+    int *delay;
+    u_real *conn_state_var_hist, *conn_state_var_1;
+    float sim_velocity = v_list[sim_idx];
+    if (!model->base_conf.sync_msec) {
+        sim_velocity /= 10;
+    }
+    int max_delay{0};
+    float max_length{0.0};
+    float curr_length{0.0};
+    int curr_delay{0};
+    if (model->do_delay) {
+    // note that do_delay is user asking for delay to be considered, has_delay indicates
+    // if user has asked for delay AND there would be any delay between nodes given
+    // velocity and distance matrix
+        delay = (int*)malloc(sizeof(int) * model->nodes * model->nodes);
+        for (int i = 0; i < model->nodes; i++) {
+            for (int j = 0; j < model->nodes; j++) {
+                curr_length = SC_dist[i*model->nodes+j];
+                if (i > j) {
+                    curr_delay = (int)round(curr_length/sim_velocity);
+                    // set minimum delay to 1 because a node
+                    // cannot access instantaneous states of 
+                    // other nodes, as they might not have been
+                    // calculated yet
+                    curr_delay = std::max(curr_delay, 1);
+                    delay[i*model->nodes + j] = curr_delay;
+                    delay[j*model->nodes + i] = curr_delay;
+                    if (curr_delay > max_delay) {
+                        max_delay = curr_delay;
+                        max_length = curr_length;
+                    }
+                } else if (i == j) {
+                    delay[i*model->nodes + j] = 1;
+                }
+            }
+        }
+    }
+    bool has_delay = (max_delay > 0);
+    // when there is delay
+    // conn_state_var_hist will be used as a circular buffer with a buff_idx
+    // to keep track of the current position in the buffer, startgin from the
+    // end of the buffer and moving backwards
+    int buff_idx = max_delay - 1;
+    // allocate memory for history of conn_state_var
+    if (has_delay) {
+        if (model->base_conf.verbose) {
+            std::string velocity_unit = "m/s";
+            std::string delay_unit = "msec";
+            if (!model->base_conf.sync_msec) {
+                velocity_unit = "m/0.1s";
+                delay_unit = "0.1msec";
+            }
+            printf("Max distance %f (mm) with a velocity of %f (%s) => Max delay: %d (%s)\n", 
+                max_length, sim_velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
+        }
+        // allocate memory to conn_state_var_hist for (nodes * max_delay)
+        conn_state_var_hist = (u_real*)malloc(sizeof(u_real) * model->nodes * max_delay);
+    } else {
+        // allocated memory only for the immediate history
+        // note: a different variable is used for conssistency with
+        // the GPU implementation
+        conn_state_var_1 = (u_real*)malloc(sizeof(u_real) * model->nodes);
+    }
 
-    // store history of conn_state_vars
-    u_real* conn_state_var_1 = (u_real*)malloc(model->nodes * sizeof(u_real));
     for (int j=0; j<model->nodes; j++) {
-        conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+        if (has_delay) {
+            // initialize conn_state_var_hist in every time point of the buffer
+            // at the initial value
+            for (int bi=0; bi<max_delay; bi++) {
+                conn_state_var_hist[bi*model->nodes+j] = _state_vars[j][Model::conn_state_var_idx];
+            }
+        } else {
+            // initialize immediate history of conn_state_var_1
+            // at the initial value
+            conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+        }
     }
 
     // allocate memory to BOLD gsl matrix used for FC and FCD calculation
     gsl_matrix * bold_gsl = gsl_matrix_alloc(model->output_ts, model->nodes);
 
+    // allocate memory for globalinput
+    u_real *tmp_globalinput = (u_real*)malloc(sizeof(u_real) * model->nodes);
+
     // Integration
     bool restart = false;
-    u_real tmp_globalinput = 0.0;
-    int j = 0;
-    int k = 0;
-    long noise_idx = 0;
-    int BOLD_len_i = 0;
-    int ts_bold = 0;
-    int bold_idx = 0;
+    int j{0}, k{0}, k_buff_idx{0}, int_i{0},
+        BOLD_len_i{0}, ts_bold{0}, bold_idx{0};
+    long noise_idx{0};
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
     /* 
@@ -115,34 +214,45 @@ void bnm(
     Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
     vary in each repeat.
     */
-    // get position of the node
-    // in shuffled nodes for the first
-    // repeat of noise segment
-    int curr_noise_repeat = 0;
-    int ts_noise = 0;
-    // keep track of shuffled position of
-    // current node, ts
-    int sh_j, sh_ts_noise;
+    int curr_noise_repeat{0}, ts_noise{0}, sh_j{0}, sh_ts_noise{0};
     #endif
+    // outer loop for 1 msec steps
+    // TODO: define number of steps for outer
+    // and inner loops based on model dt and BW dt from user input 
     while (ts_bold <= model->time_steps) {
         if (model->base_conf.verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)model->time_steps) * 100.0f );
         // TODO: similar to CPU add the option for sync_msec
         #ifdef NOISE_SEGMENT
         sh_ts_noise = model->shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
         #endif
-        for (int int_i = 0; int_i < 10; int_i++) {
-            // copy conn_sate of previous time point to conn_state_var_1
+        // calculate global input every msec
+        if (model->base_conf.sync_msec) {
             for (j=0; j<model->nodes; j++) {
-                conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+                h_calculateGlobalInput(
+                    tmp_globalinput[j], k_buff_idx,
+                    model->nodes, j, 
+                    k, buff_idx, SC, 
+                    delay, has_delay, max_delay,
+                    conn_state_var_hist, conn_state_var_1
+                );
             }
-            for (j=0; j<model->nodes; j++) {
-                // calculate global input
-                tmp_globalinput = 0;
-                for (k=0; k<model->nodes; k++) {
-                    // TODO: after adding delay make this a separate function
-                    tmp_globalinput += SC[j*model->nodes+k] * conn_state_var_1[k];
+        }
+        // inner loop for 0.1 msec steps
+        for (int_i = 0; int_i < 10; int_i++) {
+            // calculate global input every 0.1 msec
+            if (!model->base_conf.sync_msec) {
+                for (j=0; j<model->nodes; j++) {
+                    h_calculateGlobalInput(
+                        tmp_globalinput[j], k_buff_idx,
+                        model->nodes, j, 
+                        k, buff_idx, SC, 
+                        delay, has_delay, max_delay,
+                        conn_state_var_hist, conn_state_var_1
+                    );
                 }
-                // equations
+            }
+            // run the model step function
+            for (j=0; j<model->nodes; j++) {
                 #ifdef NOISE_SEGMENT
                 // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
                 sh_j = model->shuffled_nodes[curr_noise_repeat*model->nodes+j];
@@ -153,10 +263,44 @@ void bnm(
                 model->h_step(
                     _state_vars[j], _intermediate_vars[j],
                     _global_params, _regional_params[j],
-                    tmp_globalinput, model->noise, noise_idx
+                    tmp_globalinput[j], model->noise, noise_idx
                 );
             }
+            // update states of nodes in history every 0.1 msec
+            if (!model->base_conf.sync_msec) {
+                if (has_delay) {
+                    // save the activity of current time point in the buffer
+                    for (j=0; j<model->nodes; j++) {
+                        conn_state_var_hist[buff_idx*model->nodes+j] = _state_vars[j][Model::conn_state_var_idx];
+                    }
+                    // move buffer index 1 step back for the next time point
+                    buff_idx = (buff_idx + max_delay - 1) % max_delay;
+                } else {
+                    // save the activity of current time point in the immediate history
+                    for (j=0; j<model->nodes; j++) {
+                        conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+                    }
+                }
+            }
         }
+
+        // update states of nodes in history every 1 msec
+        if (model->base_conf.sync_msec) {
+            if (has_delay) {
+                // save the activity of current time point in the buffer
+                for (j=0; j<model->nodes; j++) {
+                    conn_state_var_hist[buff_idx*model->nodes+j] = _state_vars[j][Model::conn_state_var_idx];
+                }
+                // move buffer index 1 step back for the next time point
+                buff_idx = (buff_idx + max_delay - 1) % max_delay;
+            } else {
+                // save the activity of current time point in the immediate history
+                for (j=0; j<model->nodes; j++) {
+                    conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+                }
+            }
+        }
+
 
         /*
         Compute BOLD for that time-step (subsampled to 1 ms)
@@ -233,8 +377,17 @@ void bnm(
                 bw_f[j] = 1.0;
                 bw_nu[j] = 1.0;
                 bw_q[j] = 1.0;
-                // reset conn_state_var_1
-                conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+                if (has_delay) {
+                    // reset conn_state_var_hist in every time point of the buffer
+                    // at the initial value
+                    for (int bi=0; bi<max_delay; bi++) {
+                        conn_state_var_hist[bi*model->nodes+j] = _state_vars[j][Model::conn_state_var_idx];
+                    }                    
+                } else {
+                    // reset conn_state_var_1
+                    conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+                }
+
             }
             // // subtract progress of current simulation
             // if (model->base_conf.verbose && (j==0)) {
@@ -243,14 +396,8 @@ void bnm(
             // reset indices
             BOLD_len_i = 0;
             ts_bold = 0;
-            // // reset delay buffer index
-            // if (has_delay) {
-            //     // initialize conn_state_var_hist in every time point at initial value
-            //     for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
-            //         conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
-            //     }
-            //     buff_idx = max_delay-1;
-            // }
+            // reset delay buffer index
+            buff_idx = max_delay-1;
             #ifdef NOISE_SEGMENT
             curr_noise_repeat = 0;
             ts_noise = 0;
@@ -300,7 +447,15 @@ void bnm(
 
     // Free memory
     gsl_vector_free(fcd_tril); gsl_vector_free(fc_tril); gsl_matrix_free(bold_gsl);
-    free(bw_x); free(bw_f); free(bw_nu); free(bw_q); free(conn_state_var_1);
+    free(bw_x); free(bw_f); free(bw_nu); free(bw_q); 
+    if (has_delay) {
+        free(conn_state_var_hist);
+    } else {
+        free(conn_state_var_1);
+    }
+    if (model->do_delay) {
+        free(delay);
+    }
     for (int j=0; j<model->nodes; j++) {
         free(_state_vars[j]); free(_intermediate_vars[j]);
         free(_ext_int[j]); free(_ext_bool[j]);
@@ -369,7 +524,8 @@ void _run_simulations_cpu(
             BOLD_ex_out+(sim_idx*m->bold_size), 
             fc_trils_out+(sim_idx*m->n_pairs), 
             fcd_trils_out+(sim_idx*m->n_window_pairs),
-            SC, global_params, regional_params
+            global_params, regional_params, v_list,
+            SC, SC_dist
         );
     }
 }

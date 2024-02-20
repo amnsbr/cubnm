@@ -42,9 +42,6 @@ def gen_expected(model):
         if (not opts_dict['force_cpu']) & (utils.avail_gpus() == 0):
             print("Warning: no GPU available, skipping GPU")
             continue
-        if opts_dict['do_delay'] & opts_dict['force_cpu']:
-            print("Warning: delay not implemented in CPU, skipping delay")
-            continue
         if opts_dict['do_delay']:
             sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True)
         else:

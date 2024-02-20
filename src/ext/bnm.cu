@@ -42,6 +42,8 @@ __device__ void calculateGlobalInput(
     if (has_delay) {
         for (k=0; k<nodes; k++) {
             // calculate correct index of the other region in the buffer based on j-k delay
+            // buffer is moving backward, therefore the delay timesteps back in history
+            // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
             k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
             tmp_globalinput += _SC[k] * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
         }
@@ -191,6 +193,9 @@ __global__ void bnm(
     long noise_idx = 0;
     int BOLD_len_i = 0;
     int ts_bold = 0;
+    // outer loop for 1 msec steps
+    // TODO: define number of steps for outer
+    // and inner loops based on model dt and BW dt from user input 
     while (ts_bold <= time_steps) {
         if (sync_msec) {
             // calculate global input every 1 ms
@@ -208,6 +213,7 @@ __global__ void bnm(
                 conn_state_var_hist, conn_state_var_1
             );
         }
+        // inner loop for 0.1 msec steps
         for (int_i = 0; int_i < 10; int_i++) {
             if (!sync_msec) {
                 // calculate global input every 0.1 ms
@@ -234,15 +240,16 @@ __global__ void bnm(
             );
             if (!sync_msec) {
                 if (has_delay) {
-                    // go 0.1 ms backward in the buffer and save most recent S_i_E
-                    // wait for all regions to have correct (same) buff_idx
-                    // and updated conn_state_var_hist
+                    // wait for other regions before updating so other
+                    // nodes do not access S_i_E of current node at wrong times
                     __syncthreads();
-                    buff_idx = (buff_idx + max_delay - 1) % max_delay;
                     conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
+                    // go one time step backward in the buffer for the next time point
+                    buff_idx = (buff_idx + max_delay - 1) % max_delay;
+                    
                 } else  {
-                    // wait for other regions
-                    // see note above on why this is needed before updating S_i_1_E
+                    // wait for other regions before updating so other
+                    // nodes do not access S_i_E of current node at wrong times
                     __syncthreads();
                     conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
                 }
@@ -251,15 +258,15 @@ __global__ void bnm(
 
         if (sync_msec) {
             if (has_delay) {
-                // go 1 ms backward in the buffer and save most recent S_i_E
-                // wait for all regions to have correct (same) buff_idx
-                // and updated conn_state_var_hist
+                // wait for other regions before updating so other
+                // nodes do not access S_i_E of current node at wrong times
                 __syncthreads();
-                buff_idx = (buff_idx + max_delay - 1) % max_delay;
                 conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
+                // go one time step backward in the buffer for the next time point
+                buff_idx = (buff_idx + max_delay - 1) % max_delay;
             } else {
-                // wait for other regions
-                // see note above on why this is needed before updating S_i_1_E
+                // wait for other regions before updating so other
+                // nodes do not access S_i_E of current node at wrong times
                 __syncthreads();
                 conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
             }
@@ -363,6 +370,7 @@ __global__ void bnm(
             sh_ts_noise = shuffled_ts[ts_noise];
             #endif
             restart = false; // restart is done
+            __syncthreads(); // make sure all threads are in sync after restart
         }
     }
     if (Model::has_post_integration) {
@@ -430,10 +438,11 @@ void _run_simulations_gpu(
     u_real **conn_state_var_hist; 
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist, sizeof(u_real*) * m->N_SIMS)); 
     int **delay;
-    int max_delay = 0; // msec or 0.1 msec depending on base_conf.sync_msec; this is a global variable that will be used in the kernel
-    float min_velocity = 1e10; // only used for printing info
-    float max_length;
-    float curr_length, curr_delay, curr_velocity;
+    int max_delay{0}; // msec or 0.1 msec depending on base_conf.sync_msec; this is a global variable that will be used in the kernel
+    float min_velocity{1e10}; // only used for printing info
+    float max_length{0};
+    float curr_length{0.0}, curr_velocity{0.0};
+    int curr_delay{0};
     if (m->do_delay) {
     // note that do_delay is user asking for delay to be considered, has_delay indicates
     // if user has asked for delay AND there would be any delay between nodes given
@@ -453,27 +462,37 @@ void _run_simulations_gpu(
                 for (int j = 0; j < m->nodes; j++) {
                     curr_length = SC_dist[i*m->nodes+j];
                     if (i > j) {
-                        curr_delay = (int)(((curr_length/curr_velocity))+0.5);
+                        curr_delay = (int)round(curr_length/curr_velocity);
+                        // set minimum delay to 1 because a node
+                        // cannot access instantaneous states of 
+                        // other nodes, as they might not have been
+                        // calculated yet
+                        curr_delay = std::max(curr_delay, 1);
                         delay[sim_idx][i*m->nodes + j] = curr_delay;
                         delay[sim_idx][j*m->nodes + i] = curr_delay;
                         if (curr_delay > max_delay) {
                             max_delay = curr_delay;
                             max_length = curr_length;
                         }
+                    } else if (i == j) {
+                        delay[sim_idx][i*m->nodes + j] = 1;
                     }
                 }
             }
         }
     }
-    bool has_delay = (max_delay > 0); // this is a global variable that will be used in the kernel
+    bool has_delay = (max_delay > 0);
     if (has_delay) {
-        std::string velocity_unit = "m/s";
-        std::string delay_unit = "msec";
-        if (!m->base_conf.sync_msec) {
-            velocity_unit = "m/0.1s";
-            delay_unit = "0.1msec";
+        if (m->base_conf.verbose) {
+            std::string velocity_unit = "m/s";
+            std::string delay_unit = "msec";
+            if (!m->base_conf.sync_msec) {
+                velocity_unit = "m/0.1s";
+                delay_unit = "0.1msec";
+            }
+            printf("Max distance %f (mm) with a minimum velocity of %f (%s) => Max delay: %d (%s)\n", 
+                max_length, min_velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
         }
-        printf("Max distance %f (mm) with a minimum velocity of %f (%s) => Max delay: %d (%s)\n", max_length, min_velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
 
         // allocate memory to conn_state_var_hist for N_SIMS * (nodes * max_delay)
         // TODO: make it possible to have variable max_delay per each simulation
