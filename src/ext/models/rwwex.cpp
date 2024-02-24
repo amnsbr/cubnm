@@ -23,7 +23,7 @@ void rWWExModel::h_init(
     _state_vars[2] = 0.001; // S
 }
 
-void rWWExModel::h_restart(
+void rWWExModel::_j_restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
     int* _ext_int, bool* _ext_bool
 ) {

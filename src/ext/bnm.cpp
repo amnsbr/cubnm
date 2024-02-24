@@ -350,28 +350,24 @@ void bnm(
         #endif
 
         if (Model::has_post_bw_step) {
-            for (j=0; j<model->nodes; j++) {
-                bool j_restart = false;
-                model->h_post_bw_step(
-                    _state_vars[j], _intermediate_vars[j],
-                    _ext_int[j], _ext_bool[j], j_restart,
-                    _global_params, _regional_params[j],
-                    ts_bold
-                );
-                // restart if any node needs to restart
-                restart = restart || j_restart;
-            }
+            model->h_post_bw_step(
+                _state_vars, _intermediate_vars,
+                _ext_int, _ext_bool, restart,
+                _global_params, _regional_params,
+                ts_bold
+            );
         }
 
         // if restart is indicated (e.g. FIC failed in rWW)
         // reset the simulation and start from the beginning
         if (restart) {
+            // model-specific restart
+            model->h_restart(
+                _state_vars, _intermediate_vars,
+                _ext_int, _ext_bool
+            );
+            // regional generic resets
             for (j=0; j<model->nodes; j++) {
-                // model-specific restart
-                model->h_restart(
-                    _state_vars[j], _intermediate_vars[j],
-                    _ext_int[j], _ext_bool[j]
-                );
                 // reset Balloon-Windkessel model variables
                 bw_x[j] = 0.0;
                 bw_f[j] = 1.0;

@@ -143,7 +143,7 @@ void rWWModel::h_init(
     _ext_bool[1] = false; // fic_failed
 }
 
-void rWWModel::h_restart(
+void rWWModel::_j_restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
     int* _ext_int, bool* _ext_bool
 ) {
@@ -194,7 +194,7 @@ void rWWModel::h_step(
     // *S_i_I = max(0.0f, min(1.0f, *S_i_I));
 }
 
-void rWWModel::h_post_bw_step(
+void rWWModel::_j_post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
@@ -223,26 +223,40 @@ void rWWModel::h_post_bw_step(
                     }
                 }
             }
-            // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
-            // the simulation until the end
-            if (restart) {
-                if (_ext_int[0] < (this->conf.max_fic_trials)) {
-                    _ext_int[0]++; // increment fic_trial
+        }
+    }
+}
+
+void rWWModel::h_post_bw_step(u_real** _state_vars, u_real** _intermediate_vars,
+        int** _ext_int, bool** _ext_bool, bool& restart,
+        u_real* _global_params, u_real** _regional_params,
+        int& ts_bold) {
+    BaseModel::h_post_bw_step(_state_vars, _intermediate_vars, _ext_int, _ext_bool, restart, _global_params, _regional_params, ts_bold);
+    // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
+    // the simulation until the end
+    if ((_ext_bool[0]) && (ts_bold == rWWModel::mc.I_SAMPLING_END)) {
+        if (restart) {
+            for (int j=0; j<nodes; j++) {
+                if (_ext_int[j][0] < (this->conf.max_fic_trials)) {
+                    _ext_int[j][0]++; // increment fic_trial
                 } else {
                     // continue the simulation and
                     // declare FIC failed
                     restart = false;
-                    _ext_bool[0] = false; // _adjust_fic
-                    _ext_bool[1] = true; // fic_failed
+                    _ext_bool[j][0] = false; // _adjust_fic
+                    _ext_bool[j][1] = true; // fic_failed
                 }
-            } else {
+            }
+        } else {
+            for (int j=0; j<nodes; j++) {
                 // if no node needs fic adjustment don't run
                 // this block of code any more
-                _ext_bool[0] = false;
+                _ext_bool[j][0] = false;
             }
         }
     }
 }
+
 
 void rWWModel::h_post_integration(
         u_real ***state_vars_out, 

@@ -100,7 +100,7 @@ public:
         int& sim_idx, const int& nodes, int& j
     ); // does nothing
 
-    void init_gpu(BWConstants bwc) override {
+    void init_gpu(BWConstants bwc) override final {
         _init_gpu<rWWExModel>(this, bwc);
     }
 
@@ -108,7 +108,7 @@ public:
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
         u_real * SC, u_real * SC_dist
-    ) override {
+    ) override final {
         _run_simulations_gpu<rWWExModel>(
             BOLD_ex_out, fc_trils_out, fcd_trils_out, 
             global_params, regional_params, v_list,
@@ -120,20 +120,20 @@ public:
     void h_init(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
-    ) override;
+    ) override final;
     void h_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
         u_real& tmp_globalinput,
         u_real* noise, long& noise_idx
-    ) override;
-    void h_restart(
+    ) override final;
+    void _j_restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
-    ) override;
+    ) override final;
 
 
-    void init_cpu() override {
+    void init_cpu() override final {
         _init_cpu<rWWExModel>(this);
     }
 
@@ -141,7 +141,7 @@ public:
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
         u_real * SC, u_real * SC_dist
-    ) override {
+    ) override final {
         _run_simulations_cpu<rWWExModel>(
             BOLD_ex_out, fc_trils_out, fcd_trils_out, 
             global_params, regional_params, v_list,
@@ -149,22 +149,22 @@ public:
         );
     }
 
-    int get_n_state_vars() override {
+    int get_n_state_vars() override final {
         return n_state_vars;
     }
-    int get_n_global_out_bool() override {
+    int get_n_global_out_bool() override final {
         return n_global_out_bool;
     }
-    int get_n_global_out_int() override {
+    int get_n_global_out_int() override final {
         return n_global_out_int;
     }
-    int get_n_global_params() override {
+    int get_n_global_params() override final {
         return n_global_params;
     }
-    int get_n_regional_params() override {
+    int get_n_regional_params() override final {
         return n_regional_params;
     }
-    char * get_name() override {
+    char * get_name() override final {
         return name;
     }
 };

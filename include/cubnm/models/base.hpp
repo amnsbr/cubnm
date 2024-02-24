@@ -141,16 +141,42 @@ public:
         u_real& tmp_globalinput,
         u_real* noise, long& noise_idx
     ) = 0;
-    virtual void h_post_bw_step(
+    virtual void _j_post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
     ) {};
-    virtual void h_restart(
+    virtual void h_post_bw_step(
+        u_real** _state_vars, u_real** _intermediate_vars,
+        int** _ext_int, bool** _ext_bool, bool& restart,
+        u_real* _global_params, u_real** _regional_params,
+        int& ts_bold
+    ) {
+        for (int j=0; j<this->nodes; j++) {
+            bool j_restart = false;
+            _j_post_bw_step(
+                _state_vars[j], _intermediate_vars[j],
+                _ext_int[j], _ext_bool[j], j_restart,
+                _global_params, _regional_params[j],
+                ts_bold
+            );
+            // restart if any node needs to restart
+            restart = restart || j_restart;
+        }
+    };
+    virtual void _j_restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool
     ) {};
+    virtual void h_restart(
+        u_real** _state_vars, u_real** _intermediate_vars, 
+        int** _ext_int, bool** _ext_bool
+    ) {
+        for (int j=0; j<this->nodes; j++) {
+            _j_restart(_state_vars[j], _intermediate_vars[j], _ext_int[j], _ext_bool[j]);
+        }
+    };
     virtual void h_post_integration(
         u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
