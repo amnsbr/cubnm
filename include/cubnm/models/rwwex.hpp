@@ -35,6 +35,9 @@ public:
     // the following are needed for numerical FIC
     static constexpr int n_ext_int = 0; // number of additional int variables for each node
     static constexpr int n_ext_bool = 0; // number of additional bool variables for each node
+    static constexpr int n_ext_int_shared = 0; // number of additional int variables shared
+    static constexpr int n_ext_bool_shared = 0; // number of additional bool variables shared
+    static constexpr int n_ext_u_real_shared = 0; // number of additional float/double variables shared
     static constexpr int n_global_out_int = 0;
     static constexpr int n_global_out_bool = 0;
     static constexpr int n_global_out_u_real = 0;
@@ -72,7 +75,8 @@ public:
     #ifdef _GPU_ENABLED
     CUDA_CALLABLE_MEMBER void init(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
+        int* _ext_int, bool* _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared
     );
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
@@ -82,19 +86,23 @@ public:
     );
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
-        int* _ext_int, bool* _ext_bool, bool& restart,
+        int* _ext_int, bool* _ext_bool, 
+        int* _ext_int_shared, bool* _ext_bool_shared,
+        bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
     ); // does nothing
     CUDA_CALLABLE_MEMBER void restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
+        int* _ext_int, bool* _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared
     );
     CUDA_CALLABLE_MEMBER void post_integration(
         u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool, 
+        int* _ext_int_shared, bool* _ext_bool_shared,
         u_real** global_params, u_real** regional_params,
         u_real* _global_params, u_real* _regional_params,
         int& sim_idx, const int& nodes, int& j
@@ -119,7 +127,8 @@ public:
 
     void h_init(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
+        int* _ext_int, bool* _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared
     ) override final;
     void h_step(
         u_real* _state_vars, u_real* _intermediate_vars,
@@ -129,7 +138,8 @@ public:
     ) override final;
     void _j_restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
+        int* _ext_int, bool* _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared
     ) override final;
 
 

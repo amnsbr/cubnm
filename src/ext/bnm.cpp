@@ -78,6 +78,8 @@ void bnm(
     for (int j = 0; j < model->nodes; j++) {
         _ext_bool[j] = (bool*)malloc(Model::n_ext_bool * sizeof(bool));
     }
+    int* _ext_int_shared = (int*)malloc(Model::n_ext_int_shared * sizeof(int));
+    bool* _ext_bool_shared = (bool*)malloc(Model::n_ext_bool_shared * sizeof(bool));
 
     // initialze the sum (eventually mean) of states_out to 0
     // if not asked to return timeseries
@@ -94,7 +96,8 @@ void bnm(
     for (int j=0; j<model->nodes; j++) {
         model->h_init(
             _state_vars[j], _intermediate_vars[j],
-            _ext_int[j], _ext_bool[j]
+            _ext_int[j], _ext_bool[j],
+            _ext_int_shared, _ext_bool_shared
         );
     }
 
@@ -311,11 +314,6 @@ void bnm(
                 bw_x[j], bw_f[j], bw_nu[j], bw_q[j], tmp_f,
                 _state_vars[j][Model::bold_state_var_idx]
             );
-            // bw_x[j]  = bw_x[j]  +  _mc.bw_dt * (S_i_E[j] - _mc.kappa * bw_x[j] - _mc.y * (bw_f[j] - 1.0));
-            // tmp_f       = bw_f[j]  +  _mc.bw_dt * bw_x[j];
-            // bw_nu[j] = bw_nu[j] +  _mc.bw_dt * _mc.itau * (bw_f[j] - POW(bw_nu[j], _mc.ialpha));
-            // bw_q[j]  = bw_q[j]  +  _mc.bw_dt * _mc.itau * (bw_f[j] * (1.0 - POW(_mc.oneminrho,(1.0/bw_f[j]))) / _mc.rho  - POW(bw_nu[j],_mc.ialpha) * bw_q[j] / bw_nu[j]);
-            // bw_f[j]  = tmp_f;   
         }
         if (ts_bold % model->BOLD_TR == 0) {
             for (j = 0; j<model->nodes; j++) {
@@ -352,7 +350,9 @@ void bnm(
         if (Model::has_post_bw_step) {
             model->h_post_bw_step(
                 _state_vars, _intermediate_vars,
-                _ext_int, _ext_bool, restart,
+                _ext_int, _ext_bool, 
+                _ext_int_shared, _ext_bool_shared,
+                restart,
                 _global_params, _regional_params,
                 ts_bold
             );
@@ -364,7 +364,8 @@ void bnm(
             // model-specific restart
             model->h_restart(
                 _state_vars, _intermediate_vars,
-                _ext_int, _ext_bool
+                _ext_int, _ext_bool,
+                _ext_int_shared, _ext_bool_shared
             );
             // regional generic resets
             for (j=0; j<model->nodes; j++) {
@@ -408,6 +409,7 @@ void bnm(
                 model->states_out, model->global_out_int, model->global_out_bool,
                 _state_vars[j], _intermediate_vars[j], 
                 _ext_int[j], _ext_bool[j], 
+                _ext_int_shared, _ext_bool_shared,
                 global_params, regional_params,
                 _global_params, _regional_params[j],
                 sim_idx, model->nodes, j

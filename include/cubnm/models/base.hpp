@@ -133,7 +133,8 @@ public:
 
     virtual void h_init(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
+        int* _ext_int, bool* _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared
     ) = 0;
     virtual void h_step(
         u_real* _state_vars, u_real* _intermediate_vars,
@@ -143,13 +144,17 @@ public:
     ) = 0;
     virtual void _j_post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
-        int* _ext_int, bool* _ext_bool, bool& restart,
+        int* _ext_int, bool* _ext_bool, 
+        int* _ext_int_shared, bool* _ext_bool_shared,
+        bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
     ) {};
     virtual void h_post_bw_step(
         u_real** _state_vars, u_real** _intermediate_vars,
-        int** _ext_int, bool** _ext_bool, bool& restart,
+        int** _ext_int, bool** _ext_bool, 
+        int* _ext_int_shared, bool* _ext_bool_shared,
+        bool& restart,
         u_real* _global_params, u_real** _regional_params,
         int& ts_bold
     ) {
@@ -157,7 +162,9 @@ public:
             bool j_restart = false;
             _j_post_bw_step(
                 _state_vars[j], _intermediate_vars[j],
-                _ext_int[j], _ext_bool[j], j_restart,
+                _ext_int[j], _ext_bool[j], 
+                _ext_int_shared, _ext_bool_shared,
+                j_restart,
                 _global_params, _regional_params[j],
                 ts_bold
             );
@@ -167,14 +174,20 @@ public:
     };
     virtual void _j_restart(
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool
+        int* _ext_int, bool* _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared
     ) {};
     virtual void h_restart(
         u_real** _state_vars, u_real** _intermediate_vars, 
-        int** _ext_int, bool** _ext_bool
+        int** _ext_int, bool** _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared
     ) {
         for (int j=0; j<this->nodes; j++) {
-            _j_restart(_state_vars[j], _intermediate_vars[j], _ext_int[j], _ext_bool[j]);
+            _j_restart(
+                _state_vars[j], _intermediate_vars[j], 
+                _ext_int[j], _ext_bool[j], 
+                _ext_int_shared, _ext_bool_shared
+            );
         }
     };
     virtual void h_post_integration(
@@ -182,6 +195,7 @@ public:
         int **global_out_int, bool **global_out_bool,
         u_real* _state_vars, u_real* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool, 
+        int* _ext_int_shared, bool* _ext_bool_shared,
         u_real** global_params, u_real** regional_params,
         u_real* _global_params, u_real* _regional_params,
         int& sim_idx, const int& nodes, int& j

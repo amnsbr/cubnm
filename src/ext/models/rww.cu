@@ -3,7 +3,8 @@
 #include "cubnm/models/rww.cuh"
 __device__ void rWWModel::init(
     u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool
+    int* _ext_int, bool* _ext_bool,
+    int* _ext_int_shared, bool* _ext_bool_shared
 ) {
     // Note that rather than harcoding the variable
     // indices it is also possible to do indexing via
@@ -13,14 +14,15 @@ __device__ void rWWModel::init(
     // numerical FIC initializations
     _intermediate_vars[4] = 0.0; // mean_I_E
     _intermediate_vars[5] = d_rWWc.init_delta; // delta
-    _ext_int[0] = 0; // fic_trial
-    _ext_bool[0] = this->conf.do_fic & (this->conf.max_fic_trials > 0); // _adjust_fic in current sim
-    _ext_bool[1] = false; // fic_failed
+    _ext_int_shared[0] = 0; // fic_trial
+    _ext_bool_shared[0] = this->conf.do_fic & (this->conf.max_fic_trials > 0); // _adjust_fic in current sim
+    _ext_bool_shared[1] = false; // fic_failed
 }
 
 __device__ void rWWModel::restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool
+    int* _ext_int, bool* _ext_bool,
+    int* _ext_int_shared, bool* _ext_bool_shared
 ) {
     // this is different from init in that it doesn't
     // reset the numerical FIC variables delta, fic_trial
@@ -71,11 +73,13 @@ __device__ void rWWModel::step(
 
 __device__ void rWWModel::post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
-        int* _ext_int, bool* _ext_bool, bool& restart,
+        int* _ext_int, bool* _ext_bool, 
+        int* _ext_int_shared, bool* _ext_bool_shared,
+        bool& restart,
         u_real* _global_params, u_real* _regional_params,
         int& ts_bold
         ) {
-    if (_ext_bool[0]) {
+    if (_ext_bool_shared[0]) {
         if ((ts_bold >= d_rWWc.I_SAMPLING_START) & (ts_bold <= d_rWWc.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
@@ -86,7 +90,7 @@ __device__ void rWWModel::post_bw_step(
             _intermediate_vars[6] = _intermediate_vars[4] - d_rWWc.b_a_ratio_E;
             if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
                 restart = true;
-                if (_ext_int[0] < this->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
+                if (_ext_int_shared[0] < this->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
                     // up- or downregulate inhibition
                     if ((_intermediate_vars[6]) < -0.026) {
                         _regional_params[2] -= _intermediate_vars[5];
@@ -103,19 +107,19 @@ __device__ void rWWModel::post_bw_step(
             // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
             // the simulation until the end
             if (restart) {
-                if (_ext_int[0] < (this->conf.max_fic_trials)) {
-                    _ext_int[0]++; // increment fic_trial
+                if (_ext_int_shared[0] < (this->conf.max_fic_trials)) {
+                    if (threadIdx.x == 0) _ext_int_shared[0]++; // increment fic_trial
                 } else {
                     // continue the simulation and
                     // declare FIC failed
                     restart = false;
-                    _ext_bool[0] = false; // _adjust_fic
-                    _ext_bool[1] = true; // fic_failed
+                    _ext_bool_shared[0] = false; // _adjust_fic
+                    _ext_bool_shared[1] = true; // fic_failed
                 }
             } else {
                 // if no node needs fic adjustment don't run
                 // this block of code any more
-                _ext_bool[0] = false;
+                _ext_bool_shared[0] = false;
             }
             __syncthreads();
         }
@@ -126,7 +130,8 @@ __device__ void rWWModel::post_integration(
         u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
         u_real* _state_vars, u_real* _intermediate_vars, 
-        int* _ext_int, bool* _ext_bool, 
+        int* _ext_int, bool* _ext_bool,
+        int* _ext_int_shared, bool* _ext_bool_shared,
         u_real** global_params, u_real** regional_params,
         u_real* _global_params, u_real* _regional_params,
         int& sim_idx, const int& nodes, int& j
@@ -136,7 +141,9 @@ __device__ void rWWModel::post_integration(
         // modified wIE array
         regional_params[2][sim_idx*nodes+j] = _regional_params[2];
         // number of trials and fic failure
-        global_out_int[0][sim_idx] = _ext_int[0];
-        global_out_bool[1][sim_idx] = _ext_bool[1];
+        if (j == 0) {
+            global_out_int[0][sim_idx] = _ext_int_shared[0];
+            global_out_bool[1][sim_idx] = _ext_bool_shared[1];
+        }
     }
 }

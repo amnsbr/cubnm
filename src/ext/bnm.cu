@@ -133,11 +133,15 @@ __global__ void bnm(
     u_real* _intermediate_vars = (Model::n_intermediate_vars > 0) ? new u_real[Model::n_intermediate_vars] : NULL;
     int* _ext_int = (Model::n_ext_int > 0) ? new int[Model::n_ext_int] : NULL;
     bool* _ext_bool = (Model::n_ext_bool > 0) ? new bool[Model::n_ext_bool] : NULL;
-    // __shared__ bool* _ext_bool_shared;
-    // if (Model::n_ext_bool > 0) {
-    //     _ext_bool_shared = new bool[Model::n_ext_bool];
-    // }
-    model->init(_state_vars, _intermediate_vars, _ext_int, _ext_bool);
+    __shared__ bool* _ext_bool_shared;
+    if (Model::n_ext_bool_shared > 0) {
+        _ext_bool_shared = new bool[Model::n_ext_bool_shared];
+    }
+    __shared__ int* _ext_int_shared;
+    if (Model::n_ext_int_shared > 0) {
+        _ext_int_shared = new int[Model::n_ext_int_shared];
+    }
+    model->init(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
 
 
     // Ballon-Windkessel model variables
@@ -329,7 +333,9 @@ __global__ void bnm(
         if (Model::has_post_bw_step) {
             model->post_bw_step(
                 _state_vars, _intermediate_vars,
-                _ext_int, _ext_bool, restart,
+                _ext_int, _ext_bool, 
+                _ext_int_shared, _ext_bool_shared,
+                restart,
                 _global_params, _regional_params,
                 ts_bold
             );
@@ -339,7 +345,7 @@ __global__ void bnm(
         // reset the simulation and start from the beginning
         if (restart) {
             // model-specific restart
-            model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool);
+            model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
             // subtract progress of current simulation
             if (model->base_conf.verbose && (j==0)) {
                 atomicAdd(progress, -BOLD_len_i);
@@ -378,6 +384,7 @@ __global__ void bnm(
             states_out, global_out_int, global_out_bool,
             _state_vars, _intermediate_vars, 
             _ext_int, _ext_bool, 
+            _ext_int_shared, _ext_bool_shared,
             global_params, regional_params,
             _global_params, _regional_params,
             sim_idx, nodes, j
@@ -520,7 +527,7 @@ void _run_simulations_gpu(
     size_t shared_mem_extern = m->nodes*sizeof(u_real);
     #else
     size_t shared_mem_extern = 0;
-    #endif 
+    #endif
     // keep track of progress
     // Note: based on BOLD TRs reached in the first node
     // of each simulation (therefore the progress will be
@@ -710,8 +717,8 @@ void _run_simulations_gpu(
     //     for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
     //         CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
     //     }
-    // } 
-    // #endif   
+    // }
+    // #endif
     CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist));
 }
 

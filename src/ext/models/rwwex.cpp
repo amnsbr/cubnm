@@ -18,14 +18,16 @@ void rWWExModel::init_constants() {
 
 void rWWExModel::h_init(
     u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool
+    int* _ext_int, bool* _ext_bool,
+    int* _ext_int_shared, bool* _ext_bool_shared
 ) {
     _state_vars[2] = 0.001; // S
 }
 
 void rWWExModel::_j_restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
-    int* _ext_int, bool* _ext_bool
+    int* _ext_int, bool* _ext_bool,
+    int* _ext_int_shared, bool* _ext_bool_shared
 ) {
     _state_vars[2] = 0.001; // S
 }
