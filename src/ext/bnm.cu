@@ -497,8 +497,9 @@ void _run_simulations_gpu(
                 velocity_unit = "m/0.1s";
                 delay_unit = "0.1msec";
             }
-            printf("Max distance %f (mm) with a minimum velocity of %f (%s) => Max delay: %d (%s)\n", 
-                max_length, min_velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
+            std::cout << "Max distance " << max_length << " (mm) with a minimum velocity of " 
+                << min_velocity << " (" << velocity_unit << ") => Max delay: " 
+                << max_delay << " (" << delay_unit << ")" << std::endl;
         }
 
         // allocate memory to conn_state_var_hist for N_SIMS * (nodes * max_delay)
@@ -553,31 +554,32 @@ void _run_simulations_gpu(
         uint last_progress = 0;
         while (*progress < progress_final) {
             // Print progress as percentage
-            printf("%.2f%%\r", ((double)*progress / progress_final) * 100);
-            fflush(stdout);
+            std::cout << std::fixed << std::setprecision(2) 
+                << ((double)*progress / progress_final) * 100 << "%\r";
+            std::cout.flush();
             // Sleep for interval ms
             std::this_thread::sleep_for(std::chrono::milliseconds(m->base_conf.progress_interval));
             // make sure it doesn't get stuck
             // by checking if there has been any progress
             if (*progress == last_progress) {
-                printf("No progress detected in the last %d ms.\n", m->base_conf.progress_interval);
+                std::cout << "No progress detected in the last " << m->base_conf.progress_interval << " ms." << std::endl;
                 break;
             }
             last_progress = *progress;
         }
         if (*progress == progress_final) {
-            printf("100.00%\n");
+            std::cout << "100.00%" << std::endl;
         } else {
-            printf("If no errors are shown, the simulation is still running "
+            std::cout << "If no errors are shown, the simulation is still running "
                 "but the progress is not being updated as there was no progress in the "
-                "last %d ms, which may be too fast for current GPU and simulations\n", 
-                m->base_conf.progress_interval);
+                "last " << m->base_conf.progress_interval <<  " ms, which may be too "
+                "fast for current GPU and simulations" << std::endl;
         }
     }
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     if (m->base_conf.verbose) {
-        printf("Simulation completed\n");
+        std::cout << "Simulation completed" << std::endl;
     }
 
     // calculate mean and sd bold for FC calculation
@@ -602,7 +604,7 @@ void _run_simulations_gpu(
     numBlocks.y = ceil((float)m->n_pairs / (float)maxThreadsPerBlock);
     numBlocks.z = m->n_windows + 1; // +1 for total FC
     if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
-        printf("Error: Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]\n");
+        std::cerr << "Error: Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]" << std::endl;
         exit(1);
     }
     threadsPerBlock.x = maxThreadsPerBlock;
@@ -624,7 +626,8 @@ void _run_simulations_gpu(
     numBlocks.z = 1;
     threadsPerBlock.x = m->n_windows;
     if (m->n_windows >= prop.maxThreadsPerBlock) {
-        printf("Error: Mean/ssd FC tril of %d windows cannot be calculated on this device\n", m->n_windows);
+        std::cerr << "Error: Mean/ssd FC tril of " << m->n_windows 
+            << " windows cannot be calculated on this device" << std::endl;
         exit(1);
     }
     window_fc_stats<<<numBlocks,threadsPerBlock>>>(
@@ -639,7 +642,7 @@ void _run_simulations_gpu(
     numBlocks.y = ceil((float)m->n_window_pairs / (float)maxThreadsPerBlock);
     numBlocks.z = 1;
     if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
-        printf("Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]\n");
+        std::cerr << "Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]" << std::endl;
         exit(1);
     }
     threadsPerBlock.x = maxThreadsPerBlock;
@@ -791,7 +794,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     // preparing FC calculations
     m->corr_len = m->output_ts - m->n_vols_remove;
     if (m->corr_len < 2) {
-        printf("Number of BOLD volumes (after removing initial volumes) is too low for FC calculations\n");
+        std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
         exit(1);
     }
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->BOLD), sizeof(u_real*) * m->N_SIMS));
@@ -801,7 +804,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     int rh_idx;
     if (m->base_conf.exc_interhemispheric) {
         if ((m->nodes % 2) != 0) {
-            printf("Error: exc_interhemispheric is set but number of nodes is not even\n");
+            std::cerr << "Error: exc_interhemispheric is set but number of nodes is not even" << std::endl;
             exit(1);
         }
         rh_idx = m->nodes / 2; // assumes symmetric number of parcels and L->R order
@@ -837,7 +840,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         m->corr_len, m->output_ts, m->n_vols_remove,
         m->window_step, m->window_size, m->base_conf.drop_edges);
     if (m->n_windows == 0) {
-        printf("Error: Number of windows is 0\n");
+        std::cerr << "Error: Number of windows is 0" << std::endl;
         exit(1);
     }
     CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_starts), sizeof(int) * m->n_windows));
@@ -929,7 +932,9 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
         m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
         #endif
-        printf("Precalculating %d noise elements...\n", m->noise_size);
+        if (m->base_conf.verbose) {
+            std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;
+        }
         if (m->last_nodes != 0) {
             // noise is being recalculated, free the previous one
             CUDA_CHECK_RETURN(cudaFree(m->noise));
@@ -955,14 +960,19 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         #ifdef NOISE_SEGMENT
         // create shuffled nodes and ts indices for each repeat of the 
         // precalculaed noise 
-        printf("noise will be repeated %d times (nodes [rows] and timepoints [columns] will be shuffled in each repeat)\n", m->noise_repeats);
+        if (m->base_conf.verbose) {
+            std::cout << "noise will be repeated " << m->noise_repeats << 
+                " times (nodes [rows] and timepoints [columns] will be shuffled in each repeat)" << std::endl;
+        }
         CUDA_CHECK_RETURN(cudaMallocManaged(&(m->shuffled_nodes), sizeof(int) * m->noise_repeats * m->nodes));
         CUDA_CHECK_RETURN(cudaMallocManaged(&(m->shuffled_ts), sizeof(int) * m->noise_repeats * m->base_conf.noise_time_steps));
         get_shuffled_nodes_ts(&(m->shuffled_nodes), &(m->shuffled_ts),
             m->nodes, m->base_conf.noise_time_steps, m->noise_repeats, &rand_gen);
         #endif
     } else {
-        printf("Noise already precalculated\n");
+        if (m->base_conf.verbose) {
+            std::cout << "Noise already precalculated" << std::endl;
+        }
     }
 
     m->gpu_initialized = true;
@@ -980,7 +990,7 @@ void BaseModel::free_gpu() {
         return;
     }
     if (this->base_conf.verbose) {
-        printf("Freeing GPU memory (%s)\n", this->get_name());
+        std::cout << "Freeing GPU memory (" << this->get_name() << ")" << std::endl;
     }
     #ifdef NOISE_SEGMENT
     CUDA_CHECK_RETURN(cudaFree(this->shuffled_nodes));

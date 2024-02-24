@@ -67,7 +67,7 @@ double gsl_fsolve(gsl_function F, double x_lo, double x_hi) {
     while (status == GSL_CONTINUE && iter < max_iter);
     gsl_root_fsolver_free(s); 
     if (status != GSL_SUCCESS) {
-        printf("Root solver did not converge\n");
+        std::cerr << "Root solver did not converge" << std::endl;
         return -1;
     }
     return root;

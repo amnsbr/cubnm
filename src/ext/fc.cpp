@@ -27,7 +27,7 @@ gsl_vector * BaseModel::calculate_fc_tril(gsl_matrix * bold) {
                     (bold->size1)
                 );
                 if (std::isnan(corr)) {
-                    printf("FC[%d,%d] is NaN\n", i, j);
+                    std::cerr << "FC[" << i << "," << j << "] is NaN" << std::endl;
                     return NULL;
                 }
                 gsl_vector_set(FC_tril, curr_idx, corr);
@@ -49,7 +49,7 @@ gsl_vector * BaseModel::calculate_fcd_tril(gsl_matrix * bold, int * window_start
     gsl_vector * FCD_tril = gsl_vector_alloc(this->n_window_pairs);
     gsl_matrix * window_FC_trils = gsl_matrix_alloc(this->n_pairs, this->n_windows);
     if (this->n_windows < 10) {
-        printf("Warning: Too few FC windows: %d\n", this->n_windows);
+        std::cout << "Warning: Too few FC windows: " << this->n_windows << std::endl;
     }
     // calculate dynamic FC
     for (int i=0; i<this->n_windows; i++) {
@@ -59,7 +59,7 @@ gsl_vector * BaseModel::calculate_fcd_tril(gsl_matrix * bold, int * window_start
             window_ends[i]-window_starts[i]+1, this->nodes);
         gsl_vector * window_FC_tril = this->calculate_fc_tril(&bold_window.matrix);
         if (window_FC_tril==NULL) {
-            printf("Error: Dynamic FC calculation failed\n");
+            std::cerr << "Error: Dynamic FC calculation failed" << std::endl;
             return NULL;
         }
         gsl_matrix_set_col(window_FC_trils, i, window_FC_tril);
@@ -80,7 +80,7 @@ gsl_vector * BaseModel::calculate_fcd_tril(gsl_matrix * bold, int * window_start
                     this->n_pairs
                 );
                 if (std::isnan(corr)) {
-                    printf("Error: FCD[%d,%d] is NaN\n", window_i, window_j);
+                    std::cerr << "Error: FCD[" << window_i << "," << window_j << "] is NaN" << std::endl;
                     return NULL;
                 }
                 gsl_vector_set(FCD_tril, curr_idx, corr);

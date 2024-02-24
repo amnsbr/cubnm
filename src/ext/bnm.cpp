@@ -168,8 +168,9 @@ void bnm(
                 velocity_unit = "m/0.1s";
                 delay_unit = "0.1msec";
             }
-            printf("Max distance %f (mm) with a velocity of %f (%s) => Max delay: %d (%s)\n", 
-                max_length, sim_velocity, velocity_unit.c_str(), max_delay, delay_unit.c_str());
+            std::cout << "Max distance " << max_length << " (mm) with a velocity of " 
+                << sim_velocity << " (" << velocity_unit << ") => Max delay: "
+                << max_delay << " (" << delay_unit << ")" << std::endl;
         }
         // allocate memory to conn_state_var_hist for (nodes * max_delay)
         conn_state_var_hist = (u_real*)malloc(sizeof(u_real) * model->nodes * max_delay);
@@ -223,7 +224,10 @@ void bnm(
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
     while (ts_bold <= model->time_steps) {
-        if (model->base_conf.verbose) printf("%.1f %% \r", ((u_real)ts_bold / (u_real)model->time_steps) * 100.0f );
+        if (model->base_conf.verbose) {
+            std::cout << std::fixed << std::setprecision(1) << 
+                ((u_real)ts_bold / (u_real)model->time_steps) * 100.0f << " %\r";
+        }
         // TODO: similar to CPU add the option for sync_msec
         #ifdef NOISE_SEGMENT
         sh_ts_noise = model->shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
@@ -510,9 +514,10 @@ void _run_simulations_cpu(
         char time_str[9];
         std::strftime(time_str, sizeof(time_str), "%T", timeinfo);
         #ifdef OMP_ENABLED
-            printf("Thread %d (of %d) is executing particle %d [%s]\n", omp_get_thread_num(), omp_get_num_threads(), sim_idx, time_str);
+        std::cout << "Thread " << omp_get_thread_num() << " (of " << omp_get_num_threads() << 
+            ") is executing particle " << sim_idx << " [" << time_str << "]" << std::endl;
         #else
-            printf("Executing particle %d [%s]\n", sim_idx, time_str);
+        std::cout << "Executing particle " << sim_idx << " [" << time_str << "]" << std::endl;
         #endif
         // run the simulation and calcualte FC and FC
         // write the output to chunks of output variables
@@ -565,7 +570,7 @@ void _init_cpu(BaseModel *m) {
     // calculate length of BOLD after removing initial volumes
     m->corr_len = m->output_ts - m->n_vols_remove;
     if (m->corr_len < 2) {
-        printf("Number of BOLD volumes (after removing initial volumes) is too low for FC calculations\n");
+        std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
         exit(1);
     }
     // calculate the number of FC pairs
@@ -601,7 +606,9 @@ void _init_cpu(BaseModel *m) {
         m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
         m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
         #endif
-        printf("Precalculating %d noise elements...\n", m->noise_size);
+        if (m->base_conf.verbose) {
+            std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;
+        }
         if (m->last_nodes != 0) {
             // noise is being recalculated, free the previous one
             free(m->noise);
@@ -627,15 +634,19 @@ void _init_cpu(BaseModel *m) {
         #ifdef NOISE_SEGMENT
         // create shuffled nodes and ts indices for each repeat of the 
         // precalculaed noise 
-        printf("noise will be repeated %d times (nodes [rows] and "
-            "timepoints [columns] will be shuffled in each repeat)\n", m->noise_repeats);
+        if (m->base_conf.verbose) {
+            std::cout << "noise will be repeated " << m->noise_repeats << " times (nodes [rows] and "
+                "timepoints [columns] will be shuffled in each repeat)" << std::endl;
+        }
         m->shuffled_nodes = (int*)malloc(m->noise_repeats * m->nodes * sizeof(int));
         m->shuffled_ts = (int*)malloc(m->noise_repeats * m->base_conf.noise_time_steps * sizeof(int));
         get_shuffled_nodes_ts(&(m->shuffled_nodes), &(m->shuffled_ts),
             m->nodes, m->base_conf.noise_time_steps, m->noise_repeats, &rand_gen);
         #endif
     } else {
-        printf("Noise already precalculated\n");
+        if (m->base_conf.verbose) {
+            std::cout << "Noise already precalculated" << std::endl;
+        }
     }
     
     m->cpu_initialized = true;
@@ -654,7 +665,7 @@ void BaseModel::free_cpu() {
         return;
     }
     if (this->base_conf.verbose) {
-        printf("Freeing CPU memory (%s)\n", this->get_name());
+        std::cout << "Freeing CPU memory (" << this->get_name() << ")" << std::endl;
     }
     #ifdef NOISE_SEGMENT
     free(this->shuffled_nodes);

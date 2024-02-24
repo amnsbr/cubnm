@@ -35,6 +35,7 @@
 #include <complex>
 #include <algorithm>
 #include <memory>
+#include <iomanip>
 #include "cubnm/defines.h"
 #include "utils.cpp"
 #include "./models/bw.cpp"
@@ -272,9 +273,9 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
 
     if (nodes > MAX_NODES) {
-        printf("nodes must be less than %d\n", MAX_NODES);
+        std::cerr << "nodes must be less than " << MAX_NODES << std::endl;
         #ifndef MANY_NODES
-        printf("To use more nodes, recompile the library with MANY_NODES flag.\n");
+        std::cerr << "To use more nodes, recompile the library with MANY_NODES flag." << std::endl;
         #endif
         return NULL;
     }
@@ -301,7 +302,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             );
         } 
         else {
-            printf("Model not found\n");
+            std::cerr << "Model " << model_name << " not found" << std::endl;
             return NULL;
         }
     } else {
@@ -330,7 +331,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         #ifndef GPU_ENABLED
         // TODO: write a proper warning + instructions on what to do
         // if the system does have a CUDA-enabled GPU
-        printf("Library not compiled with GPU support and cannot use GPU.\n");
+        std::cerr << "Library not compiled with GPU support and cannot use GPU." << std::endl;
         return NULL;
         #endif
     }
@@ -339,22 +340,25 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     // it does memory allocation and noise precalculation among other things
     start = std::chrono::high_resolution_clock::now();
     if (use_cpu & ((!model->cpu_initialized) | (force_reinit))) {
-        printf("Initializing CPU session...");
+        std::cout << "Initializing CPU session..." << std::endl;
         model->init_cpu();
         end = std::chrono::high_resolution_clock::now();
         elapsed_seconds = end - start;
+        std::cout << "took " << std::fixed << std::setprecision(6)
+            << elapsed_seconds.count() << " s" << std::endl;
     } 
     #ifdef GPU_ENABLED
     else if (!use_cpu & ((!model->gpu_initialized) | (force_reinit))) {
-        printf("Initializing GPU session...");
+        std::cout << "Initializing GPU session..." << std::endl;
         model->init_gpu(bwc);
         end = std::chrono::high_resolution_clock::now();
         elapsed_seconds = end - start;
-        printf("took %lf s\n", elapsed_seconds.count());
+        std::cout << "took " << std::fixed << std::setprecision(6) 
+            << elapsed_seconds.count() << " s" << std::endl;
     }
     #endif
     else {
-        printf("Current session is already initialized\n");
+        std::cout << "Current session is already initialized" << std::endl;
     }
 
     // Create NumPy arrays from BOLD_ex_out, fc_trils_out, and fcd_trils_out
@@ -375,7 +379,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyObject* py_global_bools_out = PyArray_SimpleNew(2, global_bools_dims, PyArray_BOOL);
     PyObject* py_global_ints_out = PyArray_SimpleNew(2, global_ints_dims, PyArray_INT);
 
-    printf("Running %d simulations...\n", N_SIMS);
+    std::cout << "Running " << N_SIMS << " simulations..." << std::endl;
     start = std::chrono::high_resolution_clock::now();
     // TODO: cast the arrays to double if u_real is float
     if (use_cpu) {
@@ -400,8 +404,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     #endif
     end = std::chrono::high_resolution_clock::now();
     elapsed_seconds = end - start;
-    printf("took %lf s\n", elapsed_seconds.count());
-
+    std::cout << "took " << std::fixed << std::setprecision(6)
+        << elapsed_seconds.count() << " s" << std::endl;
 
     array_to_np_3d<u_real>(model->states_out, py_states_out);
     array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
