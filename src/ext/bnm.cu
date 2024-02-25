@@ -167,23 +167,52 @@ __global__ void bnm(
         buff_idx = max_delay-1;
     }
 
-    // stored history of conn_state_var on extern shared memory
+    // store immediate history of conn_state_var on extern shared memory
     // the memory is allocated dynamically based on the number of nodes
     // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
-    extern __shared__ u_real conn_state_var_1[];
-    conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
+    extern __shared__ u_real _conn_state_var_1[];
+    u_real *conn_state_var_1;
+    if (!(has_delay)) {
+        // conn_state_var_1 is only used when
+        // there is no delay
+        if (nodes <= MAX_NODES_REG) {
+            // for lower number of nodes
+            // use shared memory for conn_state_var_1
+            conn_state_var_1 = _conn_state_var_1;
+        }
+        #ifdef MANY_NODES
+        else {
+            // otherwise use global memory
+            // allocated to conn_state_var_hist
+            conn_state_var_1 = conn_state_var_hist[sim_idx];
+        }
+        // the else case only occurs if
+        // MANY_NODES is defined but is also wrapped in
+        // #ifdef MANY_NODES, as otherwise it'll hurt performance
+        // of nodes <= MAX_NODES_REG simulations
+        // (by making some compiler optimizations not possible)
+        #endif
+        conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
+    }
 
-//     #ifndef MANY_NODES
     // copy SC to thread memory to make it faster
     // (especially with lower N of simulations)
-    u_real _SC[MAX_NODES];
-    for (int k=0; k<nodes; k++) {
-        _SC[k] = SC[j*nodes+k];
+    u_real *_SC;
+    u_real __SC[MAX_NODES_REG];
+    if (nodes <= MAX_NODES_REG) {
+        // copy SC to local memory
+        // for better performance
+        _SC = __SC;
+        for (int k=0; k<nodes; k++) {
+            _SC[k] = SC[j*nodes+k];
+        }
+    } 
+    #ifdef MANY_NODES
+    else {
+        // use global memory
+        _SC = &(SC[j*nodes]);
     }
-//     #else
-//     // use global memory for SC
-//     u_real *_SC = &(SC[j*nodes]);
-//     #endif
+    #endif
 
     // this will determine if the simulation should be restarted
     // (e.g. if FIC adjustment fails in rWW)
@@ -358,16 +387,17 @@ __global__ void bnm(
             bw_f = 1.0;
             bw_nu = 1.0;
             bw_q = 1.0;
-            // reset delay buffer index
             if (has_delay) {
                 // initialize conn_state_var_hist in every time point at initial value
                 for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
                     conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
                 }
+                // reset delay buffer index
                 buff_idx = max_delay-1;
+            } else {
+                // reset conn_state_var_1
+                conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
             }
-            // reset conn_state_var_1
-            conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
             #ifdef NOISE_SEGMENT
             // reset the node shuffling
             sh_j = shuffled_nodes[j];
@@ -379,6 +409,7 @@ __global__ void bnm(
             __syncthreads(); // make sure all threads are in sync after restart
         }
     }
+
     if (Model::has_post_integration) {
         model->post_integration(
             states_out, global_out_int, global_out_bool,
@@ -501,18 +532,17 @@ void _run_simulations_gpu(
                 << min_velocity << " (" << velocity_unit << ") => Max delay: " 
                 << max_delay << " (" << delay_unit << ")" << std::endl;
         }
-
         // allocate memory to conn_state_var_hist for N_SIMS * (nodes * max_delay)
         // TODO: make it possible to have variable max_delay per each simulation
         for (int sim_idx=0; sim_idx < m->N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * m->nodes * max_delay));
         }
-    } 
+    }
     #ifdef MANY_NODES
-    // in case of large number of nodes also allocate memory to
-    // conn_state_var_hist[sim_idx] for a length of nodes. This array
-    // will contain the immediate history of S_i_E (at t-1)
-    else {
+    else if (m->nodes > MAX_NODES_REG) {
+        // if there is no delay and the number of nodes is large
+        // store immediate history to conn_state_var_hist
+        // on global memory, instead of shared memory
         for (int sim_idx=0; sim_idx < m->N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * m->nodes));
         }
@@ -523,12 +553,14 @@ void _run_simulations_gpu(
     dim3 numBlocks(m->N_SIMS);
     dim3 threadsPerBlock(m->nodes);
     // (third argument is extern shared memory size for S_i_1_E)
-    // provide NULL for extended output variables and FIC variables
-    #ifndef MANY_NODES
-    size_t shared_mem_extern = m->nodes*sizeof(u_real);
-    #else
-    size_t shared_mem_extern = 0;
-    #endif
+    // use shared memory for S_i_1_E only if there is no delay
+    // and the number of nodes is less than MAX_NODES_REG. When there is
+    // delay this array is not needed. And with large number of
+    // nodes there will be not enough shared memory available.
+    size_t shared_mem_extern{0};
+    if ((!has_delay) && (m->nodes <= MAX_NODES_REG)) {
+        shared_mem_extern = m->nodes*sizeof(u_real);
+    }
     // keep track of progress
     // Note: based on BOLD TRs reached in the first node
     // of each simulation (therefore the progress will be
@@ -715,13 +747,13 @@ void _run_simulations_gpu(
             CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
         }
     }
-    // #ifdef MANY_NODES
-    // else {
-    //     for (int sim_idx=0; sim_idx < N_SIMS; sim_idx++) {
-    //         CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
-    //     }
-    // }
-    // #endif
+    #ifdef MANY_NODES
+    else if (m->nodes > MAX_NODES_REG) {
+        for (int sim_idx=0; sim_idx < m->N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
+        }
+    } 
+    #endif
     CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist));
 }
 

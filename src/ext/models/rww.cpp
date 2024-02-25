@@ -84,14 +84,25 @@ void rWWModel::prep_params(
     static gsl_matrix *SC_gsl;
     if (this->conf.do_fic) {
         // copy SC to SC_gsl (only once)
-        // TODO: handle following cases:
-        // 1. SC is modified by the user
-        // 2. This function is being called in multiple threads
-        if (SC_gsl == nullptr) {
-            SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
-            for (int i = 0; i < this->nodes; i++) {
-                for (int j = 0; j < this->nodes; j++) {
-                    gsl_matrix_set(SC_gsl, i, j, SC[i*nodes + j]);
+        #ifdef OMP_ENABLED
+        #pragma omp critical
+        #endif
+        {
+            bool copy_sc = false;
+            if (SC_gsl == nullptr) {
+                copy_sc = true;
+            } else {
+                if (SC_gsl->size1 != this->nodes) {
+                    gsl_matrix_free(SC_gsl);
+                    copy_sc = true;
+                }
+            }
+            if (copy_sc) {
+                SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
+                for (int i = 0; i < this->nodes; i++) {
+                    for (int j = 0; j < this->nodes; j++) {
+                        gsl_matrix_set(SC_gsl, i, j, SC[i*nodes + j]);
+                    }
                 }
             }
         }

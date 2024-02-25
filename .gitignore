@@ -163,4 +163,4 @@ cython_debug/
 src/cuda/*.o
 src/cuda/*.a
 sample_input/*/
-src/cuBNM/_setup_flags.py
+src/cuBNM/_setup_opts.py

@@ -1,7 +1,7 @@
 #include "cubnm/includes.cuh"
 #include "cubnm/defines.h"
 #include "cubnm/models/rww.cuh"
-__device__ void rWWModel::init(
+__device__ __NOINLINE__ void rWWModel::init(
     u_real* _state_vars, u_real* _intermediate_vars, 
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
@@ -19,7 +19,7 @@ __device__ void rWWModel::init(
     _ext_bool_shared[1] = false; // fic_failed
 }
 
-__device__ void rWWModel::restart(
+__device__ __NOINLINE__ void rWWModel::restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
@@ -71,7 +71,7 @@ __device__ void rWWModel::step(
     // *S_i_I = max(0.0f, min(1.0f, *S_i_I));
 }
 
-__device__ void rWWModel::post_bw_step(
+__device__ __NOINLINE__ void rWWModel::post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, 
         int* _ext_int_shared, bool* _ext_bool_shared,
@@ -126,7 +126,7 @@ __device__ void rWWModel::post_bw_step(
     }
 }
 
-__device__ void rWWModel::post_integration(
+__device__ __NOINLINE__ void rWWModel::post_integration(
         u_real ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
         u_real* _state_vars, u_real* _intermediate_vars, 

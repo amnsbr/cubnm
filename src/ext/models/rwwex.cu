@@ -1,7 +1,7 @@
 #include "cubnm/includes.cuh"
 #include "cubnm/defines.h"
 #include "cubnm/models/rwwex.cuh"
-__device__ void rWWExModel::init(
+__device__ __NOINLINE__ void rWWExModel::init(
     u_real* _state_vars, u_real* _intermediate_vars, 
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
@@ -9,7 +9,7 @@ __device__ void rWWExModel::init(
     _state_vars[2] = 0.001; // S
 }
 
-__device__ void rWWExModel::restart(
+__device__ __NOINLINE__ void rWWExModel::restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared

@@ -261,8 +261,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             &window_size,
             &window_step,
             &rand_seed
-            ))
-        return NULL;
+            )) {
+        std::cerr << "Error parsing arguments" << std::endl;
+        Py_RETURN_NONE;
+    }
 
     py_global_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_global_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     py_regional_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_regional_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
@@ -271,13 +273,15 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     u_real ** global_params = np_to_array_2d(py_global_params);
     u_real ** regional_params = np_to_array_2d(py_regional_params);
 
-
     if (nodes > MAX_NODES) {
-        std::cerr << "nodes must be less than " << MAX_NODES << std::endl;
-        #ifndef MANY_NODES
-        std::cerr << "To use more nodes, recompile the library with MANY_NODES flag." << std::endl;
+        std::cerr << "Number of nodes must be less than " << MAX_NODES << std::endl;
+        #ifndef MANY_NODES    
+        std::cerr << "To use more nodes, reinstall the package after" 
+            << " `export CUBNM_MANY_NODES=1`" << std::endl;
         #endif
-        return NULL;
+        Py_RETURN_NONE;
+        // TODO: consider building the extension with both options
+        // and from Python determine which one to use
     }
 
     // initialize the model object if needed

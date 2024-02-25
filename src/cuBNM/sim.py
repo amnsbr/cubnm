@@ -8,7 +8,7 @@ import os
 import gc
 
 from cuBNM._core import run_simulations, set_const
-from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
+from cuBNM._setup_opts import many_nodes_flag, gpu_enabled_flag, max_nodes_reg, max_nodes_many
 from cuBNM import utils
 
 
@@ -141,30 +141,36 @@ class SimGroup:
         self.TR_msec = int(TR * 1000)
         # warn user if SC diagonal is not 0
         if np.any(np.diag(self.sc)):
-            print(
-                "Warning: The diagonal of the SC matrix is not 0. "
+            print("Warning: The diagonal of the SC matrix is not 0. "
                 "Self-connections are not ignored by default in "
                 "the simulations. If you want to ignore them set "
-                "the diagonal of the SC matrix to 0."
-            )
+                "the diagonal of the SC matrix to 0.")
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
-        if (self.nodes > 500) & (not many_nodes_flag):
-            # TODO: try to get an estimate of max nodes based on the device's
-            # __shared__ memory size
-            # TODO: with higher number of nodes simulation may still fail
-            # even if __device__ memory is used because the "real" max number of threads
-            # on a block is usually maxed out beyond 600 nodes
+        self.use_cpu = (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
+        if (self.nodes > max_nodes_reg):
+            if (not self.use_cpu) and (not many_nodes_flag):
+                raise NotImplementedError(
+                    f"With {self.nodes} nodes current installation of the package"
+                    " will fail. Please reinstall the package after `export CUBNM_MANY_NODES=1`")
+            if (not self.use_cpu) and (many_nodes_flag) and (self.nodes > max_nodes_many):
+                raise NotImplementedError(
+                    f"Currently the package cannot support more than {max_nodes_many} nodes."
+                )
             print(
-                f"""
-            Warning: In the current version with {self.nodes} nodes the simulation might
-            fail due to limits in __shared__ GPU memory. If the simulations fail
-            reinstall the package with MANY_NODES support (which uses slower but larger
-            __device__ memory) via: 
-            > export CUBNM_MANY_NODES=1 && pip install --ignore-installed cuBNM
-            But if it doesn't fail there is no need to reinstall the package.
-            """
+                "Given the large number of nodes, nodes will be synced "
+                "every 1 msec to reduce the simulation time. To sync nodes "
+                "every 0.1 msec set self.sync_msec to False but note that "
+                "this will significantly increase the simulation time."
             )
+            self.sync_msec = True
+        else:
+            if (not self.use_cpu) and (many_nodes_flag):
+                print(
+                    "The package is installed with `export CUBNM_MANY_NODES=1` but "
+                    "the number of nodes is not large. For better performance, "
+                    "reinstall the package after `unset CUBNM_MANY_NODES`"
+                )
         # inter-regional delay will be added to the simulations
         # if SC distance matrix is provided
         if self.sc_dist_path:
@@ -326,7 +332,7 @@ class SimGroup:
             | (self.N != self.last_N)
             | (curr_config != self.last_config)
         )
-        use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)
+        self.use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)
         # check if running on Jupyter and print warning that
         # simulations are running but progress will not be shown
         if utils.is_jupyter():
@@ -357,7 +363,7 @@ class SimGroup:
             self.extended_output_ts,
             self.do_delay,
             force_reinit,
-            use_cpu,
+            self.use_cpu,
             self.N,
             self.nodes,
             self.duration_msec,

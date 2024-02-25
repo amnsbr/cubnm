@@ -17,13 +17,21 @@
     #define CUDA_MIN min
 #endif
 
+#ifndef MAX_NODES_REG
+    #define MAX_NODES_REG 200
+#endif
+#ifndef MAX_NODES_MANY
+    #define MAX_NODES_MANY 500
+#endif
 #ifndef MANY_NODES
-    #define MAX_NODES 500
+    #define MAX_NODES MAX_NODES_REG
+    #define __NOINLINE__ 
 #else
-    // this is just an arbitrary number
-    // and it is not guaranteed that the code will work 
-    // with this many nodes or won't work with more nodes
-    #define MAX_NODES 10000
+    #define MAX_NODES MAX_NODES_MANY
+    #define __NOINLINE__ __noinline__
+    // in this case some __device__ kernels will be __noinline__ to avoid
+    // using too much registers which would lead to 
+    // "too many resources requested for launch"
 #endif
 
 #ifdef __CUDACC__

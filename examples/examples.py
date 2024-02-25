@@ -2,7 +2,7 @@ import numpy as np
 import cuBNM
 from cuBNM._core import run_simulations, set_conf, set_const
 from cuBNM import optimize, sim, utils, datasets
-from cuBNM._setup_flags import many_nodes_flag, gpu_enabled_flag
+from cuBNM._setup_opts import many_nodes_flag, gpu_enabled_flag
 
 import os
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
@@ -12,7 +12,7 @@ from pymoo.core.termination import Termination
 from pymoo.termination import get_termination
 import cma
 
-def run_sims(N_SIMS=2, v=0.5, force_cpu=False, rand_seed=410, force_reinit=False):
+def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False):
     # run identical simulations and check if BOLD is the same
     nodes = 100
     time_steps = 60000
@@ -93,6 +93,58 @@ def run_sim_group(force_cpu=False):
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     sim_group.score(emp_fc_tril, emp_fcd_tril)
     sim_group.save()
+    return sim_group
+
+def run_sim_group_400(force_cpu=False):
+    nodes = 400
+    N_SIMS = 1
+    sim_group = sim.rWWSimGroup(
+        duration=60,
+        TR=1,
+        sc_path=datasets.load_sc('strength', 'schaefer-400', return_path=True),
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        progress_interval=2000,
+        # do_fic=False
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    # sim_group.param_lists['wIE'] = np.full((N_SIMS, nodes), 1.0)
+    sim_group.sync_msec = True # otherwise it'll be very slow
+    # sim_group.sync_msec = False
+    sim_group.run()
+    # emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    # emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+    # sim_group.score(emp_fc_tril, emp_fcd_tril)
+    # sim_group.save()
+    return sim_group
+
+def run_sim_group_600(force_cpu=False):
+    nodes = 600
+    N_SIMS = 1
+    sim_group = sim.rWWSimGroup(
+        duration=60,
+        TR=1,
+        sc_path=datasets.load_sc('strength', 'schaefer-600', return_path=True),
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        progress_interval=3000,
+        do_fic=False
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.param_lists['wIE'] = np.full((N_SIMS, nodes), 1.0)
+    sim_group.sync_msec = True # otherwise it'll be very slow
+    # sim_group.sync_msec = False
+    sim_group.run()
+    # emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    # emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+    # sim_group.score(emp_fc_tril, emp_fcd_tril)
+    # sim_group.save()
     return sim_group
 
 def run_sim_group_rWWEx(force_cpu=False):
@@ -353,8 +405,9 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    run_sims(2, force_cpu=False)
-    # sg = run_sim_group(force_cpu=False)
+    # run_sims(2, force_cpu=False)
+    sg = run_sim_group(force_cpu=False)
+    # sg = run_sim_group_400(force_cpu=False)
     # sg = run_sim_group_rWWEx(force_cpu=False)
     # gs, scores = run_grid()
     # problem, out = run_problem()

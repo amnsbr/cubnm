@@ -33,18 +33,22 @@ def has_gpus(method='nvcc'):
 
 # specify installation options
 many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
+max_nodes_reg = os.environ.get("CUBNM_MAX_NODES_REG", 200)
+max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 500)
 gpu_enabled = has_gpus()
 omp_enabled = not (('CIBUILDWHEEL' in os.environ) or ('CUBNM_NO_OMP' in os.environ))
 noise_segment = os.environ.get("CUBNM_NOISE_WHOLE") is None
 
 # Write the flags to a temporary _flags.py file
-with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_flags.py"), "w") as flag_file:
+with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_opts.py"), "w") as flag_file:
     flag_file.write(
         "\n".join(
             [f"many_nodes_flag = {many_nodes}", 
              f"gpu_enabled_flag = {gpu_enabled}",
              f"omp_enabled_flag = {omp_enabled}",
-             f"noise_segment_flag = {noise_segment}"
+             f"noise_segment_flag = {noise_segment}",
+             f"max_nodes_reg = {max_nodes_reg}",
+             f"max_nodes_many = {max_nodes_many}"
             ]
         )
     )
@@ -79,9 +83,13 @@ extra_compile_args = [
     "-std=c++11",
     "-O3",
     "-m64",
+    f"-D MAX_NODES_REG={max_nodes_reg}",
+    f"-D MAX_NODES_MANY={max_nodes_many}"
 ]
 if noise_segment:
     extra_compile_args.append("-D NOISE_SEGMENT")
+if many_nodes:
+    extra_compile_args.append("-D MANY_NODES")
 if omp_enabled:
     extra_compile_args += [
         "-fopenmp",
