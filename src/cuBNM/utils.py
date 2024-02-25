@@ -16,6 +16,16 @@ def avail_gpus():
     """
     return len(GPUtil.getAvailable())
 
+def is_jupyter():
+    try:
+        from IPython import get_ipython
+    except ImportError:
+        return False
+    if hasattr(get_ipython(), 'config'):
+        if 'IPKernelApp' in get_ipython().config:  
+            return True
+    return False
+
 def fc_norm_euclidean(x, y):
     """
     Calculates Euclidean distance of two FC arrays

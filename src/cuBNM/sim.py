@@ -327,6 +327,14 @@ class SimGroup:
             | (curr_config != self.last_config)
         )
         use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)
+        # check if running on Jupyter and print warning that
+        # simulations are running but progress will not be shown
+        if utils.is_jupyter():
+            print(
+                "Warning: Simulations are running in Jupyter, "
+                "therefore progress will not be shown in real time. "
+                "Please wait...", flush=True
+            )
         # convert self.param_lists to flattened and contiguous arrays of global
         # and local parameters
         global_params_arrays = []
