@@ -43,7 +43,7 @@ void bnm(
         Model* model, int sim_idx,
         double * BOLD_ex, double * fc_tril_out, double * fcd_tril_out,
         u_real **global_params, u_real **regional_params, u_real *v_list,
-        u_real *SC, u_real *SC_dist
+        u_real *SC, u_real *SC_dist, uint & progress, const uint & progress_final
     ) {
     // copy parameters to local memory as vectors
     // note that to mimick the GPU implementation
@@ -224,10 +224,6 @@ void bnm(
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
     while (ts_bold <= model->time_steps) {
-        if (model->base_conf.verbose) {
-            std::cout << std::fixed << std::setprecision(1) << 
-                ((u_real)ts_bold / (u_real)model->time_steps) * 100.0f << " %\r";
-        }
         // TODO: similar to CPU add the option for sync_msec
         #ifdef NOISE_SEGMENT
         sh_ts_noise = model->shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
@@ -336,6 +332,16 @@ void bnm(
                 }
             }
             BOLD_len_i++;
+            if (model->base_conf.verbose) {
+                #ifdef OMP_ENABLED
+                #pragma omp critical 
+                #endif
+                {
+                    progress++;
+                    std::cout << std::fixed << std::setprecision(2) 
+                        << ((double)progress / progress_final) * 100 << "%\r" << std::flush;
+                }
+            }
         }
         ts_bold++;
 
@@ -390,10 +396,15 @@ void bnm(
                 }
 
             }
-            // // subtract progress of current simulation
-            // if (model->base_conf.verbose && (j==0)) {
-            //     atomicAdd(progress, -BOLD_len_i);
-            // }
+            // subtract progress of current simulation
+            if (model->base_conf.verbose) {
+                #ifdef OMP_ENABLED
+                #pragma omp critical 
+                #endif
+                {
+                    progress -= BOLD_len_i;
+                }
+            }
             // reset indices
             BOLD_len_i = 0;
             ts_bold = 0;
@@ -500,8 +511,10 @@ void _run_simulations_cpu(
     } else {
         ext_out_size = m->nodes;
     }
-    // TODO keep track of a global progress
-    // similar to the GPU implementation
+    // keep track of a global progress
+    uint progress{0};
+    uint progress_final{m->output_ts * m->N_SIMS};
+    // run the simulations
     #ifdef OMP_ENABLED
     #pragma omp parallel
 	#pragma omp for
@@ -528,8 +541,12 @@ void _run_simulations_cpu(
             fc_trils_out+(sim_idx*m->n_pairs), 
             fcd_trils_out+(sim_idx*m->n_window_pairs),
             global_params, regional_params, v_list,
-            SC, SC_dist
+            SC, SC_dist, 
+            progress, progress_final
         );
+    }
+    if (m->base_conf.verbose) {
+        std::cout << "Simulations completed" << std::endl;
     }
 }
 
