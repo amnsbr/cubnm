@@ -12,12 +12,12 @@ from pymoo.core.termination import Termination
 from pymoo.termination import get_termination
 import cma
 
-def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False):
+def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False, serial=False):
     # run identical simulations and check if BOLD is the same
     nodes = 100
     time_steps = 60000
-    # time_steps = 450000
     BOLD_TR = 1000
+    # time_steps = 450000
     # BOLD_TR = 3000
     window_size = 10
     window_step = 2
@@ -42,6 +42,10 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         'verbose': '1',
         # 'fic_verbose': '0',
     }
+    if serial:
+        model_config['serial'] = '1'
+        if do_fic:
+            model_config['max_fic_trials'] = '0'
     do_delay = False
     # do_delay = True
     if do_delay:

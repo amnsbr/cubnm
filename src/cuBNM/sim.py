@@ -27,6 +27,7 @@ class SimGroup:
         rand_seed=410,
         exc_interhemispheric=True,
         force_cpu=False,
+        serial_nodes=False,
         gof_terms=["+fc_corr", "-fc_diff", "-fcd_ks"],
         bw_params="friston2003",
         bold_remove_s=30,
@@ -75,6 +76,13 @@ class SimGroup:
             use CPU for the simulations (even if GPU is available). If set
             to False the program might use GPU or CPU depending on GPU
             availability
+        serial_nodes: :obj:`bool`, optional
+            only applicable to GPUs; uses one thread per simulation and do calculation
+            of nodes serially. This is an experimental feature which is generally not 
+            recommended and has significantly slower performance in typical use cases. 
+            Only may provide performance benefits with very large grids as computing 
+            time does not scale with the number of simulations as much as the 
+            parallel (default) mode.
         gof_terms: :obj:`list` of :obj:`str`, optional
             list of goodness-of-fit terms to be used for scoring. May include:
             - '-fcd_ks': negative Kolmogorov-Smirnov distance of FCDs
@@ -128,6 +136,7 @@ class SimGroup:
         self.rand_seed = rand_seed
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
+        self.serial_nodes = serial_nodes
         self.gof_terms = gof_terms
         self.bold_remove_s = bold_remove_s
         self.fcd_drop_edges = fcd_drop_edges
@@ -139,6 +148,14 @@ class SimGroup:
         # get time and TR in msec
         self.duration_msec = int(duration * 1000)  # in msec
         self.TR_msec = int(TR * 1000)
+        # warn user if serial is set to True
+        if self.serial_nodes and not self.force_cpu:
+            print(
+                "Warning: Running simulations serially on GPU is an experimental "
+                "feature which is generally not recommended and has "
+                "significantly slower performance. Consider setting "
+                "serial_nodes to False."
+            )
         # warn user if SC diagonal is not 0
         if np.any(np.diag(self.sc)):
             print("Warning: The diagonal of the SC matrix is not 0. "
@@ -305,6 +322,7 @@ class SimGroup:
                 # msec, inclusive of last time point
             'verbose': str(int(self.sim_verbose)),
             'progress_interval': str(int(self.progress_interval)),
+            'serial': str(int(self.serial_nodes)),
         }
         return model_config
 
@@ -582,6 +600,12 @@ class rWWSimGroup(SimGroup):
         # model-specific attributes (e.g. self.do_fic)
         super().__init__(*args, **kwargs)
         self.extended_output = self.extended_output | self.do_fic
+        if self.serial_nodes:
+            print(
+                "Numerical FIC is not supported in serial_nodes mode. "
+                "Setting max_fic_trials to 0."
+            )
+            self.max_fic_trials = 0
 
     @SimGroup.N.setter
     def N(self, N):

@@ -72,6 +72,7 @@ public:
         int noise_time_steps{30001};
         bool verbose{false}; // print simulation info + progress
         int progress_interval{500}; // msec; interval for updating progress
+        bool serial{false};
     };
     
     Config base_conf;
@@ -230,6 +231,8 @@ protected:
                 this->base_conf.noise_time_steps = std::stoi(pair.second);
             } else if (pair.first == "progress_interval") {
                 this->base_conf.progress_interval = std::stoi(pair.second);
+            } else if (pair.first == "serial") {
+                this->base_conf.serial = (bool)std::stoi(pair.second);
             }
         }
     }

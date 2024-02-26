@@ -470,16 +470,30 @@ void bnm(
         free(delay);
     }
     for (int j=0; j<model->nodes; j++) {
-        free(_state_vars[j]); free(_intermediate_vars[j]);
-        free(_ext_int[j]); free(_ext_bool[j]);
+        if (Model::n_ext_bool > 0) {
+            free(_ext_bool[j]);
+        }
+        if (Model::n_ext_int > 0) {
+            free(_ext_int[j]);
+        }
+        free(_intermediate_vars[j]);
+        free(_state_vars[j]);
+        if (Model::n_regional_params > 0) {
+            free(_regional_params[j]);
+        }
     }
     free(_state_vars); free(_intermediate_vars);
     free(_ext_int); free(_ext_bool);
-    for (int j=0; j<model->nodes; j++) {
-        free(_regional_params[j]);
-    }
     free(_regional_params);
-    free(_global_params);
+    if (Model::n_ext_bool_shared > 0) {
+        free(_ext_bool_shared);
+    }
+    if (Model::n_ext_int_shared > 0) {
+        free(_ext_int_shared);
+    }
+    if (Model::n_global_params > 0) {
+        free(_global_params);
+    }
     // other variables are freed automatically
     // or should not be freed
 }

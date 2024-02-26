@@ -72,6 +72,8 @@ __global__ void bnm(
     int j = threadIdx.x;
     if (j >= model->nodes) return;
 
+    extern __shared__ u_real _shared_mem[];
+
     // copy variables used in the loop to local memory
     const int nodes = model->nodes;
     const int time_steps = model->time_steps;
@@ -130,17 +132,18 @@ __global__ void bnm(
     // declare state variables, intermediate variables
     // and additional ints and bools
     u_real _state_vars[Model::n_state_vars];
-    u_real* _intermediate_vars = (Model::n_intermediate_vars > 0) ? new u_real[Model::n_intermediate_vars] : NULL;
-    int* _ext_int = (Model::n_ext_int > 0) ? new int[Model::n_ext_int] : NULL;
-    bool* _ext_bool = (Model::n_ext_bool > 0) ? new bool[Model::n_ext_bool] : NULL;
-    __shared__ bool* _ext_bool_shared;
-    if (Model::n_ext_bool_shared > 0) {
-        _ext_bool_shared = new bool[Model::n_ext_bool_shared];
-    }
-    __shared__ int* _ext_int_shared;
-    if (Model::n_ext_int_shared > 0) {
-        _ext_int_shared = new int[Model::n_ext_int_shared];
-    }
+    u_real _intermediate_vars[Model::n_intermediate_vars];
+    // note: with this implementation n_state_vars and n_intermediate_vars
+    // cannot be 0. Given they are frequently accessed it offers performance
+    // improvement (as opposed to keeping them on heap). If a model does not
+    // have any intermediate variables (having no states is undefined), 
+    // n_intermediat_vars must be set to 1, but will be ignored in the model.
+    // but keep the less frequently used variables on heap, while handling zero size
+    int* _ext_int = (Model::n_ext_int > 0) ? (int*)malloc(Model::n_ext_int * sizeof(int)) : NULL;
+    bool* _ext_bool = (Model::n_ext_bool > 0) ? (bool*)malloc(Model::n_ext_bool * sizeof(bool)) : NULL;
+    int* _ext_int_shared = (int*)_shared_mem;
+    bool* _ext_bool_shared = (bool*)(_shared_mem + Model::n_ext_int_shared*sizeof(int));
+    // initialize model
     model->init(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
 
 
@@ -170,7 +173,7 @@ __global__ void bnm(
     // store immediate history of conn_state_var on extern shared memory
     // the memory is allocated dynamically based on the number of nodes
     // (see https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
-    extern __shared__ u_real _conn_state_var_1[];
+    u_real *_conn_state_var_1 = (u_real*)(_shared_mem + Model::n_ext_int_shared*sizeof(int)+Model::n_ext_bool_shared*sizeof(bool));
     u_real *conn_state_var_1;
     if (!(has_delay)) {
         // conn_state_var_1 is only used when
@@ -428,6 +431,382 @@ __global__ void bnm(
             states_out[ii][sim_idx][j] /= extended_output_time_points;
         }
     }
+    // free heap
+    if (Model::n_ext_int > 0) {
+        free(_ext_int);
+    }
+    if (Model::n_ext_bool > 0) {
+        free(_ext_bool);
+    }
+}
+
+
+template<typename Model>
+__global__ void bnm_serial(
+        Model* model, u_real **BOLD, u_real ***states_out, 
+        int **global_out_int, bool **global_out_bool,
+        u_real *SC, u_real **global_params, u_real **regional_params,
+        u_real **conn_state_var_hist, int **delay, int max_delay,
+        #ifdef NOISE_SEGMENT
+        int *shuffled_nodes, int *shuffled_ts,
+        #endif
+        u_real *noise, uint* progress
+    ) {
+    // get simulation index
+    int sim_idx = blockIdx.x;
+    if (sim_idx >= model->N_SIMS) return;
+    int j{0};
+
+    // shared memory will be used for _ext_int and _ext_bool
+    extern __shared__ u_real _shared_mem[];
+
+    // copy variables used in the loop to local memory
+    const int nodes = model->nodes;
+    const int time_steps = model->time_steps;
+    const int BOLD_TR = model->BOLD_TR;
+    const bool extended_output = model->base_conf.extended_output;
+    const bool extended_output_ts = model->base_conf.extended_output_ts;
+    const bool sync_msec = model->base_conf.sync_msec;
+    #ifdef NOISE_SEGMENT
+    const int noise_time_steps = model->base_conf.noise_time_steps;
+    #endif
+
+    // set up noise shuffling if indicated
+    #ifdef NOISE_SEGMENT
+    int sh_j{0};
+    int curr_noise_repeat{0};
+    int ts_noise{0};
+    int sh_ts_noise = shuffled_ts[ts_noise];
+    #endif
+
+    // copy parameters of current simulation to device heap memory
+    u_real *_global_params = (u_real*)malloc(Model::n_global_params * sizeof(u_real));
+    int ii; // general-purpose index for parameters and varaiables
+    for (ii=0; ii<Model::n_global_params; ii++) {
+        _global_params[ii] = global_params[ii][sim_idx];
+    }
+    u_real **_regional_params = (u_real**)malloc(nodes * sizeof(u_real*));
+    for (j = 0; j < nodes; j++) {
+        _regional_params[j] = (u_real*)malloc(Model::n_regional_params * sizeof(u_real));
+        for (ii = 0; ii < Model::n_regional_params; ii++) {
+            _regional_params[j][ii] = regional_params[ii][sim_idx * nodes + j];
+        }
+    }
+
+    // initialize extended output sums
+    if (extended_output && (!extended_output_ts)) {
+        for (ii=0; ii<Model::n_state_vars; ii++) {
+            for (j=0; j<nodes; j++) {
+                states_out[ii][sim_idx][j] = 0;
+            }
+        }
+    }
+
+    // allocated state variables, intermediate variables
+    // and additional ints and bools on device heap
+    u_real ** _state_vars = (u_real**)malloc(nodes * sizeof(u_real*));
+    for (j=0; j<nodes; j++) {
+        _state_vars[j] = (u_real*)malloc(Model::n_state_vars * sizeof(u_real));
+    }
+    u_real ** _intermediate_vars = (u_real**)malloc(nodes * sizeof(u_real*));
+    for (j=0; j<nodes; j++) {
+        _intermediate_vars[j] = (Model::n_intermediate_vars > 0) ? (u_real*)malloc(Model::n_intermediate_vars * sizeof(u_real)) : NULL;
+    }
+    int ** _ext_int = (int**)malloc(nodes * sizeof(int*));
+    for (j=0; j<nodes; j++) {
+        _ext_int[j] = (Model::n_ext_int > 0) ? (int*)malloc(Model::n_ext_int * sizeof(int)) : NULL;
+    }
+    bool ** _ext_bool = (bool**)malloc(nodes * sizeof(bool*));
+    for (j=0; j<nodes; j++) {
+        _ext_bool[j] = (Model::n_ext_bool > 0) ? (bool*)malloc(Model::n_ext_bool * sizeof(bool)) : NULL;
+    }
+    // shared variables    
+    int* _ext_int_shared = (int*)_shared_mem;
+    bool* _ext_bool_shared = (bool*)(_shared_mem + Model::n_ext_int_shared*sizeof(int));
+    // initialize model
+    for (j=0; j<nodes; j++) {
+        model->init(_state_vars[j], _intermediate_vars[j], _ext_int[j], _ext_bool[j], _ext_int_shared, _ext_bool_shared);
+    }
+
+
+    // Ballon-Windkessel model variables
+    u_real* bw_x = (u_real*)malloc(nodes * sizeof(u_real));
+    u_real* bw_f = (u_real*)malloc(nodes * sizeof(u_real));
+    u_real* bw_nu = (u_real*)malloc(nodes * sizeof(u_real));
+    u_real* bw_q = (u_real*)malloc(nodes * sizeof(u_real));
+    u_real tmp_f{0.0};
+    for (j=0; j<nodes; j++) {
+        bw_x[j] = 0.0;
+        bw_f[j] = 1.0;
+        bw_nu[j] = 1.0;
+        bw_q[j] = 1.0;
+    }
+
+    // delay and conn_state history setup
+    const bool has_delay = (max_delay > 0);
+    // if there is delay use a circular buffer (conn_state_var_hist)
+    // and keep track of current buffer index (will be the same
+    // in all nodes at each time point). Start from the end and
+    // go backwards. 
+    // Note that conn_state_var_hist is pseudo-2d
+    int buff_idx, k_buff_idx;
+    u_real *conn_state_var_1; // immediate history when there is no delay
+    if (has_delay) {
+        for (j = 0; j < nodes; j++) {
+            // initialize conn_state_var_hist in every time point at initial value
+            for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
+                conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[j][Model::conn_state_var_idx];
+            }
+        }
+        buff_idx = max_delay-1;
+    } else {
+        conn_state_var_1 = conn_state_var_hist[sim_idx];
+        for (j = 0; j < nodes; j++) {
+            conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+        }
+    }
+
+    // allocate memory for global input
+    u_real * tmp_globalinput = (u_real*)malloc(nodes * sizeof(u_real));
+
+    // this will determine if the simulation should be restarted
+    // (e.g. if FIC adjustment fails in rWW)
+    bool restart{false};
+
+    // integration loop
+    int int_i{0}, k{0}, BOLD_len_i{0}, ts_bold{0};
+    long noise_idx{0};
+    // outer loop for 1 msec steps
+    // TODO: define number of steps for outer
+    // and inner loops based on model dt and BW dt from user input 
+    while (ts_bold <= time_steps) {
+        if (sync_msec) {
+            // calculate global input every 1 ms
+            for (j=0; j<nodes; j++) {
+                calculateGlobalInput(
+                    tmp_globalinput[j], k_buff_idx,
+                    nodes, sim_idx, j, 
+                    k, buff_idx, &(SC[j*nodes]), 
+                    delay, has_delay, max_delay,
+                    conn_state_var_hist, conn_state_var_1
+                );
+            }
+        }
+        // inner loop for 0.1 msec steps
+        for (int_i = 0; int_i < 10; int_i++) {
+            if (!sync_msec) {
+                // calculate global input every 0.1 ms
+                for (j=0; j<nodes; j++) {
+                    calculateGlobalInput(
+                        tmp_globalinput[j], k_buff_idx,
+                        nodes, sim_idx, j, 
+                        k, buff_idx, &(SC[j*nodes]), 
+                        delay, has_delay, max_delay,
+                        conn_state_var_hist, conn_state_var_1
+                    );
+                }
+            }
+            // equations
+            for (j=0; j<nodes; j++) {
+                #ifdef NOISE_SEGMENT
+                sh_j = shuffled_nodes[curr_noise_repeat*nodes+j];
+                noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * Model::n_noise) + (sh_j * Model::n_noise));
+                #else
+                noise_idx = (((ts_bold * 10 + int_i) * nodes * Model::n_noise) + (j * Model::n_noise));
+                #endif
+                model->step(
+                    _state_vars[j], _intermediate_vars[j], 
+                    _global_params, _regional_params[j],
+                    tmp_globalinput[j],
+                    noise, noise_idx
+                );
+            }
+            if (!sync_msec) {
+                if (has_delay) {
+                    for (j=0; j<nodes; j++) {
+                        conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[j][Model::conn_state_var_idx];
+                    }
+                    // go one time step backward in the buffer for the next time point
+                    buff_idx = (buff_idx + max_delay - 1) % max_delay;
+                    
+                } else {
+                    for (j=0; j<nodes; j++) {
+                        conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+                    }
+                }
+            }
+        }
+
+        if (sync_msec) {
+            if (has_delay) {
+                for (j=0; j<nodes; j++) {
+                    conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[j][Model::conn_state_var_idx];
+                }
+                // go one time step backward in the buffer for the next time point
+                buff_idx = (buff_idx + max_delay - 1) % max_delay;
+                
+            } else {
+                for (j=0; j<nodes; j++) {
+                    conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
+                }
+            }
+        }
+
+        // Balloon-Windkessel model equations here since its
+        // dt is 1 msec
+        for (j=0; j<nodes; j++) {
+            bw_step(bw_x[j], bw_f[j], bw_nu[j], 
+                bw_q[j], tmp_f,
+                _state_vars[j][Model::bold_state_var_idx]);
+        }
+        // Save BOLD and extended output to managed memory
+        // every TR
+        if (ts_bold % BOLD_TR == 0) {
+            for (j=0; j<nodes; j++) {
+                // calcualte and save BOLD
+                BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q[j]) + d_bwc.V_0_k2 * (1 - bw_q[j]/bw_nu[j]) + d_bwc.V_0_k3 * (1 - bw_nu[j]);
+                // save time series of extended output if indicated
+                if (extended_output && extended_output_ts) {
+                    for (ii=0; ii<Model::n_state_vars; ii++) {
+                        states_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[j][ii];
+                    }
+                }
+                // update sum (later mean) of extended
+                // output only after n_vols_remove
+                if ((BOLD_len_i>=model->n_vols_remove) && extended_output && (!extended_output_ts)) {
+                    for (ii=0; ii<Model::n_state_vars; ii++) {
+                        states_out[ii][sim_idx][j] += _state_vars[j][ii];
+                    }
+                }
+            }
+            BOLD_len_i++;
+            if (model->base_conf.verbose) {
+                atomicAdd(progress, 1);
+            }
+        }
+        ts_bold++;
+
+        #ifdef NOISE_SEGMENT
+        // update noise segment time
+        ts_noise++;
+        // reset noise segment time 
+        // and shuffle nodes if the segment
+        // has reached to the end
+        if (ts_noise % noise_time_steps == 0) {
+            // at the last time point don't do this
+            // to avoid going over the extent of shuffled_nodes
+            if (ts_bold <= time_steps) {
+                curr_noise_repeat++;
+                ts_noise = 0;
+            }
+        }
+        // get the shuffled timepoint corresponding to ts_noise 
+        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
+        #endif
+
+        // bool j_restart{false};
+        // if (Model::has_post_bw_step) {
+        //     for (j=0; j<nodes; j++) {
+        //         j_restart = false;
+        //         model->post_bw_step(
+        //             _state_vars[j], _intermediate_vars[j],
+        //             _ext_int[j], _ext_bool[j], 
+        //             _ext_int_shared, _ext_bool_shared,
+        //             j_restart,
+        //             _global_params, _regional_params[j],
+        //             ts_bold
+        //         );
+        //         restart = restart || j_restart;
+        //     }
+        // }
+
+        // // if restart is indicated (e.g. FIC failed in rWW)
+        // // reset the simulation and start from the beginning
+        // if (restart) {
+        //     // model-specific restart
+        //     model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
+        //     // subtract progress of current simulation
+        //     if (model->base_conf.verbose && (j==0)) {
+        //         atomicAdd(progress, -BOLD_len_i);
+        //     }
+        //     // reset indices
+        //     BOLD_len_i = 0;
+        //     ts_bold = 0;
+        //     // reset Balloon-Windkessel model variables
+        //     bw_x = 0.0;
+        //     bw_f = 1.0;
+        //     bw_nu = 1.0;
+        //     bw_q = 1.0;
+        //     if (has_delay) {
+        //         // initialize conn_state_var_hist in every time point at initial value
+        //         for (buff_idx=0; buff_idx<max_delay; buff_idx++) {
+        //             conn_state_var_hist[sim_idx][buff_idx*nodes+j] = _state_vars[Model::conn_state_var_idx];
+        //         }
+        //         // reset delay buffer index
+        //         buff_idx = max_delay-1;
+        //     } else {
+        //         // reset conn_state_var_1
+        //         conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
+        //     }
+        //     #ifdef NOISE_SEGMENT
+        //     // reset the node shuffling
+        //     sh_j = shuffled_nodes[j];
+        //     curr_noise_repeat = 0;
+        //     ts_noise = 0;
+        //     sh_ts_noise = shuffled_ts[ts_noise];
+        //     #endif
+        //     restart = false; // restart is done
+        //     __syncthreads(); // make sure all threads are in sync after restart
+        // }
+    }
+
+    if (Model::has_post_integration) {
+        for (j=0; j<nodes; j++) {
+            model->post_integration(
+                states_out, global_out_int, global_out_bool,
+                _state_vars[j], _intermediate_vars[j], 
+                _ext_int[j], _ext_bool[j], 
+                _ext_int_shared, _ext_bool_shared,
+                global_params, regional_params,
+                _global_params, _regional_params[j],
+                sim_idx, nodes, j
+            );
+        }
+    }
+    if (extended_output && (!extended_output_ts)) {
+        // take average across time points after n_vols_remove
+        int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
+        for (ii=0; ii<Model::n_state_vars; ii++) {
+            states_out[ii][sim_idx][j] /= extended_output_time_points;
+        }
+    }
+    // free heap
+    free(tmp_globalinput);
+    free(bw_q);
+    free(bw_nu);
+    free(bw_f);
+    free(bw_x);
+    for (j=0; j<nodes; j++) {
+        if (Model::n_ext_int > 0) {
+            free(_ext_int[j]);
+        }            
+        if (Model::n_ext_bool > 0) {
+            free(_ext_bool[j]);
+        }
+        free(_intermediate_vars[j]);
+        free(_state_vars[j]);
+        if (Model::n_regional_params > 0) {
+            free(_regional_params[j]);
+        }
+    }
+    free(_ext_int);
+    free(_ext_bool);
+    free(_intermediate_vars);
+    free(_state_vars);
+    free(_regional_params);
+    if (Model::n_global_params > 0) {
+        free(_global_params);
+    }
 }
 
 template <typename Model>
@@ -538,28 +917,62 @@ void _run_simulations_gpu(
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * m->nodes * max_delay));
         }
     }
-    #ifdef MANY_NODES
-    else if (m->nodes > MAX_NODES_REG) {
+    else if (
+        (m->base_conf.serial)
+        #ifdef MANY_NODES
+        || (m->nodes > MAX_NODES_REG)
+        #endif
+    )    
+     {
         // if there is no delay and the number of nodes is large
+        // or nodes are simulated serially
         // store immediate history to conn_state_var_hist
         // on global memory, instead of shared memory
         for (int sim_idx=0; sim_idx < m->N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * m->nodes));
         }
     }
-    #endif
+
+    // increase heap size as needed
+    // start with initial heap size
+    size_t heapSize = 0;
+    CUDA_CHECK_RETURN(cudaDeviceGetLimit(&heapSize, cudaLimitMallocHeapSize));
+    // add heap size required
+    // in both serial and parallel nodes
+    // _ext_int and _ext_bool are stored on heap
+    heapSize += m->N_SIMS * (
+        (Model::n_ext_int) * m->nodes * sizeof(int) +
+        (Model::n_ext_bool) * m->nodes * sizeof(bool)
+    );
+    // in parallel case, these variables are also
+    // on heap
+    if (m->base_conf.serial) {
+        heapSize += m->N_SIMS * (
+            (Model::n_regional_params + Model::n_state_vars + Model::n_intermediate_vars) * m->nodes * sizeof(u_real) +
+            (Model::n_global_params) * sizeof(u_real)
+        );
+    }
+    CUDA_CHECK_RETURN(cudaDeviceSetLimit(cudaLimitMallocHeapSize, heapSize));
 
     // run simulations
     dim3 numBlocks(m->N_SIMS);
     dim3 threadsPerBlock(m->nodes);
-    // (third argument is extern shared memory size for S_i_1_E)
-    // use shared memory for S_i_1_E only if there is no delay
+    if (m->base_conf.serial) {
+        threadsPerBlock.x = 1;
+    }
+    // calculate amount of required shared memory
+    // used to store:
+    // 1. _ext_int_shared
+    // 2. _ext_bool_shared
+    // 3. conn_state_var_1 if there is no delay
     // and the number of nodes is less than MAX_NODES_REG. When there is
     // delay this array is not needed. And with large number of
     // nodes there will be not enough shared memory available.
     size_t shared_mem_extern{0};
-    if ((!has_delay) && (m->nodes <= MAX_NODES_REG)) {
-        shared_mem_extern = m->nodes*sizeof(u_real);
+    shared_mem_extern += Model::n_ext_int_shared * sizeof(int) 
+        + Model::n_ext_bool_shared * sizeof(bool);
+    if ((!has_delay) && (m->nodes <= MAX_NODES_REG) && (!m->base_conf.serial)) {
+        shared_mem_extern += m->nodes*sizeof(u_real);
     }
     // keep track of progress
     // Note: based on BOLD TRs reached in the first node
@@ -569,21 +982,36 @@ void _run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaMallocManaged(&progress, sizeof(uint)));
     uint progress_final = m->output_ts * m->N_SIMS;
     *progress = 0;
-    bnm<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
-        d_model,
-        m->BOLD, m->states_out, 
-        m->global_out_int,
-        m->global_out_bool,
-        m->d_SC, m->d_global_params, m->d_regional_params,
-        conn_state_var_hist, delay, max_delay,
-    #ifdef NOISE_SEGMENT
-        m->shuffled_nodes, m->shuffled_ts,
-    #endif
-        m->noise, progress);
+    if (m->base_conf.serial) {
+        bnm_serial<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
+            d_model,
+            m->BOLD, m->states_out, 
+            m->global_out_int,
+            m->global_out_bool,
+            m->d_SC, m->d_global_params, m->d_regional_params,
+            conn_state_var_hist, delay, max_delay,
+        #ifdef NOISE_SEGMENT
+            m->shuffled_nodes, m->shuffled_ts,
+        #endif
+            m->noise, progress);
+    } else {
+        bnm<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
+            d_model,
+            m->BOLD, m->states_out, 
+            m->global_out_int,
+            m->global_out_bool,
+            m->d_SC, m->d_global_params, m->d_regional_params,
+            conn_state_var_hist, delay, max_delay,
+        #ifdef NOISE_SEGMENT
+            m->shuffled_nodes, m->shuffled_ts,
+        #endif
+            m->noise, progress);
+    }
     // asynchroneously print out the progress
     // if verbose
     if (m->base_conf.verbose) {
         uint last_progress = 0;
+        uint no_progress_count = 0;
         while (*progress < progress_final) {
             // Print progress as percentage
             std::cout << std::fixed << std::setprecision(2) 
@@ -594,7 +1022,12 @@ void _run_simulations_gpu(
             // make sure it doesn't get stuck
             // by checking if there has been any progress
             if (*progress == last_progress) {
-                std::cout << "No progress detected in the last " << m->base_conf.progress_interval << " ms." << std::endl;
+                no_progress_count++;
+            } else {
+                no_progress_count = 0;
+            }
+            if (no_progress_count > 50) {
+                std::cout << "No progress detected in the last " << 50 * m->base_conf.progress_interval << " ms." << std::endl;
                 break;
             }
             last_progress = *progress;
@@ -613,8 +1046,8 @@ void _run_simulations_gpu(
     if (m->base_conf.verbose) {
         std::cout << "Simulation completed" << std::endl;
     }
-
     // calculate mean and sd bold for FC calculation
+    threadsPerBlock.x = m->nodes;
     bold_stats<<<numBlocks, threadsPerBlock>>>(
         m->mean_bold, m->ssd_bold,
         m->BOLD, m->N_SIMS, m->nodes,
@@ -747,13 +1180,16 @@ void _run_simulations_gpu(
             CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
         }
     }
-    #ifdef MANY_NODES
-    else if (m->nodes > MAX_NODES_REG) {
+    else if (
+        (m->base_conf.serial)
+        #ifdef MANY_NODES
+        || (m->nodes > MAX_NODES_REG)
+        #endif
+    ) {
         for (int sim_idx=0; sim_idx < m->N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
         }
     } 
-    #endif
     CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist));
 }
 
