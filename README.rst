@@ -77,11 +77,12 @@ can be installed using:
 
 .. install-end
 
+.. quickstart-start
 Quickstart
 -------------
 Evolutionary optimization
 ~~~~~~~~~~~~~~~~~~~~~~~~~
-Run a CMAES optimization for 10 iterations with a population size of 20:
+Run a CMAES optimization of reduced Wong Wang model with G and wEE as free parameters:
 
 .. code-block:: python
 
@@ -101,6 +102,33 @@ Run a CMAES optimization for 10 iterations with a population size of 20:
         sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
     )
     cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=10, seed=1)
+    cmaes.setup_problem(problem)
+    cmaes.optimize()
+
+Run a CMAES optimization of reduced Wong Wang model with G as a global free parameter and wEE and wEI as
+regional free parameters that are regionally heterogeneous based on a weighted combination of two fixed
+maps (HCP T1w/T2w, HCP FC G1):
+
+.. code-block:: python
+
+    from cuBNM import datasets, optimize
+
+    problem = optimize.BNMProblem(
+        model = 'rWW',
+        params = {
+            'G': (0.5, 2.5),
+            'wEE': (0.05, 0.75),
+            'wEI': (0.05, 0.75),
+        },
+        het_params = ['wEE', 'wEI'],
+        maps_path = datasets.load_maps('2maps', 'schaefer-100', norm='zscore', return_path=True),
+        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True),
+        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True),
+        duration = 60,
+        TR = 1,
+        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+    )
+    cmaes = optimize.CMAESOptimizer(popsize=30, n_iter=10, seed=1)
     cmaes.setup_problem(problem)
     cmaes.optimize()
 
@@ -126,3 +154,5 @@ Run a 10x10 grid search of G, wEE with fixed wEI:
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
+
+.. quickstart-end
