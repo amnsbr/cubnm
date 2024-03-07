@@ -49,6 +49,7 @@ Please find the documentation at https://cubnm.readthedocs.io.
 .. include:: ./docs/install.rst
 .. include:: ./docs/quickstart.rst
 
+.. install-start
 Installation
 ------------
 The package requires Python version 3.7 or higher and works on Linux with GCC 12. 
@@ -74,7 +75,7 @@ can be installed using:
 
     pip install cuBNM
 
-
+.. install-end
 
 Quickstart
 -------------
