@@ -54,7 +54,7 @@ with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_opts.py"), "w") as flag_
     )
 
 # determine libraries shared between GPU and CPU versions
-libraries = ["m", "rt"] # rt is needed on some systems (e.g. JURECA)
+libraries = ["m"]
 if omp_enabled:
     libraries.append("gomp")
 

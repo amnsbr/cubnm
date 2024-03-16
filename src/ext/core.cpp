@@ -23,7 +23,6 @@
 #include <time.h>
 #include <string.h>
 #include <math.h>
-#include <sys/stat.h>
 #include <iostream>
 #include <cmath>
 #include <string>
@@ -286,10 +285,14 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     // initialize the model object if needed
     if (
-            model == nullptr || // first call
-            strcmp(model_name, last_model_name)!=0 || // different model
-            model->cpu_initialized && (!use_cpu) || // CPU initialized but GPU is requested
-            model->gpu_initialized && (use_cpu) // GPU initialized but CPU is requested
+            (model == nullptr) || // first call
+            (strcmp(model_name, last_model_name)!=0) || // different model
+            (model->cpu_initialized && (!use_cpu)) || // CPU initialized but GPU is requested
+            ((use_cpu)
+            #ifdef GPU_ENABLED
+            && (model->gpu_initialized)
+            #endif
+            ) // GPU initialized but CPU is requested
         ) {
         last_model_name = model_name;
         if (model != nullptr) {

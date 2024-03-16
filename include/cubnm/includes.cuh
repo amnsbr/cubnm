@@ -6,7 +6,6 @@
 #include <time.h>
 #include <string.h>
 #include <math.h>
-#include <sys/stat.h>
 #include <iostream>
 #include <fstream>
 #include <cmath>
