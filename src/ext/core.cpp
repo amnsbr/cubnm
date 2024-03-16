@@ -285,14 +285,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     // initialize the model object if needed
     if (
-            (model == nullptr) || // first call
-            (strcmp(model_name, last_model_name)!=0) || // different model
-            (model->cpu_initialized && (!use_cpu)) || // CPU initialized but GPU is requested
-            ((use_cpu)
+            (model == nullptr) // first call
+            || (strcmp(model_name, last_model_name)!=0) // different model
             #ifdef GPU_ENABLED
-            && (model->gpu_initialized)
-            #endif
-            ) // GPU initialized but CPU is requested
+            || (model->cpu_initialized && (!use_cpu)) // CPU initialized but GPU is requested
+            || (use_cpu && model->gpu_initialized) // GPU initialized but CPU is requested
+            #endif 
         ) {
         last_model_name = model_name;
         if (model != nullptr) {

@@ -27,8 +27,6 @@ public:
     virtual ~BaseModel() = default;
 
     static constexpr char *name = "Base";
-
-    virtual void free_gpu();
     virtual void free_cpu();
 
     int nodes{}, N_SIMS{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
@@ -38,7 +36,9 @@ public:
         last_noise_time_steps{0};
         // TODO: make some short or size_t
     bool cpu_initialized{false}, modifies_params{false}, do_delay{};
+    
     #ifdef _GPU_ENABLED
+    virtual void free_gpu();
     bool gpu_initialized{false};
     #endif
 
