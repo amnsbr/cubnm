@@ -58,7 +58,8 @@ template<typename Model>
 __global__ void bnm(
         Model* model, u_real **BOLD, u_real ***states_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real *SC, u_real **global_params, u_real **regional_params,
+        u_real **SC, int *SC_indices, 
+        u_real **global_params, u_real **regional_params,
         u_real **conn_state_var_hist, int **delay, int max_delay,
         #ifdef NOISE_SEGMENT
         int *shuffled_nodes, int *shuffled_ts,
@@ -207,13 +208,13 @@ __global__ void bnm(
         // for better performance
         _SC = __SC;
         for (int k=0; k<nodes; k++) {
-            _SC[k] = SC[j*nodes+k];
+            _SC[k] = SC[SC_indices[sim_idx]][j*nodes+k];
         }
     } 
     #ifdef MANY_NODES
     else {
         // use global memory
-        _SC = &(SC[j*nodes]);
+        _SC = &(SC[SC_indices[sim_idx]][j*nodes]);
     }
     #endif
 
@@ -445,7 +446,7 @@ template<typename Model>
 __global__ void bnm_serial(
         Model* model, u_real **BOLD, u_real ***states_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real *SC, u_real **global_params, u_real **regional_params,
+        u_real **SC, int *SC_indices, u_real **global_params, u_real **regional_params,
         u_real **conn_state_var_hist, int **delay, int max_delay,
         #ifdef NOISE_SEGMENT
         int *shuffled_nodes, int *shuffled_ts,
@@ -467,6 +468,7 @@ __global__ void bnm_serial(
     const bool extended_output = model->base_conf.extended_output;
     const bool extended_output_ts = model->base_conf.extended_output_ts;
     const bool sync_msec = model->base_conf.sync_msec;
+    const int SC_idx = SC_indices[sim_idx];
     #ifdef NOISE_SEGMENT
     const int noise_time_steps = model->base_conf.noise_time_steps;
     #endif
@@ -586,7 +588,7 @@ __global__ void bnm_serial(
                 calculateGlobalInput(
                     tmp_globalinput[j], k_buff_idx,
                     nodes, sim_idx, j, 
-                    k, buff_idx, &(SC[j*nodes]), 
+                    k, buff_idx, &(SC[SC_idx][j*nodes]), 
                     delay, has_delay, max_delay,
                     conn_state_var_hist, conn_state_var_1
                 );
@@ -600,7 +602,7 @@ __global__ void bnm_serial(
                     calculateGlobalInput(
                         tmp_globalinput[j], k_buff_idx,
                         nodes, sim_idx, j, 
-                        k, buff_idx, &(SC[j*nodes]), 
+                        k, buff_idx, &(SC[SC_idx][j*nodes]), 
                         delay, has_delay, max_delay,
                         conn_state_var_hist, conn_state_var_1
                     );
@@ -813,7 +815,7 @@ template <typename Model>
 void _run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real * SC, u_real * SC_dist, BaseModel* m
+    u_real **SC, int *SC_indices, u_real * SC_dist, BaseModel* m
 )
 {
     if (m->base_conf.verbose) {
@@ -827,7 +829,11 @@ void _run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaMemcpy(d_model, h_model, sizeof(Model), cudaMemcpyHostToDevice));
 
     // copy SC to managed memory
-    CUDA_CHECK_RETURN(cudaMemcpy(m->d_SC, SC, m->nodes*m->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+    for (int SC_idx=0; SC_idx<m->N_SCs; SC_idx++) {
+      CUDA_CHECK_RETURN(cudaMemcpy(m->d_SC[SC_idx], SC[SC_idx], m->nodes*m->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+    }
+    // copy SC_indices to managed memory
+    CUDA_CHECK_RETURN(cudaMemcpy(m->d_SC_indices, SC_indices, m->N_SIMS * sizeof(int), cudaMemcpyHostToDevice));
 
     // copy parameters to managed memory
     for (int i=0; i<Model::n_global_params; i++) {
@@ -844,7 +850,8 @@ void _run_simulations_gpu(
     // called from Python, therefore final params are passed
     // to _run_simulations_gpu (except that they might be
     // modified during the simulation, e.g. in numerical FIC)
-    m->prep_params(m->d_global_params, m->d_regional_params, v_list, SC, SC_dist, 
+    m->prep_params(m->d_global_params, m->d_regional_params, v_list, 
+        SC, SC_indices, SC_dist, 
         m->global_out_bool, m->global_out_int);
 
     // if indicated, calculate delay matrix of each simulation and allocate
@@ -988,7 +995,8 @@ void _run_simulations_gpu(
             m->BOLD, m->states_out, 
             m->global_out_int,
             m->global_out_bool,
-            m->d_SC, m->d_global_params, m->d_regional_params,
+            m->d_SC, m->d_SC_indices,
+            m->d_global_params, m->d_regional_params,
             conn_state_var_hist, delay, max_delay,
         #ifdef NOISE_SEGMENT
             m->shuffled_nodes, m->shuffled_ts,
@@ -1000,7 +1008,8 @@ void _run_simulations_gpu(
             m->BOLD, m->states_out, 
             m->global_out_int,
             m->global_out_bool,
-            m->d_SC, m->d_global_params, m->d_regional_params,
+            m->d_SC, m->d_SC_indices,
+            m->d_global_params, m->d_regional_params,
             conn_state_var_hist, delay, max_delay,
         #ifdef NOISE_SEGMENT
             m->shuffled_nodes, m->shuffled_ts,
@@ -1209,8 +1218,12 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     }
 
     // allocate device memory for SC
-    CUDA_CHECK_RETURN(cudaMalloc(&(m->d_SC), sizeof(u_real) * m->nodes*m->nodes));
-
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC), sizeof(u_real*) * m->N_SCs));
+    for (int SC_idx=0; SC_idx<m->N_SCs; SC_idx++) {
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC[SC_idx]), sizeof(u_real) * m->nodes*m->nodes));
+    }
+    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->d_SC_indices), sizeof(int) * m->N_SIMS));
+ 
     // allocate device memory for simulation parameters
     // size of global_params is (n_global_params, N_SIMS)
     // size of regional_params is (n_regional_params, N_SIMS * nodes)
@@ -1533,6 +1546,10 @@ void BaseModel::free_gpu() {
             CUDA_CHECK_RETURN(cudaFree(this->d_global_params[i]));
         }
         CUDA_CHECK_RETURN(cudaFree(this->d_global_params));
+    }
+    CUDA_CHECK_RETURN(cudaFree(this->d_SC_indices));
+    for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
+        CUDA_CHECK_RETURN(cudaFree(this->d_SC[SC_idx]));
     }
     CUDA_CHECK_RETURN(cudaFree(this->d_SC));
 }

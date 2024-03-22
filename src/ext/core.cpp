@@ -235,15 +235,16 @@ static PyObject* get_conf(PyObject* self, PyObject* args) {
 
 static PyObject* run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
-    PyArrayObject *SC, *SC_dist, *py_global_params, *py_regional_params, *v_list;
+    PyArrayObject *py_SC, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
     PyObject* config_dict;
     bool extended_output, extended_output_ts, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed;
 
-    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!Oiiiiiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiii", 
             &model_name,
-            &PyArray_Type, &SC,
-            &PyArray_Type, &SC_dist,
+            &PyArray_Type, &py_SC,
+            &PyArray_Type, &py_SC_indices,
+            &PyArray_Type, &py_SC_dist,
             &PyArray_Type, &py_global_params,
             &PyArray_Type, &py_regional_params,
             &PyArray_Type, &v_list,
@@ -267,10 +268,16 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     py_global_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_global_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     py_regional_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_regional_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
-    if ((py_global_params == NULL) | (py_regional_params == NULL)) return NULL;
+    py_SC = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_SC, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    if ((py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL)) return NULL;
 
     u_real ** global_params = np_to_array_2d(py_global_params);
     u_real ** regional_params = np_to_array_2d(py_regional_params);
+    u_real ** SC = np_to_array_2d(py_SC);
+    // calcualte number of SCs as the max value of py_SC_idx
+    // TODO: add checks in Python to make sure SC_indices
+    // are in the correct range of (0, N_SCs-1)
+    int N_SCs = *std::max_element(py_SC_indices->data, py_SC_indices->data + N_SIMS) + 1;
 
     if (nodes > MAX_NODES) {
         std::cerr << "Number of nodes must be less than " << MAX_NODES << std::endl;
@@ -298,12 +305,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         }
         if (strcmp(model_name, "rWW")==0) {
             model = new rWWModel(
-                nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
+                nodes, N_SIMS, N_SCs, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
             );
         } 
         else if (strcmp(model_name, "rWWEx")==0) {
             model = new rWWExModel(
-                nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
+                nodes, N_SIMS, N_SCs, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed
             );
         } 
         else {
@@ -313,6 +320,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     } else {
         model->nodes = nodes;
         model->N_SIMS = N_SIMS;
+        model->N_SCs = N_SCs;
         model->BOLD_TR = BOLD_TR;
         model->time_steps = time_steps;
         model->do_delay = do_delay;
@@ -393,7 +401,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             (double*)PyArray_DATA(py_fcd_trils_out),
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
-            (double*)PyArray_DATA(SC), (double*)PyArray_DATA(SC_dist)
+            SC, (int*)PyArray_DATA(py_SC_indices), (double*)PyArray_DATA(py_SC_dist)
         );
     }
     #ifdef GPU_ENABLED
@@ -403,7 +411,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             (double*)PyArray_DATA(py_fcd_trils_out),
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
-            (double*)PyArray_DATA(SC), (double*)PyArray_DATA(SC_dist)
+            SC, (int*)PyArray_DATA(py_SC_indices), (double*)PyArray_DATA(py_SC_dist)
         );
     }
     #endif
@@ -445,7 +453,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
 static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
-        "run_simulations(model_name, SC, SC_dist, global_params, regional_params, \n"
+        "run_simulations(model_name, SC, SC_indices, SC_dist, global_params, regional_params, \n"
         "v_list, model_config, extended_output, extended_output_ts do_delay, force_reinit, \n"
         "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
@@ -454,7 +462,10 @@ static PyMethodDef methods[] = {
         "model_name (str)\n"
             "\tname of the model to use\n"
             "\tcurrently only supports 'rWW'\n"
-        "SC (np.ndarray) (nodes*nodes,)\n\tflattened strucutral connectivity matrix\n"
+        "SC (np.ndarray) (n_SC, nodes*nodes)\n"
+            "\tn_sc flattened strucutral connectivity matrices\n"
+        "SC_idx (np.ndarray) (N_SIMS,)\n"
+            "\tindex of SC to use for each simulation"
         "SC_dist (np.ndarray) (nodes*nodes,)\n"
             "\tflattened edge length matrix\n"
             "\twill be ignored if do_delay is False\n"

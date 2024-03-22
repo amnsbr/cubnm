@@ -10,7 +10,7 @@ __constant__ rWWModel::Constants d_rWWc;
 template void _run_simulations_gpu<rWWModel>(
     double*, double*, double*, 
     u_real**, u_real**, u_real*, 
-    u_real*, u_real*, 
+    u_real**, int*, u_real*, 
     BaseModel*
 );
 

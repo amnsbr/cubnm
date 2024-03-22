@@ -65,7 +65,8 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
     regional_params = np.vstack([w_EE_list, w_EI_list, w_IE_list])
     # make sure all the input arrays are of type float/double
     out = run_simulations(
-        'rWW', SC, SC_dist, global_params, regional_params, v_list,
+        'rWW', SC[None, :], np.repeat(0, N_SIMS),
+        SC_dist, global_params, regional_params, v_list,
         model_config,
         extended_output, extended_output_ts, do_delay, force_reinit, force_cpu,
         N_SIMS, nodes, time_steps, BOLD_TR,

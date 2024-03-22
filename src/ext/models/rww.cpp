@@ -75,13 +75,13 @@ void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
 
 void rWWModel::prep_params(
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, u_real * SC_dist,
+        u_real ** SC, int * SC_indices, u_real * SC_dist,
         bool ** global_out_bool, int ** global_out_int
         ) {
     // Set wIE to output of analytical FIC
     // if FIC is enabled
     // copy SC to SC_gsl if FIC is needed
-    static gsl_matrix *SC_gsl;
+    static std::vector<gsl_matrix*> SCs_gsl;
     if (this->conf.do_fic) {
         // copy SC to SC_gsl (only once)
         #ifdef OMP_ENABLED
@@ -89,22 +89,26 @@ void rWWModel::prep_params(
         #endif
         {
             bool copy_sc = false;
-            if (SC_gsl == nullptr) {
+            if (SCs_gsl.size() == 0) {
                 copy_sc = true;
             } else {
-                if (SC_gsl->size1 != this->nodes) {
+                if (SCs_gsl[0]->size1 != this->nodes) {
+                  for (auto SC_gsl : SCs_gsl)
                     gsl_matrix_free(SC_gsl);
                     copy_sc = true;
                 }
             }
             if (copy_sc) {
-                SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
-                for (int i = 0; i < this->nodes; i++) {
-                    for (int j = 0; j < this->nodes; j++) {
-                        gsl_matrix_set(SC_gsl, i, j, SC[i*nodes + j]);
+                for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
+                    gsl_matrix* SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
+                    for (int i = 0; i < this->nodes; i++) {
+                        for (int j = 0; j < this->nodes; j++) {
+                            gsl_matrix_set(SC_gsl, i, j, SC[SC_idx][i*nodes + j]);
+                        }
                     }
+                    SCs_gsl.push_back(SC_gsl);
                 }
-            }
+           }
         }
         gsl_vector * curr_w_IE = gsl_vector_alloc(this->nodes);
         double *curr_w_EE = (double *)malloc(this->nodes * sizeof(double));
@@ -117,10 +121,9 @@ void rWWModel::prep_params(
             }
             // do FIC for the current particle
             global_out_bool[0][sim_idx] = false;
-            // bool* _fic_unstable;
             analytical_fic_het(
-                SC_gsl, global_params[0][sim_idx], curr_w_EE, curr_w_EI,
-                // curr_w_IE, _fic_unstable);
+                SCs_gsl[SC_indices[sim_idx]], global_params[0][sim_idx], 
+                curr_w_EE, curr_w_EI,
                 curr_w_IE, global_out_bool[0]+sim_idx);
             if (global_out_bool[0][sim_idx]) {
                 std::cout << "In simulation #" << sim_idx << 

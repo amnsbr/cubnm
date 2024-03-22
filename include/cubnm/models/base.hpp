@@ -5,10 +5,11 @@
 class BaseModel {
 public:
     BaseModel(
-        int nodes, int N_SIMS, int BOLD_TR, int time_steps, bool do_delay, 
+        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int time_steps, bool do_delay, 
         int window_size, int window_step, int rand_seed
         ) : nodes{nodes},
             N_SIMS{N_SIMS},
+            N_SCs{N_SCs},
             BOLD_TR{BOLD_TR},
             time_steps{time_steps},
             do_delay{do_delay},
@@ -29,7 +30,7 @@ public:
     static constexpr char *name = "Base";
     virtual void free_cpu();
 
-    int nodes{}, N_SIMS{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
+    int nodes{}, N_SIMS{}, N_SCs{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
         rand_seed{}, n_pairs{}, n_windows{}, n_window_pairs{}, output_ts{}, bold_size{},
         n_vols_remove{}, corr_len{}, noise_size{}, noise_repeats{},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
@@ -53,9 +54,9 @@ public:
     #ifdef _GPU_ENABLED
     u_real **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
         **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils,
-        *d_SC, **d_global_params, **d_regional_params;
+        **d_SC, **d_global_params, **d_regional_params;
     double **d_fc_trils, **d_fcd_trils;
-    int *pairs_i, *pairs_j, *window_pairs_i, *window_pairs_j;
+    int *pairs_i, *pairs_j, *window_pairs_i, *window_pairs_j, *d_SC_indices;
     #endif
 
     struct Config {
@@ -80,6 +81,7 @@ public:
     void print_config() {
         std::cout << "nodes: " << nodes << std::endl;
         std::cout << "N_SIMS: " << N_SIMS << std::endl;
+        std::cout << "N_SCs: " << N_SCs << std::endl;
         std::cout << "BOLD_TR: " << BOLD_TR << std::endl;
         std::cout << "time_steps: " << time_steps << std::endl;
         std::cout << "do_delay: " << do_delay << std::endl;
@@ -103,15 +105,15 @@ public:
     virtual void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, u_real * SC_dist) = 0;
+        u_real ** SC, int * SC_indices, u_real * SC_dist) = 0;
     #endif
     virtual void init_cpu() = 0;
     virtual void run_simulations_cpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, u_real * SC_dist) = 0;
+        u_real ** SC, int * SC_indices, u_real * SC_dist) = 0;
     virtual void prep_params(u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, u_real * SC_dist,
+        u_real ** SC, int * SC_indices, u_real * SC_dist,
         bool ** global_out_bool, int ** global_out_int) {};
         // use if additional modification of parameters is needed (e.g. FIC in rWW)
     // declare getters for some of static variables
@@ -244,7 +246,7 @@ template<typename Model>
 extern void _run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real * SC, u_real * SC_dist, BaseModel *model
+    u_real ** SC, int * SC_indices, u_real * SC_dist, BaseModel *model
 );
 
 template<typename Model>
@@ -255,7 +257,7 @@ template <typename Model>
 void _run_simulations_cpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real * SC, u_real * SC_dist, BaseModel* m
+    u_real ** SC, int * SC_indices, u_real * SC_dist, BaseModel* m
 );
 
 template <typename Model>

@@ -502,7 +502,7 @@ template <typename Model>
 void _run_simulations_cpu(
     double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real * SC, u_real * SC_dist, BaseModel* m
+    u_real ** SC, int * SC_indices, u_real * SC_dist, BaseModel* m
 ) {
     if (m->base_conf.verbose) {
         m->print_config();
@@ -515,8 +515,9 @@ void _run_simulations_cpu(
     // called from Python, therefore final params are passed
     // to _run_simulations_cpu (except that they might be
     // modified during the simulation, e.g. in numerical FIC)
-    m->prep_params(global_params, regional_params, v_list, SC, 
-        SC_dist, m->global_out_bool, m->global_out_int);
+    m->prep_params(global_params, regional_params, v_list, 
+        SC, SC_indices, SC_dist, 
+        m->global_out_bool, m->global_out_int);
 
     // run the simulations
     size_t ext_out_size;
@@ -555,7 +556,7 @@ void _run_simulations_cpu(
             fc_trils_out+(sim_idx*m->n_pairs), 
             fcd_trils_out+(sim_idx*m->n_window_pairs),
             global_params, regional_params, v_list,
-            SC, SC_dist, 
+            SC[SC_indices[sim_idx]], SC_dist, 
             progress, progress_final
         );
     }

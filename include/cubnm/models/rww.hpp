@@ -10,9 +10,9 @@ extern void analytical_fic_het(
 class rWWModel : public BaseModel {
 public:
     rWWModel(
-        int nodes, int N_SIMS, int BOLD_TR, int time_steps, bool do_delay,
+        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int time_steps, bool do_delay,
         int window_size, int window_step, int rand_seed
-        ) : BaseModel(nodes, N_SIMS, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed)
+        ) : BaseModel(nodes, N_SIMS, N_SCs, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed)
     {};
 
     ~rWWModel() {
@@ -168,12 +168,12 @@ public:
     void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, u_real * SC_dist
+        u_real ** SC, int * SC_indices, u_real * SC_dist
     ) override final {
         _run_simulations_gpu<rWWModel>(
             BOLD_ex_out, fc_trils_out, fcd_trils_out, 
             global_params, regional_params, v_list,
-            SC, SC_dist, this
+            SC, SC_indices, SC_dist, this
         );
     }
     #endif
@@ -228,17 +228,17 @@ public:
     void run_simulations_cpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, u_real * SC_dist
+        u_real ** SC, int * SC_indices, u_real * SC_dist
     ) override final {
         _run_simulations_cpu<rWWModel>(
             BOLD_ex_out, fc_trils_out, fcd_trils_out, 
             global_params, regional_params, v_list,
-            SC, SC_dist, this
+            SC, SC_indices, SC_dist, this
         );
     }
 
     void prep_params(u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real * SC, u_real * SC_dist,
+        u_real ** SC, int * SC_indices, u_real * SC_dist,
         bool ** global_out_bool, int ** global_out_int) override final;
 
     int get_n_state_vars() override final {

@@ -371,7 +371,8 @@ class SimGroup:
         self._regional_params = np.vstack(regional_params_arrays)
         out = run_simulations(
             self.model_name,
-            np.ascontiguousarray(self.sc.flatten()),
+            np.ascontiguousarray(self.sc.flatten())[None, :], # TMP
+            np.repeat(0, self.N), # TMP
             np.ascontiguousarray(self.sc_dist.flatten()),
             self._global_params,
             self._regional_params,

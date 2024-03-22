@@ -17,6 +17,12 @@ def avail_gpus():
     return len(GPUtil.getAvailable())
 
 def is_jupyter():
+    """
+    This function checks if the current environment is a Jupyter notebook.
+
+    Returns:
+        bool: True if the current environment is a Jupyter notebook, False otherwise.
+    """
     try:
         from IPython import get_ipython
     except ImportError:
