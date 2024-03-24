@@ -117,6 +117,7 @@ class BNMProblem(Problem):
     def __init__(
         self,
         model,
+        *,
         params,
         emp_fc_tril,
         emp_fcd_tril,
@@ -198,7 +199,7 @@ class BNMProblem(Problem):
         self.lb = []
         self.ub = []
         self.global_params = self.sim_group.global_param_names + ["v"]
-        self.regional_params = self.sim_group.regional_param_names
+        self.regional_params = self.sim_group.regional_param_names + ["_h"]
         # decide if parameters can be variable across nodes/groups
         # note that this is different from map-based heterogeneity
         self.is_regional = self.node_grouping is not None
@@ -500,6 +501,69 @@ class BNMProblem(Problem):
         self.sim_group.run()
         return self.sim_group.score(self.emp_fc_tril, self.emp_fcd_tril)
 
+class EScBNMProblem(BNMProblem):
+    def __init__(self, *args, **kwargs):
+        # add _h (regional hierarchy) to 
+        # the list of heterogeneous parameters
+        het_params = kwargs.pop('het_params', [])
+        het_params.append('_h')
+        # add _h as a parameter
+        params = kwargs.pop('params', {})
+        if kwargs.get('maps_path', None) is not None:
+            # with map-based heterogeneity set
+            # the bias fixed to 1.0 as it doesn't
+            # matter given _h is a relative parameter
+            params['_h'] = 100.0
+        elif kwargs.get('node_grouping', None) is not None:
+            # with node group heterogeneity set 
+            # the range of _h in each region to [0.001-0.999]
+            params['_h'] = (0.001, 0.999)
+        else:
+            raise ValueError(
+                    "maps_path or node_grouping must be provided"
+                )
+        super().__init__(*args,
+                         params=params,
+                         het_params=het_params, 
+                         **kwargs)
+        # add _h to the param_lists of sim_group
+        self.sim_group.param_lists['_h'] = None
+
+    def _set_sim_params(self, X):
+        """
+        Sets the global and regional parameters of the problem's 
+        :class:`cuBNM.sim.SimGroup` based on the
+        problem free and fixed parameters and type of regional parameter
+        heterogeneity (map-based, group-based or none). Then
+        creates effective SCs of each simulation based on regional
+        _h values.
+
+        Parameters
+        ----------
+        X : :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        """
+        # specify simulation parameters including regional _h
+        super()._set_sim_params(X)
+        # create effective SCs for each simulation based on _h
+        eSCs = []
+        for sim_idx in range(self.sim_group.N):
+            eSC = self.sim_group.sc.copy()
+            h_vector = self.sim_group.param_lists['_h'][sim_idx]
+            # create h matrix representing the proportion of SC
+            # in each direction (columns: seeds, targets: rows)
+            # e.g. if h[j] > h[i], then h_mat[i,j], connections
+            # from j to i will be higher than h[j, i]
+            h_mat = h_vector[None, :] / (h_vector[None, :] + h_vector[:, None])
+            # split up the SC of each edge to the two directions
+            # based on h_mat
+            eSC *= h_mat
+            eSCs.append(eSC)
+        self.sim_group.sc = np.array(eSCs)
+        # set sc_indices so that simulations 0 to N-1 use
+        # SCs 0 to N-1
+        self.sim_group.sc_indices = np.arange(self.sim_group.N)
 
 class Optimizer(ABC):
     @abstractmethod
