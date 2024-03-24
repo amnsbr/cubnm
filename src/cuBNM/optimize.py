@@ -122,6 +122,7 @@ class BNMProblem(Problem):
         emp_fcd_tril,
         het_params=[],
         maps_path=None,
+        maps_coef_range='auto',
         node_grouping=None,
         multiobj=False,
         **kwargs,
@@ -151,6 +152,12 @@ class BNMProblem(Problem):
             path to heterogeneity maps as a text file (Shape: (n_maps, nodes)).
             If provided one free parameter per regional parameter per 
             each map will be added.
+        maps_coef_range : 'auto' or :obj:`tuple` or :obj:`list` of :obj:`tuple`
+            - 'auto': uses (-1/max, -1/min) for maps with positive and negative
+                values (assuming they are z-scored) and (0, 1) otherwise
+            - :obj:`tuple`: uses the same range for all maps
+            - :obj:`list` of :obj:`tuple`: n-map element list specifying the range
+                of coefficients for each map
         node_grouping : {None, 'node', 'sym', :obj:`str`}, optional
             - None: does not use region-/group-specific parameters
             - 'node': each node has its own regional free parameters
@@ -172,6 +179,7 @@ class BNMProblem(Problem):
         self.emp_fcd_tril = emp_fcd_tril
         self.het_params = kwargs.pop("het_params", het_params)
         self.maps_path = kwargs.pop("maps_path", maps_path)
+        self.maps_coef_range = kwargs.pop("maps_coef_range", maps_coef_range)
         self.reject_negative = False # not implemented yet
         self.node_grouping = kwargs.pop("node_grouping", node_grouping)
         self.multiobj = kwargs.pop("multiobj", multiobj)
@@ -247,25 +255,30 @@ class BNMProblem(Problem):
         if self.maps_path is not None:
             self.is_heterogeneous = True
             self.maps = np.loadtxt(self.maps_path)
-            scale_max_minmax = kwargs.pop("scale_max_minmax", 1)
             assert (
                 self.maps.shape[1] == self.sim_group.nodes
             ), f"Maps second dimension {self.maps.shape[1]} != nodes {self.sim_group.nodes}"
             for param in self.het_params:
                 for map_idx in range(self.maps.shape[0]):
-                    # identify the scaler range
-                    map_max = self.maps[map_idx, :].max()
-                    map_min = self.maps[map_idx, :].min()
-                    if (map_min == 0) & (map_max == 1):
-                        # map is min-max normalized
-                        scale_min = 0
-                        scale_max = scale_max_minmax  # defined in constants
-                    elif (map_min < 0) & (map_max > 0):
-                        # e.g. z-scored
-                        scale_min = -1 / map_max
-                        scale_min = np.ceil(scale_min / 0.1) * 0.1  # round up
-                        scale_max = -1 / map_min
-                        scale_max = np.floor(scale_max / 0.1) * 0.1  # round down
+                    if self.maps_coef_range == 'auto':
+                        # identify the scaler range
+                        map_max = self.maps[map_idx, :].max()
+                        map_min = self.maps[map_idx, :].min()
+                        if (map_min < 0) & (map_max > 0):
+                            # e.g. z-scored
+                            scale_min = -1 / map_max
+                            scale_min = np.ceil(scale_min / 0.1) * 0.1  # round up
+                            scale_max = -1 / map_min
+                            scale_max = np.floor(scale_max / 0.1) * 0.1  # round down
+                        else:
+                            scale_min = 0.0
+                            scale_max = 1.0
+                    elif isinstance(self.maps_coef_range, tuple):
+                        scale_min, scale_max = self.maps_coef_range
+                    elif isinstance(self.maps_coef_range, list):
+                        scale_min, scale_max = self.maps_coef_range[map_idx]
+                    else:
+                        raise ValueError("Invalid maps_coef_range provided")
                     # add the scaler as a free parameter
                     scaler_name = f"{param}scale{map_idx}"
                     self.free_params.append(scaler_name)
