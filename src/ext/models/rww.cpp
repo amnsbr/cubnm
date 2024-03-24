@@ -93,7 +93,7 @@ void rWWModel::prep_params(
                 copy_sc = true;
             } else {
                 if (SCs_gsl[0]->size1 != this->nodes) {
-                  for (auto SC_gsl : SCs_gsl)
+                  for (auto &SC_gsl : SCs_gsl)
                     gsl_matrix_free(SC_gsl);
                     copy_sc = true;
                 }
@@ -106,6 +106,7 @@ void rWWModel::prep_params(
                             gsl_matrix_set(SC_gsl, i, j, SC[SC_idx][i*nodes + j]);
                         }
                     }
+                    std::cout << gsl_matrix_get(SC_gsl, 0, 10) << std::endl;
                     SCs_gsl.push_back(SC_gsl);
                 }
            }

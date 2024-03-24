@@ -275,9 +275,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     u_real ** regional_params = np_to_array_2d(py_regional_params);
     u_real ** SC = np_to_array_2d(py_SC);
     // calcualte number of SCs as the max value of py_SC_idx
-    // TODO: add checks in Python to make sure SC_indices
-    // are in the correct range of (0, N_SCs-1)
-    int N_SCs = *std::max_element(py_SC_indices->data, py_SC_indices->data + N_SIMS) + 1;
+    int N_SCs = *std::max_element(
+        (int*)PyArray_DATA(py_SC_indices), 
+        (int*)PyArray_DATA(py_SC_indices) + PyArray_SIZE(py_SC_indices)
+    ) + 1;
 
     if (nodes > MAX_NODES) {
         std::cerr << "Number of nodes must be less than " << MAX_NODES << std::endl;
