@@ -370,15 +370,15 @@ class SimGroup:
         self._global_params = np.vstack(global_params_arrays)
         self._regional_params = np.vstack(regional_params_arrays)
         # specify fixed or variable SCs
-        if (self.sc.ndim == 2 | self.sc.shape[0] == 1):
+        if ((self.sc.ndim == 2) or (self.sc.shape[0] == 1)):
             sc = np.ascontiguousarray(self.sc.flatten())[None, :]
-            sc_indices = np.repeat(0, self.N, dtype=np.intc)
+            sc_indices = np.repeat(0, self.N).astype(np.intc)
         else:
             sc = np.ascontiguousarray(self.sc.reshape(self.sc.shape[0], -1))
             sc_indices = np.ascontiguousarray(self.sc_indices.astype(np.intc))
         # make sure sc indices are correctly in (0, N_SCs-1)
-        assert sc.shape[0] == np.unique().size
-        assert np.sort(np.unique(a)) == np.arange(np.unique(a).size)
+        assert sc.shape[0] == np.unique(sc_indices).size
+        assert np.sort(np.unique(sc_indices)) == np.arange(np.unique(sc_indices).size)
         out = run_simulations(
             self.model_name,
             sc,
