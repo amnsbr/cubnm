@@ -106,7 +106,6 @@ void rWWModel::prep_params(
                             gsl_matrix_set(SC_gsl, i, j, SC[SC_idx][i*nodes + j]);
                         }
                     }
-                    std::cout << gsl_matrix_get(SC_gsl, 0, 10) << std::endl;
                     SCs_gsl.push_back(SC_gsl);
                 }
            }

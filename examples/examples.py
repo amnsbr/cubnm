@@ -1,6 +1,6 @@
 import numpy as np
 import cuBNM
-from cuBNM._core import run_simulations, set_conf, set_const
+from cuBNM._core import run_simulations, set_const
 from cuBNM import optimize, sim, utils, datasets
 from cuBNM._setup_opts import many_nodes_flag, gpu_enabled_flag
 

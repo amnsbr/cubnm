@@ -15,5 +15,5 @@ except ImportError as e:
         print("To fix this error try building cuBNM from source (https://github.com/amnsbr/cuBNM)")
     raise
 else:
-    from cuBNM.core import init, set_const, set_conf, get_conf
+    from cuBNM.core import init, set_const
     init()

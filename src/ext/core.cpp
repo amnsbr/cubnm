@@ -128,8 +128,6 @@ void array_to_np_2d(T ** arr, PyObject * np_arr) {
     }
 }
 
-// write a python extension function with no arguments named init which
-// returns nothing
 static PyObject* init(PyObject* self, PyObject* args) {
     // this function is called only once at the beginning of the session
     // (i.e. when core is imported)
@@ -180,58 +178,6 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
-static PyObject* set_conf(PyObject* self, PyObject* args) {
-    // sets model configs
-    const char* key;
-    double value; // can be cast to int/bool if needed
-
-    if (!PyArg_ParseTuple(args, "sd", &key, &value)) {
-        return NULL;
-    }
-
-    // if (strcmp(key, "bold_remove_s") == 0) {
-    //     conf.bold_remove_s = (int)value;
-    // }
-    // else if (strcmp(key, "exc_interhemispheric") == 0) {
-    //     conf.exc_interhemispheric = (bool)value;
-    // }
-    // else if (strcmp(key, "drop_edges") == 0) {
-    //     conf.drop_edges = (bool)value;
-    // }
-    // else if (strcmp(key, "sync_msec") == 0) {
-    //     conf.sync_msec = (bool)value;
-    // }
-    // else if (strcmp(key, "extended_output_ts") == 0) {
-    //     conf.extended_output_ts = (bool)value;
-    // }
-    // else if (strcmp(key, "sim_verbose") == 0) {
-    //     conf.sim_verbose = (bool)value;
-    // }
-
-    // TODO: make sure that from Python side
-    // reinitialization of the session is enforced
-    // when the constants are updated
-
-    Py_RETURN_NONE;
-}
-
-static PyObject* get_conf(PyObject* self, PyObject* args) {
-    // Create a Python dictionary to store the configuration values
-    PyObject* conf_dict = PyDict_New();
-    if (conf_dict == NULL) {
-        return NULL;
-    }
-
-    // // Add the configuration values to the dictionary
-    // PyDict_SetItemString(conf_dict, "bold_remove_s", PyLong_FromLong(conf.bold_remove_s));
-    // PyDict_SetItemString(conf_dict, "exc_interhemispheric", PyBool_FromLong(conf.exc_interhemispheric));
-    // PyDict_SetItemString(conf_dict, "drop_edges", PyBool_FromLong(conf.drop_edges));
-    // PyDict_SetItemString(conf_dict, "sync_msec", PyBool_FromLong(conf.sync_msec));
-    // PyDict_SetItemString(conf_dict, "extended_output_ts", PyBool_FromLong(conf.extended_output_ts));
-    // PyDict_SetItemString(conf_dict, "sim_verbose", PyBool_FromLong(conf.sim_verbose));
-
-    return conf_dict;
-}
 
 static PyObject* run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
@@ -527,21 +473,7 @@ static PyMethodDef methods[] = {
     },
     {"init", init, METH_NOARGS, 
         "init()\n"
-        "Initialize the session configs and constants"
-    },
-    {"set_conf", set_conf, METH_VARARGS, 
-        "set_conf(key, value)\n"
-        "Set the session configs.\n"
-        "Parameters:\n"
-        "-----------\n"
-        "key (str)\n"
-            "\tname of the config to set\n"
-            "\tincluding: bold_remove_s, I_SAMPLING_START, I_SAMPLING_END, \n"
-            "\tnumerical_fic, max_fic_trials, init_delta, exc_interhemispheric, \n"
-            "\tdrop_edges, sync_msec, extended_output_ts, sim_verbose, fic_verbose\n"
-        "value (float)\n"
-            "\tvalue of the config to set\n"
-            "\tfloat is converted to int/bool if needed\n"
+        "Initialize the session constants"
     },
     {"set_const", set_const, METH_VARARGS, 
         "set_const(key, value)\n"
@@ -553,14 +485,6 @@ static PyMethodDef methods[] = {
             "\tname of the constant to set\n"
         "value (float)\n"
             "\tvalue of the constant to set\n\n"
-    },
-    {"get_conf", get_conf, METH_NOARGS, 
-        "get_conf()\n"
-        "Get the session configs.\n"
-        "Returns:\n"
-        "--------\n"
-        "conf (dict)\n"
-            "\tdictionary of session configs\n\n"
     },
     {NULL, NULL, 0, NULL}
 };
