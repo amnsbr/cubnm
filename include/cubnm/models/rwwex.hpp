@@ -81,9 +81,8 @@ public:
     CUDA_CALLABLE_MEMBER void step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
-    );
+        u_real& tmp_globalinput, curandState& rng_state 
+   );
     CUDA_CALLABLE_MEMBER void post_bw_step(
         u_real* _state_vars, u_real* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, 

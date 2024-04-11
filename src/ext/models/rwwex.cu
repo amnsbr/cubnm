@@ -20,9 +20,8 @@ __device__ __NOINLINE__ void rWWExModel::restart(
 __device__ void rWWExModel::step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
-        ) {
+        u_real& tmp_globalinput, curandState& rng_state 
+       ) {
     // x = w * J_N * S + G * J_N * tmp_globalinput + I0
     _state_vars[0] = _regional_params[0] * d_rWWExc.J_N * _state_vars[2] + _global_params[0] * d_rWWExc.J_N * tmp_globalinput + _regional_params[1] ; 
     // axb = a * x - b
@@ -34,7 +33,7 @@ __device__ void rWWExModel::step(
     // r = axb / (1 - exp(-d * axb))
     _state_vars[1] = _intermediate_vars[0] / (1 - EXP(-d_rWWExc.d * _intermediate_vars[0]));
     // dSdt = dt * ((gamma * (1 - S) * r) - (S / tau)) + sigma * sqrt(dt) * noise
-    _intermediate_vars[1] = d_rWWExc.dt_gamma * ((1 - _state_vars[2]) * _state_vars[1]) - d_rWWExc.dt_itau * _state_vars[2] + noise[noise_idx] * d_rWWExc.sqrt_dt * _regional_params[2];
+    _intermediate_vars[1] = d_rWWExc.dt_gamma * ((1 - _state_vars[2]) * _state_vars[1]) - d_rWWExc.dt_itau * _state_vars[2] + curand_normal_double(&rng_state) * d_rWWExc.sqrt_dt * _regional_params[2];
     // S += dSdt
     _state_vars[2] += _intermediate_vars[1];
     // clip S to 0-1

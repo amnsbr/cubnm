@@ -61,10 +61,7 @@ __global__ void bnm(
         u_real **SC, int *SC_indices, 
         u_real **global_params, u_real **regional_params,
         u_real **conn_state_var_hist, int **delay, int max_delay,
-        #ifdef NOISE_SEGMENT
-        int *shuffled_nodes, int *shuffled_ts,
-        #endif
-        u_real *noise, uint* progress
+        uint* progress
     ) {
     // convert block to a cooperative group
     // get simulation and node indices
@@ -82,32 +79,13 @@ __global__ void bnm(
     const bool extended_output = model->base_conf.extended_output;
     const bool extended_output_ts = model->base_conf.extended_output_ts;
     const bool sync_msec = model->base_conf.sync_msec;
-    #ifdef NOISE_SEGMENT
-    const int noise_time_steps = model->base_conf.noise_time_steps;
-    #endif
 
-    // set up noise shuffling if indicated
-    #ifdef NOISE_SEGMENT
-    /* 
-    How noise shuffling works?
-    At each time point we will have `ts_bold` which is the real time (in msec) 
-    from the start of simulation, `ts_noise` which is the real time passed within 
-    each repeat of the noise segment (`curr_noise_repeat`), `sh_ts_noise` which is 
-    the shuffled timepoint (column of the noise segment) that will be used for getting 
-    the noise of nodes * 10 int_i * 2 neurons for the current msec. 
-    Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
-    vary in each repeat.
-    */
-    // get position of the node
-    // in shuffled nodes for the first
-    // repeat of noise segment
-    int sh_j = shuffled_nodes[j];
-    int curr_noise_repeat = 0;
-    int ts_noise = 0;
-    // also get the shuffled ts of the
-    // first time point
-    int sh_ts_noise = shuffled_ts[ts_noise];
-    #endif
+    // set up random number generator
+    // use rand_seed as seed and j as sequence 
+    // to have different and reproducible random 
+    // arrays in each node (offset is 0)
+    curandState rng_state;
+    curand_init(model->rand_seed, j, 0, &rng_state);
 
     // determine the parameters of current simulation and node
     // use __shared__ for parameters that are shared
@@ -264,16 +242,10 @@ __global__ void bnm(
                 );
             }
             // equations
-            #ifdef NOISE_SEGMENT
-            noise_idx = (((sh_ts_noise * 10 + int_i) * nodes * Model::n_noise) + (sh_j * Model::n_noise));
-            #else
-            noise_idx = (((ts_bold * 10 + int_i) * nodes * Model::n_noise) + (j * Model::n_noise));
-            #endif
             model->step(
                 _state_vars, _intermediate_vars, 
                 _global_params, _regional_params,
-                tmp_globalinput,
-                noise, noise_idx
+                tmp_globalinput, rng_state 
             );
             if (!sync_msec) {
                 if (has_delay) {
@@ -344,25 +316,6 @@ __global__ void bnm(
         }
         ts_bold++;
 
-        #ifdef NOISE_SEGMENT
-        // update noise segment time
-        ts_noise++;
-        // reset noise segment time 
-        // and shuffle nodes if the segment
-        // has reached to the end
-        if (ts_noise % noise_time_steps == 0) {
-            // at the last time point don't do this
-            // to avoid going over the extent of shuffled_nodes
-            if (ts_bold <= time_steps) {
-                curr_noise_repeat++;
-                sh_j = shuffled_nodes[curr_noise_repeat*nodes+j];
-                ts_noise = 0;
-            }
-        }
-        // get the shuffled timepoint corresponding to ts_noise 
-        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
-        #endif
-
         if (Model::has_post_bw_step) {
             model->post_bw_step(
                 _state_vars, _intermediate_vars,
@@ -402,13 +355,8 @@ __global__ void bnm(
                 // reset conn_state_var_1
                 conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
             }
-            #ifdef NOISE_SEGMENT
-            // reset the node shuffling
-            sh_j = shuffled_nodes[j];
-            curr_noise_repeat = 0;
-            ts_noise = 0;
-            sh_ts_noise = shuffled_ts[ts_noise];
-            #endif
+            // reset the random number generator
+            curand_init(model->rand_seed, j, 0, &rng_state);
             restart = false; // restart is done
             __syncthreads(); // make sure all threads are in sync after restart
         }
@@ -442,7 +390,7 @@ __global__ void bnm(
 }
 
 
-template<typename Model>
+/* template<typename Model>
 __global__ void bnm_serial(
         Model* model, u_real **BOLD, u_real ***states_out, 
         int **global_out_int, bool **global_out_bool,
@@ -809,7 +757,7 @@ __global__ void bnm_serial(
     if (Model::n_global_params > 0) {
         free(_global_params);
     }
-}
+} */
 
 template <typename Model>
 void _run_simulations_gpu(
@@ -990,7 +938,7 @@ void _run_simulations_gpu(
     uint progress_final = m->output_ts * m->N_SIMS;
     *progress = 0;
     if (m->base_conf.serial) {
-        bnm_serial<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
+ /*        bnm_serial<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
             d_model,
             m->BOLD, m->states_out, 
             m->global_out_int,
@@ -1001,7 +949,8 @@ void _run_simulations_gpu(
         #ifdef NOISE_SEGMENT
             m->shuffled_nodes, m->shuffled_ts,
         #endif
-            m->noise, progress);
+            m->noise, progress); */
+        std::cerr << "bnm_serial not implemented\n";
     } else {
         bnm<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
             d_model,
@@ -1011,10 +960,7 @@ void _run_simulations_gpu(
             m->d_SC, m->d_SC_indices,
             m->d_global_params, m->d_regional_params,
             conn_state_var_hist, delay, max_delay,
-        #ifdef NOISE_SEGMENT
-            m->shuffled_nodes, m->shuffled_ts,
-        #endif
-            m->noise, progress);
+            progress);
     }
     // asynchroneously print out the progress
     // if verbose
@@ -1390,7 +1336,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         #endif
     }
 
-    // check if noise needs to be calculated
+/*     // check if noise needs to be calculated
     if (
         (m->rand_seed != m->last_rand_seed) ||
         (m->time_steps != m->last_time_steps) ||
@@ -1455,7 +1401,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
             std::cout << "Noise already precalculated" << std::endl;
         }
     }
-
+  */   
     m->gpu_initialized = true;
 }
 

@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <memory>
 #include <iomanip>
+#include <curand_kernel.h> // TODO: with this curand header must be included in project's include folder to enable CPU-only compilation in the absence of NVIDIA toolkit
 #include "cubnm/defines.h"
 #include "utils.cpp"
 #include "./models/bw.cpp"

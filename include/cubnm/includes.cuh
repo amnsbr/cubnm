@@ -12,7 +12,7 @@
 #include <string>
 #include <cstdlib>
 #include <cuda_runtime.h>
-#include <cooperative_groups.h>
+#include <curand_kernel.h>
 #include <random>
 #include <algorithm>
 #include <map>

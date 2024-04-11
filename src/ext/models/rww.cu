@@ -36,8 +36,7 @@ __device__ __NOINLINE__ void rWWModel::restart(
 __device__ void rWWModel::step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
+        u_real& tmp_globalinput, curandState& rng_state 
         ) {
     _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _state_vars[4] + tmp_globalinput * _global_params[0] * d_rWWc.J_NMDA - _regional_params[2] * _state_vars[5];
     // *tmp_I_E = d_rWWc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
@@ -56,10 +55,10 @@ __device__ void rWWModel::step(
     // *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_rWWc.d_E * (*tmp_aIb_E)));
     _state_vars[3] = _intermediate_vars[1] / (1 - EXP(-d_rWWc.d_I * _intermediate_vars[1]));
     // *tmp_r_I = *tmp_aIb_I / (1 - exp(-d_rWWc.d_I * (*tmp_aIb_I)));
-    _intermediate_vars[2] = noise[noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_rWWc.dt_itau_E * _state_vars[4];
-    // *dSdt_E = noise[*noise_idx] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_rWWc.dt_itau_E * (*S_i_E);
-    _intermediate_vars[3] = noise[noise_idx+1] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * _state_vars[3] - d_rWWc.dt_itau_I * _state_vars[5];
-    // *dSdt_I = noise[*noise_idx+1] * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * (*tmp_r_I) - d_rWWc.dt_itau_I * (*S_i_I);
+    _intermediate_vars[2] = curand_normal_double(&rng_state) * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) - d_rWWc.dt_itau_E * _state_vars[4];
+    // *dSdt_E = noise * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_E * ((1 - (*S_i_E)) * (*tmp_r_E)) - d_rWWc.dt_itau_E * (*S_i_E);
+    _intermediate_vars[3] = curand_normal_double(&rng_state) * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * _state_vars[3] - d_rWWc.dt_itau_I * _state_vars[5];
+    // *dSdt_I = noise * d_rWWc.sigma_model_sqrt_dt + d_rWWc.dt_gamma_I * (*tmp_r_I) - d_rWWc.dt_itau_I * (*S_i_I);
     _state_vars[4] += _intermediate_vars[2];
     // *S_i_E += *dSdt_E;
     _state_vars[5] += _intermediate_vars[3];
