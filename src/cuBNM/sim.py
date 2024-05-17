@@ -318,8 +318,7 @@ class SimGroup:
             'sync_msec': str(int(self.sync_msec)),
             'bold_remove_s': str(self.bold_remove_s),
             'drop_edges': str(int(self.fcd_drop_edges)),
-            'noise_time_steps': str(int(self.noise_segment_length*1000)+1), 
-                # msec, inclusive of last time point
+            'noise_time_steps': str(int(self.noise_segment_length*1000)), 
             'verbose': str(int(self.sim_verbose)),
             'progress_interval': str(int(self.progress_interval)),
             'serial': str(int(self.serial_nodes)),

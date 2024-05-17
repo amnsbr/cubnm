@@ -80,10 +80,10 @@ __device__ __NOINLINE__ void rWWModel::post_bw_step(
         int& ts_bold
         ) {
     if (_ext_bool_shared[0]) {
-        if ((ts_bold >= d_rWWc.I_SAMPLING_START) & (ts_bold <= d_rWWc.I_SAMPLING_END)) {
+        if (((ts_bold+1) >= d_rWWc.I_SAMPLING_START) & ((ts_bold+1) <= d_rWWc.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
-        if (ts_bold == d_rWWc.I_SAMPLING_END) {
+        if ((ts_bold+1) == d_rWWc.I_SAMPLING_END) {
             restart = false;
             __syncthreads(); // all threads must be at the same time point here given needs_fic_adjustment is shared
             _intermediate_vars[4] /= d_rWWc.I_SAMPLING_DURATION;

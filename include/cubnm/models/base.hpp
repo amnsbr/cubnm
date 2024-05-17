@@ -17,10 +17,7 @@ public:
             window_step{window_step},
             rand_seed{rand_seed}
         {
-            u_real TR = (u_real)BOLD_TR / 1000; // TR in seconds
-            // calculate length of BOLD time-series
-            // +1 to make it inclusive of the last vol
-            output_ts = (time_steps / (TR / 0.001))+1;
+            output_ts = time_steps / BOLD_TR;
             bold_size = output_ts * nodes;
         };
     // create virtual destructor and free
@@ -67,10 +64,7 @@ public:
         bool extended_output{true};
         bool extended_output_ts{false};
         // set a default length of noise segment (msec)
-        // (+1 to avoid having an additional repeat for a single time point
-        // when time_steps can be divided by 30(000), as the actual duration of
-        // simulation (in msec) is always user request time steps + 1)
-        int noise_time_steps{30001};
+        int noise_time_steps{30000};
         bool verbose{false}; // print simulation info + progress
         int progress_interval{500}; // msec; interval for updating progress
         bool serial{false};

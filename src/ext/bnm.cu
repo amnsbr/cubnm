@@ -82,31 +82,27 @@ __global__ void bnm(
     const bool extended_output = model->base_conf.extended_output;
     const bool extended_output_ts = model->base_conf.extended_output_ts;
     const bool sync_msec = model->base_conf.sync_msec;
-    #ifdef NOISE_SEGMENT
-    const int noise_time_steps = model->base_conf.noise_time_steps;
-    #endif
 
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
     /* 
     How noise shuffling works?
     At each time point we will have `ts_bold` which is the real time (in msec) 
-    from the start of simulation, `ts_noise` which is the real time passed within 
-    each repeat of the noise segment (`curr_noise_repeat`), `sh_ts_noise` which is 
-    the shuffled timepoint (column of the noise segment) that will be used for getting 
-    the noise of nodes * 10 int_i * 2 neurons for the current msec. 
+    from the start of simulation, `ts_bold % noise_time_steps` which is the real 
+    time passed within  each repeat of the noise segment (`curr_noise_repeat`), 
+    `sh_ts_noise` which is the shuffled timepoint (column of the noise segment) 
+    that will be used for getting the noise of nodes * 10 int_i * 2 neurons for 
+    the current msec. 
     Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
     vary in each repeat.
     */
+    const int noise_time_steps = model->base_conf.noise_time_steps;
     // get position of the node
     // in shuffled nodes for the first
     // repeat of noise segment
     int sh_j = shuffled_nodes[j];
     int curr_noise_repeat = 0;
-    int ts_noise = 0;
-    // also get the shuffled ts of the
-    // first time point
-    int sh_ts_noise = shuffled_ts[ts_noise];
+    int sh_ts_noise = shuffled_ts[0];;
     #endif
 
     // determine the parameters of current simulation and node
@@ -233,7 +229,13 @@ __global__ void bnm(
     // outer loop for 1 msec steps
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
-    while (ts_bold <= time_steps) {
+    while (ts_bold < time_steps) {
+        #ifdef NOISE_SEGMENT
+        // get shuffled timepoint corresponding to
+        // current noise repeat and the amount of time
+        // past in the repeat
+        sh_ts_noise = shuffled_ts[(ts_bold % noise_time_steps)+(curr_noise_repeat*noise_time_steps)];
+        #endif
         if (sync_msec) {
             // calculate global input every 1 ms
             // (will be fixed through 10 steps of the millisecond)
@@ -319,8 +321,7 @@ __global__ void bnm(
         // every TR
         // TODO: make it possible to have different sampling rate
         // for BOLD and extended output
-        // TODO: add option to return time series of extended output
-        if (ts_bold % BOLD_TR == 0) {
+        if ((ts_bold+1) % BOLD_TR == 0) {
             // calcualte and save BOLD
             BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q) + d_bwc.V_0_k2 * (1 - bw_q/bw_nu) + d_bwc.V_0_k3 * (1 - bw_nu);
             // save time series of extended output if indicated
@@ -336,31 +337,26 @@ __global__ void bnm(
                     states_out[ii][sim_idx][j] += _state_vars[ii];
                 }
             }
+            // update progress
             BOLD_len_i++;
             if (model->base_conf.verbose && (j==0)) {
                 atomicAdd(progress, 1);
             }
 
         }
-        ts_bold++;
 
         #ifdef NOISE_SEGMENT
-        // update noise segment time
-        ts_noise++;
         // reset noise segment time 
         // and shuffle nodes if the segment
         // has reached to the end
-        if (ts_noise % noise_time_steps == 0) {
+        if ((ts_bold+1) % noise_time_steps == 0) {
             // at the last time point don't do this
             // to avoid going over the extent of shuffled_nodes
-            if (ts_bold <= time_steps) {
+            if (ts_bold+1 < time_steps) {
                 curr_noise_repeat++;
                 sh_j = shuffled_nodes[curr_noise_repeat*nodes+j];
-                ts_noise = 0;
             }
         }
-        // get the shuffled timepoint corresponding to ts_noise 
-        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
         #endif
 
         if (Model::has_post_bw_step) {
@@ -373,6 +369,11 @@ __global__ void bnm(
                 ts_bold
             );
         }
+
+        // move forward outer bw loop
+        // this has to be before restart
+        // because restart will reset ts_bold to 0
+        ts_bold++;
 
         // if restart is indicated (e.g. FIC failed in rWW)
         // reset the simulation and start from the beginning
@@ -406,8 +407,6 @@ __global__ void bnm(
             // reset the node shuffling
             sh_j = shuffled_nodes[j];
             curr_noise_repeat = 0;
-            ts_noise = 0;
-            sh_ts_noise = shuffled_ts[ts_noise];
             #endif
             restart = false; // restart is done
             __syncthreads(); // make sure all threads are in sync after restart
@@ -469,16 +468,13 @@ __global__ void bnm_serial(
     const bool extended_output_ts = model->base_conf.extended_output_ts;
     const bool sync_msec = model->base_conf.sync_msec;
     const int SC_idx = SC_indices[sim_idx];
-    #ifdef NOISE_SEGMENT
-    const int noise_time_steps = model->base_conf.noise_time_steps;
-    #endif
 
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
+    const int noise_time_steps = model->base_conf.noise_time_steps;
     int sh_j{0};
     int curr_noise_repeat{0};
-    int ts_noise{0};
-    int sh_ts_noise = shuffled_ts[ts_noise];
+    int sh_ts_noise = shuffled_ts[0];
     #endif
 
     // copy parameters of current simulation to device heap memory
@@ -581,7 +577,13 @@ __global__ void bnm_serial(
     // outer loop for 1 msec steps
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
-    while (ts_bold <= time_steps) {
+    while (ts_bold < time_steps) {
+        #ifdef NOISE_SEGMENT
+        // get shuffled timepoint corresponding to
+        // current noise repeat and the amount of time
+        // past in the repeat
+        sh_ts_noise = shuffled_ts[(ts_bold % noise_time_steps)+(curr_noise_repeat*noise_time_steps)];
+        #endif
         if (sync_msec) {
             // calculate global input every 1 ms
             for (j=0; j<nodes; j++) {
@@ -663,7 +665,7 @@ __global__ void bnm_serial(
         }
         // Save BOLD and extended output to managed memory
         // every TR
-        if (ts_bold % BOLD_TR == 0) {
+        if ((ts_bold+1) % BOLD_TR == 0) {
             for (j=0; j<nodes; j++) {
                 // calcualte and save BOLD
                 BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q[j]) + d_bwc.V_0_k2 * (1 - bw_q[j]/bw_nu[j]) + d_bwc.V_0_k3 * (1 - bw_nu[j]);
@@ -686,26 +688,21 @@ __global__ void bnm_serial(
                 atomicAdd(progress, 1);
             }
         }
-        ts_bold++;
 
         #ifdef NOISE_SEGMENT
-        // update noise segment time
-        ts_noise++;
         // reset noise segment time 
         // and shuffle nodes if the segment
         // has reached to the end
-        if (ts_noise % noise_time_steps == 0) {
+        if ((ts_bold+1) % noise_time_steps == 0) {
             // at the last time point don't do this
             // to avoid going over the extent of shuffled_nodes
-            if (ts_bold <= time_steps) {
+            if (ts_bold+1 < time_steps) {
                 curr_noise_repeat++;
-                ts_noise = 0;
             }
         }
-        // get the shuffled timepoint corresponding to ts_noise 
-        sh_ts_noise = shuffled_ts[ts_noise+curr_noise_repeat*noise_time_steps];
         #endif
 
+        // Note: simulation restart
         // bool j_restart{false};
         // if (Model::has_post_bw_step) {
         //     for (j=0; j<nodes; j++) {
@@ -721,6 +718,11 @@ __global__ void bnm_serial(
         //         restart = restart || j_restart;
         //     }
         // }
+
+        // move forward outer bw loop
+        // this has to be before restart
+        // because restart will reset ts_bold to 0
+        ts_bold++;
 
         // // if restart is indicated (e.g. FIC failed in rWW)
         // // reset the simulation and start from the beginning
@@ -1404,14 +1406,13 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         #ifndef NOISE_SEGMENT
         // precalculate the entire noise needed; can use up a lot of memory
         // with high N of nodes and longer durations leads maxes out the memory
-        m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise; 
-            // +1 for inclusive last time point, *10 for 0.1msec
+        m->noise_size = m->nodes * m->time_steps * 10 * Model::n_noise; // *10 for 0.1msec
         #else
         // otherwise precalculate a noise segment and arrays of shuffled
         // nodes and time points and reuse-shuffle the noise segment
         // throughout the simulation for `noise_repeats`
         m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
-        m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
+        m->noise_repeats = ceil((float)(m->time_steps) / (float)(m->base_conf.noise_time_steps));
         #endif
         if (m->base_conf.verbose) {
             std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;

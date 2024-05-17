@@ -218,15 +218,20 @@ void bnm(
     Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
     vary in each repeat.
     */
-    int curr_noise_repeat{0}, ts_noise{0}, sh_j{0}, sh_ts_noise{0};
+    int curr_noise_repeat{0}, sh_j{0}, sh_ts_noise{0};
     #endif
     // outer loop for 1 msec steps
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
-    while (ts_bold <= model->time_steps) {
-        // TODO: similar to CPU add the option for sync_msec
+    while (ts_bold < model->time_steps) {
         #ifdef NOISE_SEGMENT
-        sh_ts_noise = model->shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
+        // get shuffled timepoint corresponding to
+        // current noise repeat and the amount of time
+        // past in the repeat
+        sh_ts_noise = model->shuffled_ts[
+            (ts_bold % model->base_conf.noise_time_steps)
+            +(curr_noise_repeat*model->base_conf.noise_time_steps)
+        ];
         #endif
         // calculate global input every msec
         if (model->base_conf.sync_msec) {
@@ -315,7 +320,7 @@ void bnm(
                 _state_vars[j][Model::bold_state_var_idx]
             );
         }
-        if (ts_bold % model->BOLD_TR == 0) {
+        if ((ts_bold+1) % model->BOLD_TR == 0) {
             for (j = 0; j<model->nodes; j++) {
                 bold_idx = BOLD_len_i*model->nodes+j;
                 BOLD_ex[bold_idx] = bwc.V_0 * (bwc.k1 * (1 - bw_q[j]) + bwc.k2 * (1 - bw_q[j]/bw_nu[j]) + bwc.k3 * (1 - bw_nu[j]));
@@ -343,17 +348,17 @@ void bnm(
                 }
             }
         }
-        ts_bold++;
 
         #ifdef NOISE_SEGMENT
-        // update noise segment time
-        ts_noise++;
         // reset noise segment time 
         // and shuffle nodes if the segment
         // has reached to the end
-        if (ts_noise % model->base_conf.noise_time_steps == 0) {
-            curr_noise_repeat++;
-            ts_noise = 0;
+        if ((ts_bold+1) % model->base_conf.noise_time_steps == 0) {
+            // at the last time point don't do this
+            // to avoid going over the extent of shuffled_nodes
+            if (ts_bold+1 < model->time_steps) {
+                curr_noise_repeat++;
+            }
         }
         #endif
 
@@ -368,6 +373,11 @@ void bnm(
             );
         }
 
+        // move forward outer bw loop
+        // this has to be before restart
+        // because restart will reset ts_bold to 0
+        ts_bold++;
+        
         // if restart is indicated (e.g. FIC failed in rWW)
         // reset the simulation and start from the beginning
         if (restart) {
@@ -412,7 +422,6 @@ void bnm(
             buff_idx = max_delay-1;
             #ifdef NOISE_SEGMENT
             curr_noise_repeat = 0;
-            ts_noise = 0;
             #endif
             restart = false; // restart is done
         }
@@ -629,14 +638,13 @@ void _init_cpu(BaseModel *m) {
         #ifndef NOISE_SEGMENT
         // precalculate the entire noise needed; can use up a lot of memory
         // with high N of nodes and longer durations leads maxes out the memory
-        m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise;
-            // +1 for inclusive last time point, *10 for 0.1msec
+        m->noise_size = m->nodes * m->time_steps * 10 * Model::n_noise; // *10 for 0.1msec
         #else
         // otherwise precalculate a noise segment and arrays of shuffled
         // nodes and time points and reuse-shuffle the noise segment
         // throughout the simulation for `noise_repeats`
         m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
-        m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
+        m->noise_repeats = ceil((float)(m->time_steps) / (float)(m->base_conf.noise_time_steps));
         #endif
         if (m->base_conf.verbose) {
             std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;

@@ -220,10 +220,10 @@ void rWWModel::_j_post_bw_step(
         int& ts_bold
         ) {
     if (_ext_bool_shared[0]) {
-        if ((ts_bold >= rWWModel::mc.I_SAMPLING_START) & (ts_bold <= rWWModel::mc.I_SAMPLING_END)) {
+        if (((ts_bold+1) >= rWWModel::mc.I_SAMPLING_START) & ((ts_bold+1) <= rWWModel::mc.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
-        if (ts_bold == rWWModel::mc.I_SAMPLING_END) {
+        if ((ts_bold+1) == rWWModel::mc.I_SAMPLING_END) {
             restart = false;
             _intermediate_vars[4] /= rWWModel::mc.I_SAMPLING_DURATION;
             _intermediate_vars[6] = _intermediate_vars[4] - rWWModel::mc.b_a_ratio_E;
@@ -261,7 +261,7 @@ void rWWModel::h_post_bw_step(u_real** _state_vars, u_real** _intermediate_vars,
         ts_bold);
     // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
     // the simulation until the end
-    if ((_ext_bool_shared[0]) && (ts_bold == rWWModel::mc.I_SAMPLING_END)) {
+    if ((_ext_bool_shared[0]) && ((ts_bold+1) == rWWModel::mc.I_SAMPLING_END)) {
         if (restart) {
             if (_ext_int_shared[0] < (this->conf.max_fic_trials)) {
                 _ext_int_shared[0]++; // increment fic_trial
