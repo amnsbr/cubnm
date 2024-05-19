@@ -20,8 +20,9 @@ class SimGroup:
         sc_path,
         sc_dist_path=None,
         out_dir="same",
-        extended_output=True,
-        extended_output_ts=False,
+        ext_out=True,
+        states_ts=False,
+        states_sampling=None,
         window_size=10,
         window_step=2,
         rand_seed=410,
@@ -46,7 +47,7 @@ class SimGroup:
         duration: :obj:`float`
             simulation duration (in seconds)
         TR: :obj:`float`
-            BOLD TR and sampling rate of extended output (in seconds)
+            BOLD TR (in seconds)
         sc_path: :obj:`str`
             path to structural connectome strengths (as an unlabled .txt)
             Shape: (nodes, nodes)
@@ -58,12 +59,15 @@ class SimGroup:
         out_dir: {'same' or :obj:`str`}, optional
             - 'same': will create a directory named based on sc_path
             - :obj:`str`: will create a directory in the provided path
-        extended_output: :obj:`bool`, optional
+        ext_out: :obj:`bool`, optional
             return mean internal model variables to self.sim_states
-        extended_output_ts: :obj:`bool`, optional
-            return time series of internal model variables to self.sim_states
+        states_ts: :obj:`bool`, optional
+            return time series of model states to self.sim_states
             Note that this will increase the memory usage and is not
             recommended for large number of simulations (e.g. in a grid search)
+        states_sampling: :obj:`float`, optional
+            sampling rate of model states in seconds.
+            Default is None, which uses BOLD TR as the sampling rate.
         window_size: :obj:`int`, optional
             dynamic FC window size (in TR)
         window_step: :obj:`int`, optional
@@ -124,13 +128,17 @@ class SimGroup:
                 - 'v': conduction velocity. Shape: (N_SIMS,)
         """
         self.duration = duration
-        self.TR = TR  # in msec
+        self.TR = TR
         self.sc_path = sc_path
         self.sc_dist_path = sc_dist_path
         self._out_dir = out_dir
         self.sc = np.loadtxt(self.sc_path)
-        self.extended_output = extended_output
-        self.extended_output_ts = self.extended_output & extended_output_ts
+        self.ext_out = ext_out
+        self.states_ts = self.ext_out & states_ts
+        if states_sampling is None:
+            self.states_sampling = self.TR
+        else:
+            self.states_sampling = states_sampling
         self.window_size = window_size
         self.window_step = window_step
         self.rand_seed = rand_seed
@@ -145,10 +153,12 @@ class SimGroup:
             self.noise_segment_length = self.duration
         self.sim_verbose = sim_verbose
         self.progress_interval = progress_interval
-        # get time and TR in msec
+        # get duration, TR and extended sampling rate in msec
         self.duration_msec = int(duration * 1000)  # in msec
         self.TR_msec = int(TR * 1000)
+        self.states_sampling_msec = int(self.states_sampling * 1000)
         # warn user if serial is set to True
+        # + revert unsupported options to default
         if self.serial_nodes and not self.force_cpu:
             print(
                 "Warning: Running simulations serially on GPU is an experimental "
@@ -156,12 +166,24 @@ class SimGroup:
                 "significantly slower performance. Consider setting "
                 "serial_nodes to False."
             )
+            if self.states_sampling != self.TR:
+                print(
+                    "In serial different states_sampling from TR is not "
+                    "supported. Reseting it to TR."
+                )
+                self.states_sampling = self.TR
         # warn user if SC diagonal is not 0
         if np.any(np.diag(self.sc)):
             print("Warning: The diagonal of the SC matrix is not 0. "
                 "Self-connections are not ignored by default in "
                 "the simulations. If you want to ignore them set "
                 "the diagonal of the SC matrix to 0.")
+        # raise an error if sampling rate is below model's outer loop dt
+        if (self.states_sampling < 0.001):
+            raise ValueError(
+                "states_sampling cannot be lower than 0.001s "
+                "which is model dt"
+            )                
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
         self.use_cpu = (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
@@ -289,8 +311,9 @@ class SimGroup:
             "TR": self.TR,
             "sc_path": self.sc_path,
             "sc_dist_path": self.sc_dist_path,
-            "extended_output": self.extended_output,
-            "extended_output_ts": self.extended_output_ts,
+            "ext_out": self.ext_out,
+            "states_ts": self.states_ts,
+            "states_sampling": self.states_sampling,
             "window_size": self.window_size,
             "window_step": self.window_step,
             "rand_seed": self.rand_seed,
@@ -387,8 +410,8 @@ class SimGroup:
             self._regional_params,
             np.ascontiguousarray(self.param_lists["v"]),
             self._model_config,
-            self.extended_output,
-            self.extended_output_ts,
+            self.ext_out,
+            self.states_ts,
             self.do_delay,
             force_reinit,
             self.use_cpu,
@@ -396,6 +419,7 @@ class SimGroup:
             self.nodes,
             self.duration_msec,
             self.TR_msec,
+            self.states_sampling_msec,
             self.window_size,
             self.window_step,
             self.rand_seed,
@@ -434,13 +458,12 @@ class SimGroup:
             - _global_ints: :obj:`np.ndarray`
                 Global integer variables. Shape: (n_ints, N_SIMS)
             `_sim_states`, `_global_bools` and `_global_ints` are only
-            assigned if `extended_output` is True and should be processed 
+            assigned if `ext_out` is True and should be processed 
             further in model-specific `_process_out` methods
         """
         # assign the output to object attributes
         # and reshape them to (N_SIMS, ...)
-        self.ext_out = {}
-        if self.extended_output:
+        if self.ext_out:
             (
                 sim_bold,
                 sim_fc_trils,
@@ -609,7 +632,7 @@ class rWWSimGroup(SimGroup):
         # it sets .last_config which may include some
         # model-specific attributes (e.g. self.do_fic)
         super().__init__(*args, **kwargs)
-        self.extended_output = self.extended_output | self.do_fic
+        self.ext_out = self.ext_out | self.do_fic
         if self.serial_nodes:
             print(
                 "Numerical FIC is not supported in serial_nodes mode. "
@@ -656,7 +679,7 @@ class rWWSimGroup(SimGroup):
 
     def _process_out(self, out):
         super()._process_out(out)
-        if self.extended_output:
+        if self.ext_out:
             # name and reshape the states
             self.sim_states = {
                 'I_E': self._sim_states[0],
@@ -666,7 +689,7 @@ class rWWSimGroup(SimGroup):
                 'S_E': self._sim_states[4],
                 'S_I': self._sim_states[5],
             }
-            if self.extended_output_ts:
+            if self.states_ts:
                 for k in self.sim_states:
                     self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
         if self.do_fic:
@@ -702,7 +725,7 @@ class rWWSimGroup(SimGroup):
         scores = super().score(emp_fc_tril, emp_fcd_tril)
         # calculate FIC penalty
         if self.do_fic & self.fic_penalty:
-            if self.extended_output_ts:
+            if self.states_ts:
                 mean_r_E = self.sim_states["r_E"].mean(axis=1)
             else:
                 mean_r_E = self.sim_states["r_E"]
@@ -808,14 +831,14 @@ class rWWExSimGroup(SimGroup):
     
     def _process_out(self, out):
         super()._process_out(out)
-        if self.extended_output:
+        if self.ext_out:
             # name and reshape the states
             self.sim_states = {
                 'x': self._sim_states[0],
                 'r': self._sim_states[1],
                 'S': self._sim_states[2],
             }
-            if self.extended_output_ts:
+            if self.states_ts:
                 for k in self.sim_states:
                     self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
     

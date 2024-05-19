@@ -79,8 +79,9 @@ __global__ void bnm(
     const int nodes = model->nodes;
     const int time_steps = model->time_steps;
     const int BOLD_TR = model->BOLD_TR;
-    const bool extended_output = model->base_conf.extended_output;
-    const bool extended_output_ts = model->base_conf.extended_output_ts;
+    const int states_sampling = model->states_sampling;
+    const bool ext_out = model->base_conf.ext_out;
+    const bool states_ts = model->base_conf.states_ts;
     const bool sync_msec = model->base_conf.sync_msec;
 
     // set up noise shuffling if indicated
@@ -120,7 +121,7 @@ __global__ void bnm(
     }
 
     // initialize extended output sums
-    if (extended_output && (!extended_output_ts)) {
+    if (ext_out && (!states_ts)) {
         for (ii=0; ii<Model::n_state_vars; ii++) {
             states_out[ii][sim_idx][j] = 0;
         }
@@ -224,7 +225,8 @@ __global__ void bnm(
     int int_i = 0;
     int k = 0;
     long noise_idx = 0;
-    int BOLD_len_i = 0;
+    int bold_i = 0;
+    int states_i = 0;
     int ts_bold = 0;
     // outer loop for 1 msec steps
     // TODO: define number of steps for outer
@@ -317,33 +319,40 @@ __global__ void bnm(
             bw_q, tmp_f,
             _state_vars[Model::bold_state_var_idx]);
 
-        // Save BOLD and extended output to managed memory
-        // every TR
-        // TODO: make it possible to have different sampling rate
-        // for BOLD and extended output
+        // Calculate and write BOLD to managed memory every TR
         if ((ts_bold+1) % BOLD_TR == 0) {
             // calcualte and save BOLD
-            BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q) + d_bwc.V_0_k2 * (1 - bw_q/bw_nu) + d_bwc.V_0_k3 * (1 - bw_nu);
-            // save time series of extended output if indicated
-            if (extended_output && extended_output_ts) {
-                for (ii=0; ii<Model::n_state_vars; ii++) {
-                    states_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[ii];
-                }
-            }
-            // update sum (later mean) of extended
-            // output only after n_vols_remove
-            if ((BOLD_len_i>=model->n_vols_remove) && extended_output && (!extended_output_ts)) {
-                for (ii=0; ii<Model::n_state_vars; ii++) {
-                    states_out[ii][sim_idx][j] += _state_vars[ii];
-                }
-            }
+            BOLD[sim_idx][bold_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q) + d_bwc.V_0_k2 * (1 - bw_q/bw_nu) + d_bwc.V_0_k3 * (1 - bw_nu);
             // update progress
-            BOLD_len_i++;
+            bold_i++;
             if (model->base_conf.verbose && (j==0)) {
                 atomicAdd(progress, 1);
             }
 
         }
+
+        if (ext_out) {
+            if ((ts_bold+1) % states_sampling == 0) {
+                // save time series of extended output if indicated
+                if (states_ts) {
+                    for (ii=0; ii<Model::n_state_vars; ii++) {
+                        states_out[ii][sim_idx][states_i*nodes+j] = _state_vars[ii];
+                    }
+                } else {
+                    // update sum (later mean) of extended
+                    // output only after n_samples_remove_states
+                    if (states_i >= model->n_states_samples_remove) {
+                        for (ii=0; ii<Model::n_state_vars; ii++) {
+                            states_out[ii][sim_idx][j] += _state_vars[ii];
+                        }
+                    }
+                }
+                states_i++;
+            }
+        }
+        
+
+
 
         #ifdef NOISE_SEGMENT
         // reset noise segment time 
@@ -382,10 +391,11 @@ __global__ void bnm(
             model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
             // subtract progress of current simulation
             if (model->base_conf.verbose && (j==0)) {
-                atomicAdd(progress, -BOLD_len_i);
+                atomicAdd(progress, -bold_i);
             }
             // reset indices
-            BOLD_len_i = 0;
+            bold_i = 0;
+            states_i = 0;
             ts_bold = 0;
             // reset Balloon-Windkessel model variables
             bw_x = 0.0;
@@ -424,11 +434,11 @@ __global__ void bnm(
             sim_idx, nodes, j
         );
     }
-    if (extended_output && (!extended_output_ts)) {
-        // take average across time points after n_vols_remove
-        int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
+    if (ext_out && (!states_ts)) {
+        // take average across time points after n_states_samples_remove
+        int ext_out_time_points = states_i - model->n_states_samples_remove;
         for (ii=0; ii<Model::n_state_vars; ii++) {
-            states_out[ii][sim_idx][j] /= extended_output_time_points;
+            states_out[ii][sim_idx][j] /= ext_out_time_points;
         }
     }
     // free heap
@@ -464,8 +474,8 @@ __global__ void bnm_serial(
     const int nodes = model->nodes;
     const int time_steps = model->time_steps;
     const int BOLD_TR = model->BOLD_TR;
-    const bool extended_output = model->base_conf.extended_output;
-    const bool extended_output_ts = model->base_conf.extended_output_ts;
+    const bool ext_out = model->base_conf.ext_out;
+    const bool states_ts = model->base_conf.states_ts;
     const bool sync_msec = model->base_conf.sync_msec;
     const int SC_idx = SC_indices[sim_idx];
 
@@ -492,7 +502,7 @@ __global__ void bnm_serial(
     }
 
     // initialize extended output sums
-    if (extended_output && (!extended_output_ts)) {
+    if (ext_out && (!states_ts)) {
         for (ii=0; ii<Model::n_state_vars; ii++) {
             for (j=0; j<nodes; j++) {
                 states_out[ii][sim_idx][j] = 0;
@@ -572,7 +582,7 @@ __global__ void bnm_serial(
     bool restart{false};
 
     // integration loop
-    int int_i{0}, k{0}, BOLD_len_i{0}, ts_bold{0};
+    int int_i{0}, k{0}, bold_i{0}, ts_bold{0};
     long noise_idx{0};
     // outer loop for 1 msec steps
     // TODO: define number of steps for outer
@@ -668,22 +678,22 @@ __global__ void bnm_serial(
         if ((ts_bold+1) % BOLD_TR == 0) {
             for (j=0; j<nodes; j++) {
                 // calcualte and save BOLD
-                BOLD[sim_idx][BOLD_len_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q[j]) + d_bwc.V_0_k2 * (1 - bw_q[j]/bw_nu[j]) + d_bwc.V_0_k3 * (1 - bw_nu[j]);
+                BOLD[sim_idx][bold_i*nodes+j] = d_bwc.V_0_k1 * (1 - bw_q[j]) + d_bwc.V_0_k2 * (1 - bw_q[j]/bw_nu[j]) + d_bwc.V_0_k3 * (1 - bw_nu[j]);
                 // save time series of extended output if indicated
-                if (extended_output && extended_output_ts) {
+                if (ext_out && states_ts) {
                     for (ii=0; ii<Model::n_state_vars; ii++) {
-                        states_out[ii][sim_idx][BOLD_len_i*nodes+j] = _state_vars[j][ii];
+                        states_out[ii][sim_idx][bold_i*nodes+j] = _state_vars[j][ii];
                     }
                 }
                 // update sum (later mean) of extended
                 // output only after n_vols_remove
-                if ((BOLD_len_i>=model->n_vols_remove) && extended_output && (!extended_output_ts)) {
+                if ((bold_i>=model->n_vols_remove) && ext_out && (!states_ts)) {
                     for (ii=0; ii<Model::n_state_vars; ii++) {
                         states_out[ii][sim_idx][j] += _state_vars[j][ii];
                     }
                 }
             }
-            BOLD_len_i++;
+            bold_i++;
             if (model->base_conf.verbose) {
                 atomicAdd(progress, 1);
             }
@@ -731,10 +741,10 @@ __global__ void bnm_serial(
         //     model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
         //     // subtract progress of current simulation
         //     if (model->base_conf.verbose && (j==0)) {
-        //         atomicAdd(progress, -BOLD_len_i);
+        //         atomicAdd(progress, -bold_i);
         //     }
         //     // reset indices
-        //     BOLD_len_i = 0;
+        //     bold_i = 0;
         //     ts_bold = 0;
         //     // reset Balloon-Windkessel model variables
         //     bw_x = 0.0;
@@ -777,11 +787,11 @@ __global__ void bnm_serial(
             );
         }
     }
-    if (extended_output && (!extended_output_ts)) {
+    if (ext_out && (!states_ts)) {
         // take average across time points after n_vols_remove
-        int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
+        int ext_out_time_points = bold_i - model->n_vols_remove;
         for (ii=0; ii<Model::n_state_vars; ii++) {
-            states_out[ii][sim_idx][j] /= extended_output_time_points;
+            states_out[ii][sim_idx][j] /= ext_out_time_points;
         }
     }
     // free heap
@@ -989,7 +999,7 @@ void _run_simulations_gpu(
     // an approximation of the real progress)
     uint* progress;
     CUDA_CHECK_RETURN(cudaMallocManaged(&progress, sizeof(uint)));
-    uint progress_final = m->output_ts * m->N_SIMS;
+    uint progress_final = m->bold_len * m->N_SIMS;
     *progress = 0;
     if (m->base_conf.serial) {
         bnm_serial<Model><<<numBlocks,threadsPerBlock,shared_mem_extern>>>(
@@ -1062,7 +1072,7 @@ void _run_simulations_gpu(
     bold_stats<<<numBlocks, threadsPerBlock>>>(
         m->mean_bold, m->ssd_bold,
         m->BOLD, m->N_SIMS, m->nodes,
-        m->output_ts, m->corr_len, m->n_vols_remove);
+        m->bold_len, m->corr_len, m->n_vols_remove);
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     // calculate window mean and sd bold for FCD calculations
@@ -1089,7 +1099,7 @@ void _run_simulations_gpu(
     fc<<<numBlocks, threadsPerBlock>>>(
         m->fc_trils, m->windows_fc_trils, m->BOLD, m->N_SIMS, m->nodes, m->n_pairs, 
         m->pairs_i, m->pairs_j,
-        m->output_ts, m->n_vols_remove, m->corr_len, m->mean_bold, m->ssd_bold,
+        m->bold_len, m->n_vols_remove, m->corr_len, m->mean_bold, m->ssd_bold,
         m->n_windows, m->window_size+1, m->windows_mean_bold, m->windows_ssd_bold,
         m->window_starts, m->window_ends,
         maxThreadsPerBlock
@@ -1153,8 +1163,8 @@ void _run_simulations_gpu(
 
     // copy the output from managed memory to _out arrays (which can be numpy arrays)
     size_t ext_out_size = m->nodes;
-    if (m->base_conf.extended_output_ts) {
-        ext_out_size *= m->output_ts;
+    if (m->base_conf.states_ts) {
+        ext_out_size *= m->bold_len;
     }
     // TODO: pass the managed arrays data directly
     // to the python arrays without copying
@@ -1258,10 +1268,10 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
 
     // allocate memory for extended output
     size_t ext_out_size = m->nodes;
-    if (m->base_conf.extended_output_ts) {
-        ext_out_size *= m->output_ts;
+    if (m->base_conf.states_ts) {
+        ext_out_size *= m->states_len;
     }
-    if (m->base_conf.extended_output) {
+    if (m->base_conf.ext_out) {
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->states_out), sizeof(u_real**) * Model::n_state_vars));
         for (int var_idx=0; var_idx<Model::n_state_vars; var_idx++) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->states_out[var_idx]), sizeof(u_real*) * m->N_SIMS));
@@ -1271,11 +1281,14 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         }
     }
 
-    // specify n_vols_remove (for extended output and FC calculations)
+    // specify n_vols_remove (for FC(D) calculations)
     m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR;
 
+    // specifiy n_states_samples_remove (for states mean calculations)
+    m->n_states_samples_remove = m->base_conf.bold_remove_s * 1000 / m->states_sampling;
+
     // preparing FC calculations
-    m->corr_len = m->output_ts - m->n_vols_remove;
+    m->corr_len = m->bold_len - m->n_vols_remove;
     if (m->corr_len < 2) {
         std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
         exit(1);
@@ -1320,7 +1333,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     int *_window_starts, *_window_ends; // are cpu integer arrays
     m->n_windows = get_dfc_windows(
         &_window_starts, &_window_ends, 
-        m->corr_len, m->output_ts, m->n_vols_remove,
+        m->corr_len, m->bold_len, m->n_vols_remove,
         m->window_step, m->window_size, m->base_conf.drop_edges);
     if (m->n_windows == 0) {
         std::cerr << "Error: Number of windows is 0" << std::endl;
@@ -1515,7 +1528,7 @@ void BaseModel::free_gpu() {
     CUDA_CHECK_RETURN(cudaFree(this->ssd_bold));
     CUDA_CHECK_RETURN(cudaFree(this->mean_bold));
     CUDA_CHECK_RETURN(cudaFree(this->BOLD));
-    if (this->base_conf.extended_output) {
+    if (this->base_conf.ext_out) {
         for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {
             for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
                 CUDA_CHECK_RETURN(cudaFree(this->states_out[var_idx][sim_idx]));

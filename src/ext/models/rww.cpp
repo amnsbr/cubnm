@@ -63,7 +63,7 @@ void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
     for (const auto& pair : config_map) {
         if (pair.first == "do_fic") {
             this->conf.do_fic = (bool)std::stoi(pair.second);
-            this->base_conf.extended_output = this->conf.do_fic || this->base_conf.extended_output;
+            this->base_conf.ext_out = this->conf.do_fic || this->base_conf.ext_out;
             this->modifies_params = true;
         } else if (pair.first == "max_fic_trials") {
             this->conf.max_fic_trials = std::stoi(pair.second);

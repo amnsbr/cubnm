@@ -3,12 +3,7 @@
 #include "cubnm/models/base.hpp"
 class rWWExModel : public BaseModel {
 public:
-    rWWExModel(
-        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int time_steps, bool do_delay, 
-        int window_size, int window_step, int rand_seed
-        ) : BaseModel(nodes, N_SIMS, N_SCs, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed)
-    {};
-
+    using BaseModel::BaseModel;
     ~rWWExModel() {
         if (cpu_initialized) {
             this->free_cpu();

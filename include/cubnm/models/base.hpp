@@ -5,31 +5,62 @@
 class BaseModel {
 public:
     BaseModel(
-        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int time_steps, bool do_delay, 
-        int window_size, int window_step, int rand_seed
+        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
+        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed
         ) : nodes{nodes},
             N_SIMS{N_SIMS},
             N_SCs{N_SCs},
             BOLD_TR{BOLD_TR},
+            states_sampling{states_sampling},
             time_steps{time_steps},
             do_delay{do_delay},
             window_size{window_size},
             window_step{window_step},
             rand_seed{rand_seed}
         {
-            output_ts = time_steps / BOLD_TR;
-            bold_size = output_ts * nodes;
+            set_bold_states_len();
         };
     // create virtual destructor and free
     // the memory allocated for the arrays
     virtual ~BaseModel() = default;
 
     static constexpr char *name = "Base";
+
+    virtual void update(
+        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
+        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed
+        ) {
+            this->nodes = nodes;
+            this->N_SIMS = N_SIMS;
+            this->N_SCs = N_SCs;
+            this->BOLD_TR = BOLD_TR;
+            this->states_sampling = states_sampling;
+            this->time_steps = time_steps;
+            this->do_delay = do_delay;
+            this->window_size = window_size;
+            this->window_step = window_step;
+            this->rand_seed = rand_seed;
+            this->set_bold_states_len();
+    }
+
+    virtual void set_bold_states_len() {
+        // bold samples (volumes) length
+        // and total matrix size
+        bold_len = time_steps / BOLD_TR;
+        bold_size = bold_len * nodes;
+        // states samples length and
+        // total matrix size
+        states_len = time_steps / states_sampling;
+        states_size = states_len * nodes;
+    }
+
     virtual void free_cpu();
 
-    int nodes{}, N_SIMS{}, N_SCs{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
-        rand_seed{}, n_pairs{}, n_windows{}, n_window_pairs{}, output_ts{}, bold_size{},
-        n_vols_remove{}, corr_len{}, noise_size{}, noise_repeats{},
+    int nodes{}, N_SIMS{}, N_SCs{}, BOLD_TR{}, states_sampling{}, time_steps{}, 
+        window_size{}, window_step{}, rand_seed{}, n_pairs{}, n_windows{}, 
+        n_window_pairs{}, bold_len{}, bold_size{}, states_len{}, states_size{},
+        n_vols_remove{}, n_states_samples_remove{}, corr_len{}, 
+        noise_size{}, noise_repeats{},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
         last_noise_time_steps{0};
         // TODO: make some short or size_t
@@ -61,8 +92,8 @@ public:
         bool exc_interhemispheric{true};
         bool drop_edges{true};
         bool sync_msec{false};
-        bool extended_output{true};
-        bool extended_output_ts{false};
+        bool ext_out{true};
+        bool states_ts{false};
         // set a default length of noise segment (msec)
         int noise_time_steps{30000};
         bool verbose{false}; // print simulation info + progress
@@ -77,6 +108,7 @@ public:
         std::cout << "N_SIMS: " << N_SIMS << std::endl;
         std::cout << "N_SCs: " << N_SCs << std::endl;
         std::cout << "BOLD_TR: " << BOLD_TR << std::endl;
+        std::cout << "states_sampling: " << states_sampling << std::endl;
         std::cout << "time_steps: " << time_steps << std::endl;
         std::cout << "do_delay: " << do_delay << std::endl;
         std::cout << "window_size: " << window_size << std::endl;
@@ -210,7 +242,7 @@ public:
 
 protected:
     void set_base_conf(std::map<std::string, std::string> config_map) {
-        // Note: some of the base_conf members (extended_output, extended_output_ts) 
+        // Note: some of the base_conf members (ext_out, states_ts) 
         // are set directly based on arguments passed from Python
         for (const auto& pair : config_map) {
             if (pair.first == "exc_interhemispheric") {

@@ -9,12 +9,7 @@ extern void analytical_fic_het(
 
 class rWWModel : public BaseModel {
 public:
-    rWWModel(
-        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int time_steps, bool do_delay,
-        int window_size, int window_step, int rand_seed
-        ) : BaseModel(nodes, N_SIMS, N_SCs, BOLD_TR, time_steps, do_delay, window_size, window_step, rand_seed)
-    {};
-
+    using BaseModel::BaseModel;
     ~rWWModel() {
         // model-specific destructor
         // note that while the same code is being

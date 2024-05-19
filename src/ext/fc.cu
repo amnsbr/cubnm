@@ -4,7 +4,7 @@
 __global__ void bold_stats(
     u_real **mean_bold, u_real **ssd_bold,
     u_real **BOLD, int N_SIMS, int nodes,
-    int output_ts, int corr_len, int n_vols_remove) {
+    int bold_len, int corr_len, int n_vols_remove) {
     // TODO: consider combining this with window_bold_stats
     // get simulation index
     int sim_idx = blockIdx.x;
@@ -16,13 +16,13 @@ __global__ void bold_stats(
     // mean
     u_real _mean_bold = 0;
     int vol;
-    for (vol=n_vols_remove; vol<output_ts; vol++) {
+    for (vol=n_vols_remove; vol<bold_len; vol++) {
         _mean_bold += BOLD[sim_idx][vol*nodes+j];
     }
     _mean_bold /= corr_len;
     // ssd
     u_real _ssd_bold = 0;
-    for (vol=n_vols_remove; vol<output_ts; vol++) {
+    for (vol=n_vols_remove; vol<bold_len; vol++) {
         _ssd_bold += POW(BOLD[sim_idx][vol*nodes+j] - _mean_bold, 2);
     }
     // save to memory
@@ -62,7 +62,7 @@ __global__ void window_bold_stats(
 
 __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
     u_real **BOLD, int N_SIMS, int nodes, int n_pairs, int *pairs_i,
-    int *pairs_j, int output_ts, int n_vols_remove, 
+    int *pairs_j, int bold_len, int n_vols_remove, 
     int corr_len, u_real **mean_bold, u_real **ssd_bold, 
     int n_windows, int window_size_1, u_real **windows_mean_bold, u_real **windows_ssd_bold,
     int *window_starts, int *window_ends,
@@ -82,7 +82,7 @@ __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
         u_real _mean_bold_i, _mean_bold_j, _ssd_bold_i, _ssd_bold_j;
         if (w == -1) {
             vol_start = n_vols_remove;
-            vol_end = output_ts;
+            vol_end = bold_len;
             _mean_bold_i = mean_bold[sim_idx][i];
             _ssd_bold_i = ssd_bold[sim_idx][i];
             _mean_bold_j = mean_bold[sim_idx][j];

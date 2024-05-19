@@ -21,8 +21,9 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
     # BOLD_TR = 3000
     window_size = 10
     window_step = 2
-    extended_output = True
-    extended_output_ts = False
+    ext_out = True
+    states_ts = True
+    states_sampling = BOLD_TR
 
     np.random.seed(0)
 
@@ -40,6 +41,8 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         'do_fic': str(int(do_fic)),
         'max_fic_trials': '5',
         'verbose': '1',
+        # 'noise_time_steps': '30001',
+        # 'noise_time_steps': str(time_steps) # whole-noise
         # 'fic_verbose': '0',
     }
     if serial:
@@ -68,8 +71,8 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         'rWW', SC[None, :], np.repeat(0, N_SIMS),
         SC_dist, global_params, regional_params, v_list,
         model_config,
-        extended_output, extended_output_ts, do_delay, force_reinit, force_cpu,
-        N_SIMS, nodes, time_steps, BOLD_TR,
+        ext_out, states_ts, do_delay, force_reinit, force_cpu,
+        N_SIMS, nodes, time_steps, BOLD_TR, states_sampling,
         window_size, window_step, rand_seed
     )
     sim_bolds , sim_fc_trils, sim_fcd_trils = out[:3]
@@ -78,6 +81,7 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         print(f"BOLD Python {sim_idx}: shape {sim_bolds.shape}, idx 500 {sim_bolds[sim_idx, 500]}")
         print(f"fc_trils Python {sim_idx}: shape {sim_fc_trils.shape}, idx 30 {sim_fc_trils[sim_idx, 30]}")
         print(f"fcd_trils Python {sim_idx}: shape {sim_fcd_trils.shape}, idx 30 {sim_fcd_trils[sim_idx, 30]}")
+    return sim_bolds, sim_fc_trils, sim_fcd_trils
 
 def run_sim_group(force_cpu=False):
     nodes = 100
@@ -87,7 +91,9 @@ def run_sim_group(force_cpu=False):
         TR=1,
         sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
         sim_verbose=True,
-        force_cpu=force_cpu
+        force_cpu=force_cpu,
+        states_ts=False,
+        states_sampling=1,
     )
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
@@ -126,32 +132,6 @@ def run_sim_group_400(force_cpu=False):
     # sim_group.save()
     return sim_group
 
-def run_sim_group_600(force_cpu=False):
-    nodes = 600
-    N_SIMS = 1
-    sim_group = sim.rWWSimGroup(
-        duration=60,
-        TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-600', return_path=True),
-        sim_verbose=True,
-        force_cpu=force_cpu,
-        progress_interval=3000,
-        do_fic=False
-    )
-    sim_group.N = N_SIMS
-    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
-    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
-    sim_group.param_lists['wIE'] = np.full((N_SIMS, nodes), 1.0)
-    sim_group.sync_msec = True # otherwise it'll be very slow
-    # sim_group.sync_msec = False
-    sim_group.run()
-    # emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
-    # emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    # sim_group.score(emp_fc_tril, emp_fcd_tril)
-    # sim_group.save()
-    return sim_group
-
 def run_sim_group_rWWEx(force_cpu=False):
     nodes = 100
     N_SIMS = 2
@@ -160,7 +140,8 @@ def run_sim_group_rWWEx(force_cpu=False):
         TR=1,
         sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
         sim_verbose=True,
-        force_cpu=force_cpu
+        force_cpu=force_cpu,
+        ext_out=False
     )
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
@@ -410,8 +391,8 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    # run_sims(2, force_cpu=False)
-    sg = run_sim_group(force_cpu=False)
+    sim_bolds, sim_fc_trils, sim_fcd_trils = run_sims(2, force_cpu=False)
+    # sg = run_sim_group(force_cpu=True)
     # sg = run_sim_group_400(force_cpu=False)
     # sg = run_sim_group_rWWEx(force_cpu=False)
     # gs, scores = run_grid()
