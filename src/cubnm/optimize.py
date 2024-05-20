@@ -50,7 +50,8 @@ class GridSearch:
                 },
                 duration = 60,
                 TR = 1,
-                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True)
+                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+                states_ts = True
             )
             emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
             emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
@@ -765,10 +766,12 @@ class CMAESOptimizer(PymooOptimizer):
                 duration = 60,
                 TR = 1,
                 sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+                states_ts = True
             )
             cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=10, seed=1)
             cmaes.setup_problem(problem)
             cmaes.optimize()
+            cmaes.save()
         """
         super().__init__(**kwargs)
         self.max_obj = 1
