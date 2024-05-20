@@ -15,7 +15,7 @@ from pymoo.termination import get_termination
 import cma
 import skopt
 
-from cuBNM import sim
+from cubnm import sim
 
 
 class GridSearch:
@@ -32,14 +32,14 @@ class GridSearch:
             fixed values (:obj:`float`) or discrete range of
             values (:obj:`tuple` of (min, max, n)) as values.
         **kwargs
-            Keyword arguments passed to :class:`cuBNM.sim.SimGroup`
+            Keyword arguments passed to :class:`cubnm.sim.SimGroup`
 
         Example
         -------
         Run a grid search of rWW model with 10 G and 10 wEE values
         with fixed wEI: ::
 
-            from cuBNM import datasets, optimize
+            from cubnm import datasets, optimize
         
             gs = optimize.GridSearch(
                 model = 'rWW',
@@ -131,8 +131,8 @@ class BNMProblem(Problem):
         Biophysical network model problem. A :class:`pymoo.core.problem.Problem` 
         that defines the model, free parameters and their ranges, and target empirical
         data (FC and FCD), and the simulation configurations (through 
-        :class:`cuBNM.sim.SimGroup`). 
-        :class:`cuBNM.optimize.Optimizer` classes can be
+        :class:`cubnm.sim.SimGroup`). 
+        :class:`cubnm.optimize.Optimizer` classes can be
         used to optimize the free parameters of this problem.
 
         Parameters
@@ -170,7 +170,7 @@ class BNMProblem(Problem):
             (via summation) defines each objective separately. This must not be used
             with single-objective optimizers
         **kwargs
-            Keyword arguments passed to :class:`cuBNM.sim.SimGroup`
+            Keyword arguments passed to :class:`cubnm.sim.SimGroup`
         """
         # set opts
         self.model = model 
@@ -324,7 +324,7 @@ class BNMProblem(Problem):
         ----------
         include_sim_group : :obj:`bool`, optional
             whether to include the configuration of the
-            associated :class:`cuBNM.sim.SimGroup`
+            associated :class:`cubnm.sim.SimGroup`
         include_N : :obj:`bool`, optional
             whether to include the current population size
             in the configuration
@@ -386,7 +386,7 @@ class BNMProblem(Problem):
     def _set_sim_params(self, X):
         """
         Sets the global and regional parameters of the problem's 
-        :class:`cuBNM.sim.SimGroup` based on the
+        :class:`cubnm.sim.SimGroup` based on the
         problem free and fixed parameters and type of regional parameter
         heterogeneity (map-based, group-based or none).
 
@@ -524,7 +524,7 @@ class Optimizer(ABC):
         Saves the output of the optimizer, including history
         of particles, history of optima, the optimal point,
         and its simulation data. The output will be saved
-        to `out_dir` of the problem's :class:`cuBNM.sim.SimGroup`.
+        to `out_dir` of the problem's :class:`cubnm.sim.SimGroup`.
         If a directory with the same type of optimizer already
         exists, a new directory with a new index will be created.
 
@@ -639,13 +639,13 @@ class PymooOptimizer(Optimizer):
 
     def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
         """
-        Registers a :class:`cuBNM.optimizer.BNMProblem` 
+        Registers a :class:`cubnm.optimizer.BNMProblem` 
         with the optimizer, so that the optimizer can optimize
         its free parameters.
 
         Parameters
         ----------
-        problem : :obj:`cuBNM.optimizer.BNMProblem`
+        problem : :obj:`cubnm.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
         pymoo_verbose : :obj:`bool`, optional
             Flag indicating whether to enable verbose output from pymoo. Default is False.
@@ -669,7 +669,7 @@ class PymooOptimizer(Optimizer):
 
     def optimize(self):
         """
-        Optimizes the associated :class:`cuBNM.optimizer.BNMProblem`
+        Optimizes the associated :class:`cubnm.optimizer.BNMProblem`
         free parameters through an evolutionary optimization approach by
         running multiple generations of parallel simulations until the
         termination criteria is met or maximum number of iterations is reached.
@@ -751,7 +751,7 @@ class CMAESOptimizer(PymooOptimizer):
         Run a CMAES optimization for 10 iterations with 
         a population size of 20: ::
 
-            from cuBNM import datasets, optimize
+            from cubnm import datasets, optimize
 
             problem = optimize.BNMProblem(
                 model = 'rWW',
@@ -785,17 +785,17 @@ class CMAESOptimizer(PymooOptimizer):
 
     def setup_problem(self, problem, **kwargs):
         """
-        Extends :meth:`cuBNM.optimizer.PymooOptimizer.setup_problem` to
+        Extends :meth:`cubnm.optimizer.PymooOptimizer.setup_problem` to
         set up the optimizer with the problem and set the bound penalty
         option based on the optimizer's `use_bound_penalty` attribute.
 
         Parameters
         ----------
-        problem : :obj:`cuBNM.optimizer.BNMProblem`
+        problem : :obj:`cubnm.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
         **kwargs
             Additional keyword arguments to be passed to 
-            :meth:`cuBNM.optimizer.PymooOptimizer.setup_problem`
+            :meth:`cubnm.optimizer.PymooOptimizer.setup_problem`
         """
         super().setup_problem(problem, **kwargs)
         self.algorithm.options["bounds"] = [0, 1]
@@ -856,7 +856,7 @@ class BayesOptimizer(Optimizer):
 
         Parameters
         ----------
-        problem : :obj:`cuBNM.optimizer.BNMProblem`
+        problem : :obj:`cubnm.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
         **kwargs
             Additional keyword arguments to be passed to :class:`skopt.Optimizer`
@@ -872,7 +872,7 @@ class BayesOptimizer(Optimizer):
 
     def optimize(self):
         """
-        Optimizes the associated :class:`cuBNM.optimizer.BNMProblem`
+        Optimizes the associated :class:`cubnm.optimizer.BNMProblem`
         free parameters through an evolutionary optimization approach by
         running multiple generations of parallel simulations until the
         termination criteria is met or maximum number of iterations is reached.

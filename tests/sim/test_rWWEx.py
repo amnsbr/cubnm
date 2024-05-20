@@ -3,9 +3,9 @@ Testing consistency of rWWEx simulations
 """
 # TODO: consider testing all models in a single test file
 import pytest
-from cuBNM import sim
-from cuBNM import datasets
-from cuBNM.utils import avail_gpus
+from cubnm import sim
+from cubnm import datasets
+from cubnm.utils import avail_gpus
 import numpy as np
 import os
 import pickle

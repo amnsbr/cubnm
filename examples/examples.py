@@ -1,8 +1,8 @@
 import numpy as np
-import cuBNM
-from cuBNM._core import run_simulations, set_const
-from cuBNM import optimize, sim, utils, datasets
-from cuBNM._setup_opts import many_nodes_flag, gpu_enabled_flag
+import cubnm
+from cubnm._core import run_simulations, set_const
+from cubnm import optimize, sim, utils, datasets
+from cubnm._setup_opts import many_nodes_flag, gpu_enabled_flag
 
 import os
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
@@ -392,7 +392,7 @@ def run_nsga2_optimizer_het(force_cpu=False):
 
 if __name__ == '__main__':
     sim_bolds, sim_fc_trils, sim_fcd_trils = run_sims(2, force_cpu=False)
-    # sg = run_sim_group(force_cpu=True)
+    # sg = run_sim_group(force_cpu=False)
     # sg = run_sim_group_400(force_cpu=False)
     # sg = run_sim_group_rWWEx(force_cpu=False)
     # gs, scores = run_grid()

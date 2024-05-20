@@ -32,7 +32,7 @@ def load_sc(what, parc, return_path=False):
         text file. Shape: (nodes, nodes)
     """
     filename = f"ctx_parc-{parc}_approach-median_mean001_desc-{what}.txt"
-    path = files("cuBNM.data").joinpath(filename).as_posix()
+    path = files("cubnm.data").joinpath(filename).as_posix()
     if return_path:
         return path
     try:
@@ -71,7 +71,7 @@ def load_functional(what, parc, exc_interhemispheric=True, return_path=False):
     if exc_interhemispheric:
         filename += "_exc-inter"
     filename += f"_desc-{what}tril.txt"
-    path = files("cuBNM.data").joinpath(filename).as_posix()
+    path = files("cubnm.data").joinpath(filename).as_posix()
     if return_path:
         return path
     try:
@@ -114,7 +114,7 @@ def load_maps(what, parc, norm="minmax", return_path=False):
     if norm:
         filename += f"_{norm}"
     filename += ".txt"
-    path = files("cuBNM.data").joinpath(filename).as_posix()
+    path = files("cubnm.data").joinpath(filename).as_posix()
     if return_path:
         return path
     try:

@@ -7,9 +7,9 @@ import pandas as pd
 import os
 import gc
 
-from cuBNM._core import run_simulations, set_const
-from cuBNM._setup_opts import many_nodes_flag, gpu_enabled_flag, max_nodes_reg, max_nodes_many
-from cuBNM import utils
+from cubnm._core import run_simulations, set_const
+from cubnm._setup_opts import many_nodes_flag, gpu_enabled_flag, max_nodes_reg, max_nodes_many
+from cubnm import utils
 
 
 class SimGroup:
@@ -101,7 +101,7 @@ class SimGroup:
             - '-fc_normec': negative Euclidean distance of FCs \
                 divided by max EC [sqrt(n_pairs*4)]
         bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}, optional
-            see :func:`cuBNM.utils.get_bw_params` for details
+            see :func:`cubnm.utils.get_bw_params` for details
         bold_remove_s: :obj:`float`, optional
             remove the first bold_remove_s seconds from the simulated BOLD
             in FC, FCD and mean state calculations (but the entire BOLD will
@@ -359,14 +359,14 @@ class SimGroup:
     def run(self, force_reinit=False):
         """
         Run the simulations in parallel (as possible) on GPU/CPU
-        through the :func:`cuBNM._core.run_simulations` function which runs
+        through the :func:`cubnm._core.run_simulations` function which runs
         compiled C++/CUDA code.
 
         Parameters
         ----------
         force_reinit: :obj:`bool`, optional
             force reinitialization of the session.
-            At the beginning of each session (when `cuBNM` is imported)
+            At the beginning of each session (when `cubnm` is imported)
             some variables are initialized on CPU/GPU and reused in
             every run. Set this to True if you want to reinitialize
             these variables. This is rarely needed.
@@ -603,7 +603,7 @@ class rWWSimGroup(SimGroup):
         fic_penalty: :obj:`bool`, optional
             penalize deviation from FIC target mean rE of 3 Hz
         *args, **kwargs:
-            see :class:`cuBNM.sim.SimGroup` for details
+            see :class:`cubnm.sim.SimGroup` for details
 
         Attributes
         ----------
@@ -618,12 +618,12 @@ class rWWSimGroup(SimGroup):
         Example
         -------
         To see example usage in grid search and evolutionary algorithms
-        see :mod:`cuBNM.optimize`.
+        see :mod:`cubnm.optimize`.
 
         Here, as an example on how to use SimGroup independently, we
         will run a single simulation and save the outputs to disk. ::
 
-            from cuBNM import sim, datasets
+            from cubnm import sim, datasets
 
             sim_group = sim.rWWSimGroup(
                 duration=60,
@@ -793,7 +793,7 @@ class rWWExSimGroup(SimGroup):
         Parameters
         ---------
         *args, **kwargs:
-            see :class:`cuBNM.sim.SimGroup` for details
+            see :class:`cubnm.sim.SimGroup` for details
 
         Attributes
         ----------
@@ -808,12 +808,12 @@ class rWWExSimGroup(SimGroup):
         Example
         -------
         To see example usage in grid search and evolutionary algorithms
-        see :mod:`cuBNM.optimize`.
+        see :mod:`cubnm.optimize`.
 
         Here, as an example on how to use SimGroup independently, we
         will run a single simulation and save the outputs to disk. ::
 
-            from cuBNM import sim, datasets
+            from cubnm import sim, datasets
 
             sim_group = sim.rWWExSimGroup(
                 duration=60,

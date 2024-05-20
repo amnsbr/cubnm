@@ -24,7 +24,7 @@ templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 # -- Options for autoapi -----------------------------------------------------
-autoapi_dirs = ['../src/cuBNM']
+autoapi_dirs = ['../src/cubnm']
 autoapi_type = "python"
 autoapi_python_class_content = "both"
 autoapi_ignore = ["*_core*", "*_setup_flags*"]

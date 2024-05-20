@@ -7,8 +7,8 @@ requires = [
 ]
 
 [project]
-name = "cuBNM"
-version = "0.0.2-alpha"
+name = "cubnm"
+version = "0.0.2"
 license = {file = "LICENSE"}
 dependencies = [
     "numpy>=1.20",
@@ -43,17 +43,10 @@ include-package-data = true
 
 [tool.cibuildwheel]
 before-all = "bash {project}/tools/cibw_before_all.sh {project}"
-# update path to the location of gcc-10 and nvcc
-# it is important to add gcc-10 to the beginning to override gcc-12
-# and important to put miniconda at the end (not to override cibw's Python)
-# reason for downgrade is to solve this offending symbol (with manylinux_2_28):
-# libstdc++.so.6  offending symbols: _ZSt28__throw_bad_array_new_lengthv@GLIBCXX_3.4.29
-# environment = { PATH="/opt/rh/gcc-toolset-10/root/usr/bin:$PATH:/root/miniconda/bin" }
-# Update: will not use gcc-10
+# add miniconda to path to enable `conda`
+# (at the end to avoid overriding cibw's Python)
 environment = { PATH="$PATH:/root/miniconda/bin" }
-manylinux-x86_64-image = "manylinux_2_28"
-manylinux-aarch64-image = "manylinux_2_28"
-manylinux-ppc64le-image = "manylinux_2_28"
-build-verbosity = 3 # temporary
+manylinux-x86_64-image = "sameli/manylinux2014_x86_64_cuda_11.8"
+build-verbosity = 3
 skip = ["pp*", "*-manylinux_i686", "*musllinux*"]
 build = ["*-manylinux_x86_64"]

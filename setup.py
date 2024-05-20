@@ -32,15 +32,15 @@ def has_gpus(method='nvcc'):
             return False
 
 # specify installation options
-many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
+many_nodes = ("CUBNM_MANY_NODES" in os.environ)
 max_nodes_reg = os.environ.get("CUBNM_MAX_NODES_REG", 200)
 max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 500)
 gpu_enabled = has_gpus()
-omp_enabled = not (('CIBUILDWHEEL' in os.environ) or ('CUBNM_NO_OMP' in os.environ))
-noise_segment = os.environ.get("CUBNM_NOISE_WHOLE") is None
+omp_enabled = not ("CUBNM_NO_OMP" in os.environ)
+noise_segment = ("CUBNM_NOISE_WHOLE" in os.environ)
 
 # Write the flags to a temporary _flags.py file
-with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_opts.py"), "w") as flag_file:
+with open(os.path.join(PROJECT, "src", "cubnm", "_setup_opts.py"), "w") as flag_file:
     flag_file.write(
         "\n".join(
             [f"many_nodes_flag = {many_nodes}", 
@@ -71,8 +71,6 @@ shared_includes = [
     os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
 ]
 gpu_includes = [
-    # should not be included with nvcc as it will cause errors
-    # also probably not needed with g++
     "/usr/lib/cuda/include",
     "/usr/include/cuda",
 ]
@@ -100,7 +98,7 @@ if gpu_enabled:
     print("Compiling for GPU+CPU")
     libraries += ["bnm", "cudart_static"]
     bnm_ext = Extension(
-        "cuBNM.core",
+        "cubnm.core",
         [os.path.join("src", "ext", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args+["-D GPU_ENABLED"],
@@ -108,6 +106,7 @@ if gpu_enabled:
         include_dirs=all_includes,
         library_dirs=[
             "/usr/lib/cuda", 
+            "/usr/local/cuda/lib64",
             os.path.join(PROJECT, "src", "ext"),
             os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
         ],
@@ -115,7 +114,7 @@ if gpu_enabled:
 else:
     print("Compiling for CPU")
     bnm_ext = Extension(
-        "cuBNM.core",
+        "cubnm.core",
         [os.path.join("src", "ext", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args,
@@ -139,7 +138,7 @@ class build_ext_gsl_cuda(build_ext):
                     "/usr/local/lib",
                     os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib'), # cibuildwheel
                     # TODO: identify and search current conda env
-                    os.path.join(os.environ.get('HOME', '/root'), '.cuBNM', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
+                    os.path.join(os.environ.get('HOME', '/root'), '.cubnm', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
                 ]
         found_gsl = False
         for lib_dir in lib_dirs:
@@ -153,7 +152,7 @@ class build_ext_gsl_cuda(build_ext):
         if not found_gsl:
             print("Downloading and building GSL")
             try:
-                gsl_dir = os.path.join(os.path.expanduser('~'), '.cuBNM', 'gsl')
+                gsl_dir = os.path.join(os.environ.get('HOME', '/root'), '.cubnm', 'gsl')
                 os.makedirs(gsl_dir, exist_ok=True)
             except OSError:
                 gsl_dir = os.path.join(os.path.abspath(self.build_lib), 'gsl')

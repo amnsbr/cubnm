@@ -12,7 +12,7 @@ import pickle
 import itertools
 
 import numpy as np
-from cuBNM import sim, datasets, utils
+from cubnm import sim, datasets, utils
 
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'sim')
 
