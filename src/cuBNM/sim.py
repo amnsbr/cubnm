@@ -28,6 +28,7 @@ class SimGroup:
         rand_seed=410,
         exc_interhemispheric=True,
         force_cpu=False,
+        force_gpu=False,
         serial_nodes=False,
         gof_terms=["+fc_corr", "-fc_diff", "-fcd_ks"],
         bw_params="friston2003",
@@ -80,6 +81,11 @@ class SimGroup:
             use CPU for the simulations (even if GPU is available). If set
             to False the program might use GPU or CPU depending on GPU
             availability
+        force_gpu: :obj:`bool`, optional
+            on some HPC/HTC systems occasionally GPUtil might not detect an 
+            available GPU device. Use this if there is a GPU available but
+            is not being used for the simulation. If set to True but a GPU
+            is not available will lead to errors.
         serial_nodes: :obj:`bool`, optional
             only applicable to GPUs; uses one thread per simulation and do calculation
             of nodes serially. This is an experimental feature which is generally not 
@@ -144,6 +150,7 @@ class SimGroup:
         self.rand_seed = rand_seed
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
+        self.force_gpu = force_gpu
         self.serial_nodes = serial_nodes
         self.gof_terms = gof_terms
         self.bold_remove_s = bold_remove_s
@@ -319,6 +326,7 @@ class SimGroup:
             "rand_seed": self.rand_seed,
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
+            "force_gpu": self.force_gpu,
             "bw_params": self.bw_params,
             "bold_remove_s": self.bold_remove_s,
             "fcd_drop_edges": self.fcd_drop_edges,
@@ -372,7 +380,10 @@ class SimGroup:
             | (self.N != self.last_N)
             | (curr_config != self.last_config)
         )
-        self.use_cpu = self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)
+        self.use_cpu = (
+            (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
+            & (not self.force_gpu)
+        )
         # check if running on Jupyter and print warning that
         # simulations are running but progress will not be shown
         if utils.is_jupyter():
