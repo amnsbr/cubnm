@@ -2,7 +2,7 @@
 build-backend = "setuptools.build_meta"
 requires = [
     "setuptools",
-    "numpy>=1.20",
+    "numpy<2,>=1.20",
     "GPUtil==1.4",
 ]
 
@@ -11,7 +11,7 @@ name = "cubnm"
 version = "0.0.2"
 license = {file = "LICENSE"}
 dependencies = [
-    "numpy>=1.20",
+    "numpy<2,>=1.20",
     "GPUtil==1.4",
     "scipy",
     "pandas",

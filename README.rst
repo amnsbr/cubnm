@@ -102,7 +102,7 @@ Evolutionary optimization
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 Run a CMAES optimization of reduced Wong Wang model with G and wEE as free parameters:
 
-.. image:: https://img.shields.io/badge/-Open%20in%20Kaggle-20BEFF?logo=kaggle&logoColor=white
+.. image:: https://kaggle.com/static/images/open-in-kaggle.svg 
    :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-2-demo-cmaes-homogeneous
 
 .. code-block:: python
@@ -132,7 +132,7 @@ Run a CMAES optimization of reduced Wong Wang model with G as a global free para
 regional free parameters that are regionally heterogeneous based on a weighted combination of two fixed
 maps (HCP T1w/T2w, HCP FC G1):
 
-.. image:: https://img.shields.io/badge/-Open%20in%20Kaggle-20BEFF?logo=kaggle&logoColor=white
+.. image:: https://kaggle.com/static/images/open-in-kaggle.svg
    :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-2-demo-cmaes-heterogeneous
 
 .. code-block:: python
@@ -164,7 +164,7 @@ Grid search
 ~~~~~~~~~~~
 Run a 10x10 grid search of reduced Wong Wang model with G and wEE as free parameters:
 
-.. image:: https://img.shields.io/badge/-Open%20in%20Kaggle-20BEFF?logo=kaggle&logoColor=white
+.. image:: https://kaggle.com/static/images/open-in-kaggle.svg
    :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-2-demo-grid
 
 .. code-block:: python
