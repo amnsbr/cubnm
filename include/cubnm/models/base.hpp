@@ -1,6 +1,7 @@
 #ifndef BASE_HPP
 #define BASE_HPP
 #include "cubnm/models/bw.hpp" // will be used by all derived models
+#include "cubnm/models/boilerplate.hpp"
 
 class BaseModel {
 public:
