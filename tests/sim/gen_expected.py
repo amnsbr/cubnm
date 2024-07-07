@@ -65,7 +65,7 @@ def gen_expected(model):
             'sim_sel_state': sg.sim_states[sel_state_var],
         }
         # print a warning if the output has changed from the previous version
-        if opts_str in prev_test_data:
+        if opts in prev_test_data:
             for k in ['sim_bold', 'sim_fc_trils', 'sim_fcd_trils', 'sim_sel_state']:
                 if k in prev_test_data.get(opts_str, {}):
                     if not np.isclose(test_data[opts_str][k], prev_test_data[opts_str][k], atol=1e-12).all():
