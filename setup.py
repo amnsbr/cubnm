@@ -37,7 +37,7 @@ max_nodes_reg = os.environ.get("CUBNM_MAX_NODES_REG", 200)
 max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 500)
 gpu_enabled = has_gpus()
 omp_enabled = not ("CUBNM_NO_OMP" in os.environ)
-noise_segment = ("CUBNM_NOISE_WHOLE" in os.environ)
+noise_segment = not ("CUBNM_NOISE_WHOLE" in os.environ)
 
 # Write the flags to a temporary _flags.py file
 with open(os.path.join(PROJECT, "src", "cubnm", "_setup_opts.py"), "w") as flag_file:
