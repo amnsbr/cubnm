@@ -188,8 +188,11 @@ class build_ext_gsl_cuda(build_ext):
             conf_flags = " ".join([f"-D {f}" for f in conf_flags])
             include_flags = " ".join([f"-I {p}" for p in shared_includes])
             source_files = ["bnm.cu", "utils.cu", "fc.cu", 
-                             "models/bw.cu", "models/rww.cu",
-                             "models/rwwex.cu"] # TODO: search for all .cu files
+                            "models/bw.cu", 
+                            "models/rww.cu",
+                            "models/rwwex.cu",
+                            "models/kuramoto.cu",
+                           ] # TODO: search for all .cu files
             # compile_commands = []
             # obj_paths = []
             # for source_file in source_files:

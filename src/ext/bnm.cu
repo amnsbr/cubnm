@@ -24,11 +24,12 @@ Author: Amin Saberi, Feb 2023
 #include "cubnm/bnm.cuh"
 #include "cubnm/models/rww.cuh"
 #include "cubnm/models/rwwex.cuh"
+#include "cubnm/models/kuramoto.cuh"
 // other models go here
 
 cudaDeviceProp prop;
 
-__device__ void calculateGlobalInput(
+__device__ void global_input_cond(
         u_real& tmp_globalinput, int& k_buff_idx,
         const int& nodes, const int& sim_idx, const int& j, 
         int& k, int& buff_idx, u_real* _SC, 
@@ -50,6 +51,32 @@ __device__ void calculateGlobalInput(
     } else {
         for (k=0; k<nodes; k++) {
             tmp_globalinput += _SC[k] * conn_state_var_1[k];
+        }            
+    }
+}
+
+__device__ void global_input_osc(
+        u_real& tmp_globalinput, int& k_buff_idx,
+        const int& nodes, const int& sim_idx, const int& j, 
+        int& k, int& buff_idx, u_real* _SC, 
+        int** delay, const bool& has_delay, const int& max_delay,
+        u_real** conn_state_var_hist, u_real* conn_state_var_1
+        ) {
+    // calculates global input from other nodes `k` to current node `j`
+    // Note: this will not skip over self-connections
+    // if they should be ignored, their SC should be set to 0
+    tmp_globalinput = 0;
+    if (has_delay) {
+        for (k=0; k<nodes; k++) {
+            // calculate correct index of the other region in the buffer based on j-k delay
+            // buffer is moving backward, therefore the delay timesteps back in history
+            // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
+            k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
+            tmp_globalinput += _SC[k] * SIN(conn_state_var_hist[sim_idx][k_buff_idx*nodes+k] - conn_state_var_hist[sim_idx][buff_idx*nodes+j]);
+        }
+    } else {
+        for (k=0; k<nodes; k++) {
+            tmp_globalinput += _SC[k] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
         }            
     }
 }
@@ -142,7 +169,12 @@ __global__ void bnm(
     int* _ext_int_shared = (int*)_shared_mem;
     bool* _ext_bool_shared = (bool*)(_shared_mem + Model::n_ext_int_shared*sizeof(int));
     // initialize model
-    model->init(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
+    model->init(
+        _state_vars, _intermediate_vars,
+        _global_params, _regional_params,
+        _ext_int, _ext_bool, 
+        _ext_int_shared, _ext_bool_shared
+    );
 
 
     // Ballon-Windkessel model variables
@@ -215,6 +247,14 @@ __global__ void bnm(
     }
     #endif
 
+    // determine the global input function
+    GlobalInputKernel global_input_kernel;
+    if (Model::is_osc) {
+        global_input_kernel = &global_input_osc;
+    } else {
+        global_input_kernel = &global_input_cond;
+    }
+
     // this will determine if the simulation should be restarted
     // (e.g. if FIC adjustment fails in rWW)
     __shared__ bool restart;
@@ -246,7 +286,7 @@ __global__ void bnm(
             // thread might access S_E of other nodes at wrong
             // times (t or t-2 instead of t-1)
             __syncthreads();
-            calculateGlobalInput(
+            global_input_kernel(
                 tmp_globalinput, k_buff_idx,
                 nodes, sim_idx, j, 
                 k, buff_idx, _SC, 
@@ -259,7 +299,7 @@ __global__ void bnm(
             if (!sync_msec) {
                 // calculate global input every 0.1 ms
                 __syncthreads();
-                calculateGlobalInput(
+                global_input_kernel(
                     tmp_globalinput, k_buff_idx,
                     nodes, sim_idx, j, 
                     k, buff_idx, _SC, 
@@ -388,7 +428,12 @@ __global__ void bnm(
         // reset the simulation and start from the beginning
         if (restart) {
             // model-specific restart
-            model->restart(_state_vars, _intermediate_vars, _ext_int, _ext_bool, _ext_int_shared, _ext_bool_shared);
+            model->restart(
+                _state_vars, _intermediate_vars, 
+                _global_params, _regional_params,
+                _ext_int, _ext_bool, 
+                _ext_int_shared, _ext_bool_shared
+            );
             // subtract progress of current simulation
             if (model->base_conf.verbose && (j==0)) {
                 atomicAdd(progress, -bold_i);
@@ -533,7 +578,12 @@ __global__ void bnm_serial(
     bool* _ext_bool_shared = (bool*)(_shared_mem + Model::n_ext_int_shared*sizeof(int));
     // initialize model
     for (j=0; j<nodes; j++) {
-        model->init(_state_vars[j], _intermediate_vars[j], _ext_int[j], _ext_bool[j], _ext_int_shared, _ext_bool_shared);
+        model->init(
+            _state_vars[j], _intermediate_vars[j],
+            _global_params, _regional_params[j],
+            _ext_int[j], _ext_bool[j], 
+            _ext_int_shared, _ext_bool_shared
+        );
     }
 
 
@@ -574,6 +624,14 @@ __global__ void bnm_serial(
         }
     }
 
+    // determine the global input function
+    GlobalInputKernel global_input_kernel;
+    if (Model::is_osc) {
+        global_input_kernel = &global_input_osc;
+    } else {
+        global_input_kernel = &global_input_cond;
+    }
+    
     // allocate memory for global input
     u_real * tmp_globalinput = (u_real*)malloc(nodes * sizeof(u_real));
 
@@ -597,7 +655,7 @@ __global__ void bnm_serial(
         if (sync_msec) {
             // calculate global input every 1 ms
             for (j=0; j<nodes; j++) {
-                calculateGlobalInput(
+                global_input_kernel(
                     tmp_globalinput[j], k_buff_idx,
                     nodes, sim_idx, j, 
                     k, buff_idx, &(SC[SC_idx][j*nodes]), 
@@ -611,7 +669,7 @@ __global__ void bnm_serial(
             if (!sync_msec) {
                 // calculate global input every 0.1 ms
                 for (j=0; j<nodes; j++) {
-                    calculateGlobalInput(
+                    global_input_kernel(
                         tmp_globalinput[j], k_buff_idx,
                         nodes, sim_idx, j, 
                         k, buff_idx, &(SC[SC_idx][j*nodes]), 
@@ -1227,6 +1285,9 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     } 
     else if (strcmp(Model::name, "rWWEx")==0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWExc, &Model::mc, sizeof(typename Model::Constants)));
+    }
+    else if (strcmp(Model::name, "Kuramoto")==0) {
+        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_Kuramotoc, &Model::mc, sizeof(typename Model::Constants)));
     }
 
     // allocate device memory for SC

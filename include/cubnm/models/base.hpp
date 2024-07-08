@@ -162,7 +162,8 @@ public:
     }
 
     virtual void h_init(
-        u_real* _state_vars, u_real* _intermediate_vars, 
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
         int* _ext_int, bool* _ext_bool,
         int* _ext_int_shared, bool* _ext_bool_shared
     ) = 0;
@@ -203,18 +204,21 @@ public:
         }
     };
     virtual void _j_restart(
-        u_real* _state_vars, u_real* _intermediate_vars, 
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
         int* _ext_int, bool* _ext_bool,
         int* _ext_int_shared, bool* _ext_bool_shared
     ) {};
     virtual void h_restart(
         u_real** _state_vars, u_real** _intermediate_vars, 
+        u_real* _global_params, u_real** _regional_params,
         int** _ext_int, bool** _ext_bool,
         int* _ext_int_shared, bool* _ext_bool_shared
     ) {
         for (int j=0; j<this->nodes; j++) {
             _j_restart(
-                _state_vars[j], _intermediate_vars[j], 
+                _state_vars[j], _intermediate_vars[j],
+                _global_params, _regional_params[j],
                 _ext_int[j], _ext_bool[j], 
                 _ext_int_shared, _ext_bool_shared
             );

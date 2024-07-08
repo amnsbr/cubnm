@@ -32,6 +32,8 @@ def gen_expected(model):
         sel_state_var = 'r_E'
     elif model == 'rWWEx':
         sel_state_var = 'r'
+    elif model == 'Kuramoto':
+        sel_state_var = 'theta'
     test_data = {}
     # loop through combinat
     for opts in itertools.product(*[[(k, v) for v in vs] for k, vs in model_opts.items()]):

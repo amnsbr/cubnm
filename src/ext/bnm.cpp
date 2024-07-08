@@ -11,7 +11,7 @@ Author: Amin Saberi, Feb 2023
 // to avoid overlaps with similar variables on gpu
 #include "cubnm/bnm.hpp"
 
-inline void h_calculateGlobalInput(
+inline void h_global_input_cond(
         u_real& tmp_globalinput, int& k_buff_idx,
         const int& nodes, const int& j, 
         int& k, int& buff_idx, u_real* SC, 
@@ -34,6 +34,33 @@ inline void h_calculateGlobalInput(
     } else {
         for (k=0; k<nodes; k++) {
             tmp_globalinput += SC[j*nodes+k] * conn_state_var_1[k];
+        }            
+    }
+}
+
+inline void h_global_input_osc(
+        u_real& tmp_globalinput, int& k_buff_idx,
+        const int& nodes, const int& j, 
+        int& k, int& buff_idx, u_real* SC, 
+        int* delay, const bool& has_delay, const int& max_delay,
+        u_real* conn_state_var_hist, u_real* conn_state_var_1
+        ) {
+    // calculates global input from other nodes `k` to current node `j`
+    // Note: this will not skip over self-connections
+    // if they should be ignored, their SC should be set to 0
+    // Note: inlining considerably improves performance for this function
+    tmp_globalinput = 0;
+    if (has_delay) {
+        for (k=0; k<nodes; k++) {
+            // calculate correct index of the other region in the buffer based on j-k delay
+            // buffer is moving backward, therefore the delay timesteps back in history
+            // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
+            k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
+            tmp_globalinput += SC[j*nodes+k] * SIN(conn_state_var_hist[k_buff_idx*nodes+k] - conn_state_var_hist[buff_idx*nodes+j]);
+        }
+    } else {
+        for (k=0; k<nodes; k++) {
+            tmp_globalinput += SC[j*nodes+k] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
         }            
     }
 }
@@ -96,6 +123,7 @@ void bnm(
     for (int j=0; j<model->nodes; j++) {
         model->h_init(
             _state_vars[j], _intermediate_vars[j],
+            _global_params, _regional_params[j],
             _ext_int[j], _ext_bool[j],
             _ext_int_shared, _ext_bool_shared
         );
@@ -198,6 +226,14 @@ void bnm(
     // allocate memory to BOLD gsl matrix used for FC and FCD calculation
     gsl_matrix * bold_gsl = gsl_matrix_alloc(model->bold_len, model->nodes);
 
+    // define global input function
+    HGlobalInputFunc h_global_input_func;
+    if (Model::is_osc) {
+        h_global_input_func = &h_global_input_osc;
+    } else {
+        h_global_input_func = &h_global_input_cond;
+    }
+
     // allocate memory for globalinput
     u_real *tmp_globalinput = (u_real*)malloc(sizeof(u_real) * model->nodes);
 
@@ -236,7 +272,7 @@ void bnm(
         // calculate global input every msec
         if (model->base_conf.sync_msec) {
             for (j=0; j<model->nodes; j++) {
-                h_calculateGlobalInput(
+                h_global_input_func(
                     tmp_globalinput[j], k_buff_idx,
                     model->nodes, j, 
                     k, buff_idx, SC, 
@@ -250,7 +286,7 @@ void bnm(
             // calculate global input every 0.1 msec
             if (!model->base_conf.sync_msec) {
                 for (j=0; j<model->nodes; j++) {
-                    h_calculateGlobalInput(
+                    h_global_input_func(
                         tmp_globalinput[j], k_buff_idx,
                         model->nodes, j, 
                         k, buff_idx, SC, 
@@ -393,6 +429,7 @@ void bnm(
             // model-specific restart
             model->h_restart(
                 _state_vars, _intermediate_vars,
+                _global_params, _regional_params,
                 _ext_int, _ext_bool,
                 _ext_int_shared, _ext_bool_shared
             );

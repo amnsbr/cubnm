@@ -3,6 +3,7 @@
 #include "cubnm/models/rww.cuh"
 __device__ __NOINLINE__ void rWWModel::init(
     u_real* _state_vars, u_real* _intermediate_vars, 
+    u_real* _global_params, u_real* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -21,6 +22,7 @@ __device__ __NOINLINE__ void rWWModel::init(
 
 __device__ __NOINLINE__ void rWWModel::restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
+    u_real* _global_params, u_real* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {

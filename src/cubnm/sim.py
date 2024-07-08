@@ -496,7 +496,7 @@ class SimGroup:
         """
         Clear the simulation outputs
         """
-        for attr in ["sim_bold", "sim_fc_trils", "sim_fcd_trils"]:
+        for attr in ["sim_bold", "sim_fc_trils", "sim_fcd_trils", "sim_states"]:
             if hasattr(self, attr):
                 delattr(self, attr)
         gc.collect()
@@ -554,6 +554,7 @@ class SimGroup:
             sim_bold=self.sim_bold,
             sim_fc_trils=self.sim_fc_trils,
             sim_fcd_trils=self.sim_fcd_trils,
+            sim_states=self.sim_states,
         )
         out_data.update(self.param_lists)
         return out_data
@@ -631,9 +632,9 @@ class rWWSimGroup(SimGroup):
                 sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.array([0.5])
-            sim_group.param_lists['wEE'] = np.repeat(0.21, nodes*N_SIMS)
-            sim_group.param_lists['wEI'] = np.repeat(0.15, nodes*N_SIMS)
+            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+            sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+            sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
             sim_group.run()
         """
         self.do_fic = do_fic
@@ -763,7 +764,6 @@ class rWWSimGroup(SimGroup):
         """
         out_data = super()._get_save_data()
         out_data.update(
-            sim_states=self.sim_states,
             fic_unstable=self.fic_unstable,
             fic_failed=self.fic_failed,
             fic_ntrials=self.fic_ntrials,
@@ -775,7 +775,7 @@ class rWWSimGroup(SimGroup):
         Clear the simulation outputs
         """
         super().clear()
-        for attr in ["sim_states", "fic_unstable", "fic_failed", "fic_ntrials"]:
+        for attr in ["fic_unstable", "fic_failed", "fic_ntrials"]:
             if hasattr(self, attr):
                 delattr(self, attr)
         gc.collect()
@@ -821,10 +821,10 @@ class rWWExSimGroup(SimGroup):
                 sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.array([0.5])
-            sim_group.param_lists['w'] = np.repeat(0.9, nodes*N_SIMS)
-            sim_group.param_lists['I0'] = np.repeat(0.3, nodes*N_SIMS)
-            sim_group.param_lists['sigma'] = np.repeat(0.001, nodes*N_SIMS)
+            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+            sim_group.param_lists['w'] = np.full((N_SIMS, nodes), 0.9)
+            sim_group.param_lists['I0'] = np.full((N_SIMS, nodes), 0.3)
+            sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.001)
             sim_group.run()
         """
         super().__init__(*args, **kwargs)
@@ -852,29 +852,91 @@ class rWWExSimGroup(SimGroup):
             if self.states_ts:
                 for k in self.sim_states:
                     self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
-    
-   
-    def _get_save_data(self):
-        """
-        Get the simulation outputs and parameters to be saved to disk
 
-        Returns
+class KuramotoSimGroup(SimGroup):
+    model_name = "Kuramoto"
+    global_param_names = ["G"]
+    regional_param_names = ["init_theta", "omega", "sigma"]
+    def __init__(self, 
+                 *args, 
+                 random_init_theta = True,
+                 **kwargs):
+        """
+        Group of Kuramoto simulations that are executed in parallel
+
+        Parameters
+        ---------
+        *args, **kwargs:
+            see :class:`cubnm.sim.SimGroup` for details
+        random_init_theta : :obj:`bool`, optional
+            Set initial theta by randomly sampling from a uniform distribution 
+            [0, 2*pi].
+
+        Attributes
+        ----------
+        param_lists: :obj:`dict` of :obj:`np.ndarray`
+            dictionary of parameter lists, including
+                - 'G': global coupling. Shape: (N_SIMS,)
+                - 'init_theta': initial theta. Randomly sampled from a uniform distribution 
+                    [0, 2*pi] by default. Shape: (N_SIMS, nodes)
+                - 'omega': intrinsic frequency. Shape: (N_SIMS, nodes)
+                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
+                - 'v': conduction velocity. Shape: (N_SIMS,)
+
+        Example
         -------
-        out_data: :obj:`dict`
-            dictionary of simulation outputs and parameters
+        To see example usage in grid search and evolutionary algorithms
+        see :mod:`cubnm.optimize`.
+
+        Here, as an example on how to use SimGroup independently, we
+        will run a single simulation and save the outputs to disk. ::
+
+            from cubnm import sim, datasets
+
+            sim_group = sim.KuramotoSimGroup(
+                duration=60,
+                TR=1,
+                sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+            )
+            sim_group.N = 1
+            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+            sim_group.param_lists['omega'] = np.full((N_SIMS, nodes), np.pi)
+            sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.17)
+            sim_group.run()
         """
-        out_data = super()._get_save_data()
-        out_data.update(
-            sim_states=self.sim_states,
-        )
-        return out_data
+        super().__init__(*args, **kwargs)
+        self.random_init_theta = random_init_theta
+
+    @SimGroup.N.setter
+    def N(self, N):
+        super(KuramotoSimGroup, KuramotoSimGroup).N.__set__(self, N)
+        if self.random_init_theta:
+            # sample from uniform distribution of [0, 2*pi] across nodes and
+            # repeat it across simulations
+            # use the same random seed as the simulation noise
+            rng = np.random.default_rng(self.rand_seed)
+            self.param_lists["init_theta"] = np.tile(rng.uniform(0, 2 * np.pi, self.nodes), (self._N, 1))
+        else:
+            self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
+            print("Warning: init_theta is set to zero")
+
+    def _set_default_params(self):
+        """
+        Set default parameters for the simulations.
+        This is used in tests.
+        """
+        super()._set_default_params()
+        self.param_lists["G"] = np.repeat(0.5, self.N)
+        self.param_lists["omega"] = np.full((self.N, self.nodes), np.pi)
+        self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.17)
     
-    def clear(self):
-        """
-        Clear the simulation outputs
-        """
-        super().clear()
-        for attr in ["sim_states"]:
-            if hasattr(self, attr):
-                delattr(self, attr)
-        gc.collect()
+    def _process_out(self, out):
+        super()._process_out(out)
+        if self.ext_out:
+            # name and reshape the states
+            self.sim_states = {
+                'theta': self._sim_states[0],
+            }
+            if self.states_ts:
+                for k in self.sim_states:
+                    self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)

@@ -55,7 +55,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
 #ifdef _GPU_ENABLED
     #define DEFINE_DERIVED_MODEL(CLASS_NAME, NAME, STATE_VARS, INTER_VARS, NOISE, \
                                  GLOBAL_PARAMS, REGIONAL_PARAMS, CONN_STATE_VAR_IDX, \
-                                 BOLD_STATE_VAR_IDX, HAS_POST_BW, HAS_POST_INT, \
+                                 BOLD_STATE_VAR_IDX, HAS_POST_BW, HAS_POST_INT, IS_OSC, \
                                  EXT_INT, EXT_BOOL, EXT_INT_SHARED, EXT_BOOL_SHARED, \
                                  GLOBAL_OUT_INT, GLOBAL_OUT_BOOL, GLOBAL_OUT_UREAL, \
                                  REGIONAL_OUT_INT, REGIONAL_OUT_BOOL, REGIONAL_OUT_UREAL) \
@@ -88,11 +88,13 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     static constexpr int n_regional_out_u_real = REGIONAL_OUT_UREAL; \
     static constexpr bool has_post_bw_step = HAS_POST_BW; \
     static constexpr bool has_post_integration = HAS_POST_INT; \
+    static constexpr bool is_osc = IS_OSC; \
     static Constants mc; \
     Config conf; \
     static void init_constants(); \
     CUDA_CALLABLE_MEMBER void init( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
+        u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared); \
     CUDA_CALLABLE_MEMBER void step( \
@@ -109,6 +111,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
         int& ts_bold); \
     CUDA_CALLABLE_MEMBER void restart( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
+        u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared); \
     CUDA_CALLABLE_MEMBER void post_integration( \
@@ -134,6 +137,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     } \
     void h_init( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
+        u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void h_step( \
@@ -143,6 +147,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
         u_real* noise, long& noise_idx) override final; \
     void _j_restart( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
+        u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void init_cpu() override final { \
@@ -213,6 +218,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     static void init_constants(); \
     void h_init( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
+        u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void h_step( \
@@ -222,6 +228,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
         u_real* noise, long& noise_idx) override final; \
     void _j_restart( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
+        u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void init_cpu() override final { \

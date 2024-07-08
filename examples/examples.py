@@ -155,6 +155,28 @@ def run_sim_group_rWWEx(force_cpu=False):
     sim_group.save()
     return sim_group
 
+def run_sim_group_kuramoto(N_SIMS=2, force_cpu=False):
+    nodes = 100
+    sim_group = sim.KuramotoSimGroup(
+        duration=30,
+        TR=0.5,
+        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        states_ts=True,
+        bold_remove_s=0,
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['omega'] = np.full((N_SIMS, nodes), np.pi)
+    sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.17)
+    sim_group.run()
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+    sim_group.score(emp_fc_tril, emp_fcd_tril)
+    sim_group.save()
+    return sim_group
+
 def run_grid():
     gs = optimize.GridSearch(
         model = 'rWW',
@@ -395,6 +417,7 @@ if __name__ == '__main__':
     # sg = run_sim_group(force_cpu=False)
     # sg = run_sim_group_400(force_cpu=False)
     # sg = run_sim_group_rWWEx(force_cpu=False)
+    # sg_kuramoto = run_sim_group_kuramoto(force_cpu=False)
     # gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()

@@ -44,6 +44,7 @@
 #include "./models/rww.cpp"
 #include "./models/rww_fic.cpp"
 #include "./models/rwwex.cpp"
+#include "./models/kuramoto.cpp"
 
 // create a pointer to the model object in current session
 // so that it can be reused in subsequent calls to run_simulations
@@ -137,6 +138,7 @@ static PyObject* init(PyObject* self, PyObject* args) {
     init_bw_constants(&bwc);
     rWWModel::init_constants();
     rWWExModel::init_constants();
+    KuramotoModel::init_constants();
 
     Py_RETURN_NONE;
 }
@@ -263,6 +265,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
                 time_steps, do_delay, window_size, window_step, rand_seed
             );
         } 
+        else if (strcmp(model_name, "Kuramoto")==0) {
+            model = new KuramotoModel(
+                nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
+                time_steps, do_delay, window_size, window_step, rand_seed
+            );
+        }
         else {
             std::cerr << "Model " << model_name << " not found" << std::endl;
             return NULL;
