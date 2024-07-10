@@ -52,8 +52,8 @@ def load_functional(what, parc, exc_interhemispheric=True, return_path=False):
     what: {'FC', 'FCD'}
         - 'FC': functional connectivity
         - 'FCD': functional connectivity dynamics
-    parc: {'schaefer-[100, 200, 400, 600]', 'aparc', 'glasser-360'}
-        parcellation. For Schaefer, specify number of parcels.
+    parc: 'schaefer-100'
+        parcellation
     exc_interhemispheric: :obj:`bool`, optional
         whether to exclude interhemispheric connections
     return_path : :obj:`bool`, optional
@@ -67,6 +67,7 @@ def load_functional(what, parc, exc_interhemispheric=True, return_path=False):
         Lower triangle of FC/FCD matrix or path to its
         text file. Shape: (n_pairs,)
     """
+    # TODO: Add other parcellations
     filename = f"ctx_parc-{parc}_hemi-LR"
     if exc_interhemispheric:
         filename += "_exc-inter"
@@ -84,18 +85,24 @@ def load_functional(what, parc, exc_interhemispheric=True, return_path=False):
     return tril
 
 
-def load_maps(what, parc, norm="minmax", return_path=False):
+def load_maps(names, parc, norm="minmax"):
     """
     Loads example heterogeneity maps
 
     Parameters
     ----------
-    what: {'6maps', 'yeo7'}
-        - '6maps': including 'myelinmap', 'thickness', 'fcgradient01', 'genepc1', 'nmda', 'gabaa'
-        - 'yeo7': Yeo 7 networks
-    parc: {'schaefer-[100, 200, 400, 600]', 'aparc', 'glasser-360'}
-        parcellation. For Schaefer, specify number of parcels.
-    norm: {'zscore', 'minmax'}
+    names: :obj:`str` or :obj:`list`
+        One or more maps selected from this list:
+        - 'myelinmap'
+        - 'thickness'
+        - 'fcgradient01'
+        - 'genepc1'
+        - 'nmda'
+        - 'gabaa'
+        - 'yeo7'
+    parc: {'schaefer-100'}
+        parcellation
+    norm: {'zscore', 'minmax', None}
         - 'zscore': maps are z-score normalized
         - 'minmax': maps are min-max normalized to [0, 1]
     return_path : :obj:`bool`, optional
@@ -107,19 +114,30 @@ def load_maps(what, parc, norm="minmax", return_path=False):
     :obj:`np.ndarray` or :obj:`str`
         Maps arrays or path to their
         text file. Shape: (maps, nodes)
+
+    Notes
+    -----
+    For more information and code on how these maps were
+    obtained and parcellated see `utils.datasets.load_maps`
+    in https://github.com/amnsbr/eidev. The set of maps included
+    here are limited and provided just as examples. We recommend 
+    users to use `neuromaps` and similar tools to obtain and 
+    parcellate further maps.
     """
-    # TODO: construct the maps in this function based on
-    # a list
-    filename = f"ctx_parc-{parc}_desc-{what}"
-    if norm:
-        filename += f"_{norm}"
-    filename += ".txt"
-    path = files("cubnm.data").joinpath(filename).as_posix()
-    if return_path:
-        return path
-    try:
-        maps = np.loadtxt(path)
-    except FileNotFoundError:
-        print(f"Maps {what} ({norm}) for {parc} parcellation does not exist")
-        return
+    # TODO: Add other parcellations
+    if isinstance(names, str):
+        names = [names]
+    maps = []
+    for name in names:
+        if name not in ['yeo7']:
+            filename = f"ctx_parc-{parc}_desc-{name}_zscore.txt"
+        else:
+            norm = None
+            filename = f"ctx_parc-{parc}_desc-{name}.txt"
+        path = files("cubnm.data").joinpath(filename).as_posix()
+        curr_map = np.loadtxt(path)
+        if norm=='minmax':
+            curr_map = (curr_map - np.min(curr_map)) / (np.max(curr_map) - np.min(curr_map))
+        maps.append(curr_map.reshape(1, -1))
+    maps = np.vstack(maps)
     return maps

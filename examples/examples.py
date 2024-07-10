@@ -306,7 +306,10 @@ def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wEI'],
-        maps = datasets.load_maps('6maps', 'schaefer-100', norm='minmax'),
+        maps = datasets.load_maps(
+            ['myelinmap', 'fcgradient01'],
+            'schaefer-100', norm='minmax'
+        ),
         duration = 60,
         TR = 1,
         sc = datasets.load_sc('strength', 'schaefer-100'),
@@ -324,7 +327,7 @@ def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
 
 def run_cmaes_optimizer_regional(node_grouping='sym'):
     if node_grouping == 'yeo':
-        node_grouping = datasets.load_maps('yeo7', 'schaefer-100', norm=None, return_path=True)
+        node_grouping = datasets.load_maps('yeo7', 'schaefer-100', norm=None)
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     problem = optimize.BNMProblem(
@@ -363,7 +366,9 @@ def run_nsga2_optimizer_het(force_cpu=False):
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wEI'],
-        maps = datasets.load_maps('6maps', 'schaefer-100', norm='minmax'),
+        maps = datasets.load_maps(
+            ['myelinmap', 'fcgradient01'], 
+            'schaefer-100', norm='minmax'),
         duration = 60,
         TR = 1,
         sc = datasets.load_sc('strength', 'schaefer-100'),
