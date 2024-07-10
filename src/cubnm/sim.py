@@ -1,5 +1,5 @@
 """
-Simulation of the model
+Simulation of the models
 """
 import numpy as np
 import scipy.stats
@@ -17,9 +17,9 @@ class SimGroup:
         self,
         duration,
         TR,
-        sc_path,
-        sc_dist_path=None,
-        out_dir="same",
+        sc,
+        sc_dist=None,
+        out_dir=None,
         ext_out=True,
         states_ts=False,
         states_sampling=None,
@@ -49,17 +49,21 @@ class SimGroup:
             simulation duration (in seconds)
         TR: :obj:`float`
             BOLD TR (in seconds)
-        sc_path: :obj:`str`
+        sc: :obj:`str` or :obj:`np.ndarray`
             path to structural connectome strengths (as an unlabled .txt)
+            or a numpy array
             Shape: (nodes, nodes)
-        sc_dist_path: :obj:`str`, optional
+        sc_dist: :obj:`str` or :obj:`np.ndarray`, optional
             path to structural connectome distances (as an unlabled .txt)
+            or a numpy array
             Shape: (nodes, nodes)
             If provided v (velocity) will be a free parameter and there
             will be delay in inter-regional connections
-        out_dir: {'same' or :obj:`str`}, optional
-            - 'same': will create a directory named based on sc_path
+        out_dir: {:obj:`str` or 'same' or None}, optional
             - :obj:`str`: will create a directory in the provided path
+            - 'same': will create a directory named based on sc
+                (only should be used when sc is a path and not a numpy array)
+            - None: will not have an output directory (and cannot save outputs)
         ext_out: :obj:`bool`, optional
             return mean internal model variables to self.sim_states
         states_ts: :obj:`bool`, optional
@@ -135,10 +139,11 @@ class SimGroup:
         """
         self.duration = duration
         self.TR = TR
-        self.sc_path = sc_path
-        self.sc_dist_path = sc_dist_path
-        self._out_dir = out_dir
-        self.sc = np.loadtxt(self.sc_path)
+        self.input_sc = sc
+        if isinstance(sc, (str, os.PathLike)):
+            self.sc = np.loadtxt(self.input_sc)
+        else:
+            self.sc = self.input_sc
         self.ext_out = ext_out
         self.states_ts = self.ext_out & states_ts
         if states_sampling is None:
@@ -197,11 +202,12 @@ class SimGroup:
         if (self.nodes > max_nodes_reg):
             if (not self.use_cpu) and (not many_nodes_flag):
                 raise NotImplementedError(
-                    f"With {self.nodes} nodes current installation of the package"
-                    " will fail. Please reinstall the package after `export CUBNM_MANY_NODES=1`")
+                    f"With {self.nodes} nodes in the current installation of the toolbox"
+                    " simulations will fail. Please reinstall the package from source after"
+                    " `export CUBNM_MANY_NODES=1`")
             if (not self.use_cpu) and (many_nodes_flag) and (self.nodes > max_nodes_many):
                 raise NotImplementedError(
-                    f"Currently the package cannot support more than {max_nodes_many} nodes."
+                    f"Currently the toolbox cannot support more than {max_nodes_many} nodes."
                 )
             print(
                 "Given the large number of nodes, nodes will be synced "
@@ -213,14 +219,22 @@ class SimGroup:
         else:
             if (not self.use_cpu) and (many_nodes_flag):
                 print(
-                    "The package is installed with `export CUBNM_MANY_NODES=1` but "
+                    "The toolbox is installed with `export CUBNM_MANY_NODES=1` but "
                     "the number of nodes is not large. For better performance, "
                     "reinstall the package after `unset CUBNM_MANY_NODES`"
                 )
         # inter-regional delay will be added to the simulations
         # if SC distance matrix is provided
-        if self.sc_dist_path:
-            self.sc_dist = np.loadtxt(self.sc_dist_path)
+        self.input_sc_dist = sc_dist
+        if self.input_sc_dist is None:
+            self.sc_dist = np.zeros_like(self.sc, dtype=float)
+            self.do_delay = False
+            self.sync_msec = False
+        else:
+            if isinstance(self.input_sc_dist, (str, os.PathLike)):
+                self.sc_dist = np.loadtxt(self.input_sc_dist)
+            else:
+                self.sc_dist = self.input_sc_dist
             self.do_delay = True
             print(
                 "Delay is enabled...will sync nodes every 1 msec\n"
@@ -228,20 +242,20 @@ class SimGroup:
                 "but note that this will increase the simulation time\n"
             )
             self.sync_msec = True
-        else:
-            self.sc_dist = np.zeros_like(self.sc, dtype=float)
-            self.do_delay = False
-            self.sync_msec = False
         # set Ballon-Windkessel parameters
         self.bw_params = bw_params
         # initialze w_IE_list as all 0s if do_fic
         self.param_lists = dict([(k, None) for k in self.global_param_names + self.regional_param_names + ['v']])
-        # determine and create output directory
-        if out_dir == "same":
-            self.out_dir = self.sc_path.replace(".txt", "")
+        # determine output directory
+        self.input_out_dir = out_dir
+        if self.input_out_dir == "same":
+            assert isinstance(self.input_sc, (str, os.PathLike)), (
+                "When `out_dir` is set to 'same' `sc` must be"
+                "a path-like string"
+            )
+            self.out_dir = self.input_sc.replace(".txt", "")
         else:
-            self.out_dir = out_dir
-        os.makedirs(self.out_dir, exist_ok=True)
+            self.out_dir = self.input_out_dir
         # keep track of the last N and config to determine if force_reinit
         # is needed in the next run if any are changed
         self.last_N = 0
@@ -306,7 +320,8 @@ class SimGroup:
             include N in the output config
             is ignored when for_reinit is True
         for_reinit: :obj:`bool`, optional
-            include the parameters that need reinitialization if changed
+            include the parameters that need reinitialization of the
+            simulation core session if changed
 
         Returns
         -------
@@ -316,8 +331,8 @@ class SimGroup:
         config = {
             "duration": self.duration,
             "TR": self.TR,
-            "sc_path": self.sc_path,
-            "sc_dist_path": self.sc_dist_path,
+            "sc": self.input_sc,
+            "sc_dist": self.input_sc_dist,
             "ext_out": self.ext_out,
             "states_ts": self.states_ts,
             "states_sampling": self.states_sampling,
@@ -333,7 +348,7 @@ class SimGroup:
             "noise_segment_length": self.noise_segment_length,
         }
         if not for_reinit:
-            config["out_dir"] = self.out_dir
+            config["out_dir"] = self.input_out_dir
             config["gof_terms"] = self.gof_terms
             if include_N:
                 config["N"] = self.N
@@ -388,9 +403,9 @@ class SimGroup:
         # simulations are running but progress will not be shown
         if utils.is_jupyter():
             print(
-                "Warning: Simulations are running in Jupyter, "
-                "therefore progress will not be shown in real time. "
-                "Please wait...", flush=True
+                "Warning: Progress cannot be shown in real time"
+                " when using Jupyter, but simulations are running"
+                " in background. Please wait...", flush=True
             )
         # convert self.param_lists to flattened and contiguous arrays of global
         # and local parameters
@@ -570,6 +585,10 @@ class SimGroup:
             - 'txt': outputs of simulations will be written to separate files,\
                 recommended when N = 1 (e.g. rerunning the best simulation)
         """
+        assert self.out_dir is not None, (
+            "Cannot save the simulations when `.out_dir`"
+            "is not set"
+        )
         sims_dir = self.out_dir
         os.makedirs(sims_dir, exist_ok=True)
         out_data = self._get_save_data()
@@ -629,7 +648,7 @@ class rWWSimGroup(SimGroup):
             sim_group = sim.rWWSimGroup(
                 duration=60,
                 TR=1,
-                sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+                sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
             sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
@@ -818,7 +837,7 @@ class rWWExSimGroup(SimGroup):
             sim_group = sim.rWWExSimGroup(
                 duration=60,
                 TR=1,
-                sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+                sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
             sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
@@ -896,7 +915,7 @@ class KuramotoSimGroup(SimGroup):
             sim_group = sim.KuramotoSimGroup(
                 duration=60,
                 TR=1,
-                sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+                sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
             sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)

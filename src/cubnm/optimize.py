@@ -122,7 +122,7 @@ class BNMProblem(Problem):
         emp_fc_tril,
         emp_fcd_tril,
         het_params=[],
-        maps_path=None,
+        maps=None,
         maps_coef_range='auto',
         node_grouping=None,
         multiobj=False,
@@ -149,8 +149,9 @@ class BNMProblem(Problem):
             lower triangular part of empirical FCD. Shape: (window_pairs,)
         het_params : :obj:`list` of :obj:`str`, optional
             which regional parameters are heterogeneous across nodes
-        maps_path : :obj:`str`, optional
-            path to heterogeneity maps as a text file (Shape: (n_maps, nodes)).
+        maps : :obj:`str`, optional
+            path to heterogeneity maps as a text file or a numpy array.
+            Shape: (n_maps, nodes).
             If provided one free parameter per regional parameter per 
             each map will be added.
         maps_coef_range : 'auto' or :obj:`tuple` or :obj:`list` of :obj:`tuple`
@@ -159,13 +160,14 @@ class BNMProblem(Problem):
             - :obj:`tuple`: uses the same range for all maps
             - :obj:`list` of :obj:`tuple`: n-map element list specifying the range
                 of coefficients for each map
-        node_grouping : {None, 'node', 'sym', :obj:`str`}, optional
+        node_grouping : {None, 'node', 'sym', :obj:`str`, :obj:`np.ndarray`}, optional
             - None: does not use region-/group-specific parameters
             - 'node': each node has its own regional free parameters
-            - 'sym': uses the same regional free parameters for each pair of symmetric nodes \
-                (e.g. L and R hemispheres). Assumes symmetry  of parcels between L and R \
-                    hemispheres.
+            - 'sym': uses the same regional free parameters for each pair of symmetric nodes
+                (e.g. L and R hemispheres). Assumes symmetry  of parcels between L and R
+                hemispheres.
             - :obj:`str`: path to a text file including node grouping array. Shape: (nodes,)
+            - :obj:`np.ndarray`: a numpy array. Shape: (nodes,)
         multiobj : :obj:`bool`, optional
             instead of combining the objectives into a single objective function
             (via summation) defines each objective separately. This must not be used
@@ -179,7 +181,7 @@ class BNMProblem(Problem):
         self.emp_fc_tril = emp_fc_tril
         self.emp_fcd_tril = emp_fcd_tril
         self.het_params = kwargs.pop("het_params", het_params)
-        self.maps_path = kwargs.pop("maps_path", maps_path)
+        self.input_maps = kwargs.pop("maps", maps)
         self.maps_coef_range = kwargs.pop("maps_coef_range", maps_coef_range)
         self.reject_negative = False # not implemented yet
         self.node_grouping = kwargs.pop("node_grouping", node_grouping)
@@ -192,8 +194,8 @@ class BNMProblem(Problem):
             raise ValueError(
                 "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
             )
-        if (self.node_grouping is not None) & (self.maps_path is not None):
-            raise ValueError("Both node_groups and maps_path cannot be used")
+        if (self.node_grouping is not None) & (self.input_maps is not None):
+            raise ValueError("Both `node_grouping` and `maps` cannot be used")
         # identify free and fixed parameters
         self.free_params = []
         self.lb = []
@@ -229,7 +231,10 @@ class BNMProblem(Problem):
                 self.node_groups = np.arange(rh_idx)
                 self.memberships = np.tile(np.arange(rh_idx), 2)
             else:
-                self.memberships = np.loadtxt(self.node_grouping).astype("int")
+                if isinstance(self.node_grouping, (str, os.PathLike)):
+                    self.memberships = np.loadtxt(self.node_grouping).astype("int")
+                else:
+                    self.memberships = self.node_grouping.astype("int")
                 self.node_groups = np.unique(self.memberships)
         # set up global and regional (incl. bias) free parameters
         for param, v in params.items():
@@ -253,9 +258,12 @@ class BNMProblem(Problem):
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
         # set up map scaler parameters
         self.is_heterogeneous = False
-        if self.maps_path is not None:
+        if self.input_maps is not None:
             self.is_heterogeneous = True
-            self.maps = np.loadtxt(self.maps_path)
+            if isinstance(self.input_maps, (str, os.PathLike)):
+                self.maps = np.loadtxt(self.input_maps)
+            else:
+                self.maps = self.input_maps
             assert (
                 self.maps.shape[1] == self.sim_group.nodes
             ), f"Maps second dimension {self.maps.shape[1]} != nodes {self.sim_group.nodes}"
@@ -338,8 +346,10 @@ class BNMProblem(Problem):
         config = {
             "params": self.params,
             "het_params": self.het_params,
-            "maps_path": self.maps_path,
+            "maps": self.input_maps,
             "node_grouping": self.node_grouping,
+            "emp_fc_tril": self.emp_fc_tril,
+            "emp_fcd_tril": self.emp_fcd_tril,
         }
         if include_N:
             config["N"] = self.sim_group.N
@@ -558,9 +568,26 @@ class Optimizer(ABC):
             self.opt_history.to_csv(os.path.join(optimizer_dir, "opt_history.csv"))
             self.opt.to_csv(os.path.join(optimizer_dir, "opt.csv"))
         # save the configs of simulations and optimizer
+        problem_config = self.problem.get_config(include_sim_group=True, include_N=True)
+        ## problem config might include numpy arrays (for sc, sc_dist, etc.)
+        ## which cannot be saved in the json file. If that's the case save
+        ## these arrays as txt files within the optimizer directory and
+        ## save their path instead of the arrays
+        ## Also convert all relative paths to absolute paths
+        for k, v in problem_config.items():
+            if isinstance(v, np.ndarray):
+                v_path = os.path.join(optimizer_dir, k+".txt")
+                np.savetxt(v_path, v)
+                problem_config[k] = v_path
+            # convert relative to absoulte paths
+            if (
+                isinstance(problem_config[k], (str, os.PathLike)) and 
+                os.path.exists(problem_config[k])
+            ):
+                problem_config[k] = os.path.abspath(problem_config[k])
         with open(os.path.join(optimizer_dir, "problem.json"), "w") as f:
             json.dump(
-                self.problem.get_config(include_sim_group=True, include_N=True),
+                problem_config,
                 f,
                 indent=4,
             )

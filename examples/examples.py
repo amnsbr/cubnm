@@ -89,7 +89,8 @@ def run_sim_group(force_cpu=False):
     sim_group = sim.rWWSimGroup(
         duration=60,
         TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        out_dir='./rWW',
         sim_verbose=True,
         force_cpu=force_cpu,
         states_ts=False,
@@ -112,7 +113,8 @@ def run_sim_group_400(force_cpu=False):
     sim_group = sim.rWWSimGroup(
         duration=60,
         TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-400', return_path=True),
+        sc=datasets.load_sc('strength', 'schaefer-400'),
+        out_dir='./rWW',
         sim_verbose=True,
         force_cpu=force_cpu,
         progress_interval=2000,
@@ -138,7 +140,8 @@ def run_sim_group_rWWEx(force_cpu=False):
     sim_group = sim.rWWExSimGroup(
         duration=60,
         TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        out_dir='./rWWEx',
         sim_verbose=True,
         force_cpu=force_cpu,
         ext_out=False
@@ -160,7 +163,8 @@ def run_sim_group_kuramoto(N_SIMS=2, force_cpu=False):
     sim_group = sim.KuramotoSimGroup(
         duration=30,
         TR=0.5,
-        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        out_dir='./Kuramoto',
         sim_verbose=True,
         force_cpu=force_cpu,
         states_ts=True,
@@ -189,31 +193,13 @@ def run_grid():
         # TR = 3,
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True)
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        out_dir='./grid',
     )
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     gs.sim_group.save()
-    return gs, scores
-
-def run_grid_no_fic():
-    gs = optimize.GridSearch(
-        model = 'rWW',
-        params = {
-            'G': 0.5,
-            'wEE': (0.05, 1, 2),
-            'wEI': (0.07, 0.75, 2),
-            'wIE': (1.5, 0.75, 2),
-        },
-        duration = 60,
-        TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        do_fic = False
-    )
-    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
-    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
     return gs, scores
 
 def run_grid_delay():
@@ -227,8 +213,9 @@ def run_grid_delay():
         },
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        sc_dist = datasets.load_sc('length', 'schaefer-100'),
+        out_dir='./grid_delay',
     )
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
@@ -249,7 +236,8 @@ def run_problem():
         emp_fcd_tril = emp_fcd_tril,
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        out_dir='./problem'
     )
     # assume that optimizer is using 10 particles
     problem.sim_group.N = 10
@@ -274,7 +262,8 @@ def run_cmaes_optimizer():
         emp_fcd_tril = emp_fcd_tril,
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_path = datasets.load_sc('strength', 'schaefer-100'),
+        out_dir = './cmaes'
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2)
     cmaes.setup_problem(problem, seed=1)
@@ -295,7 +284,8 @@ def run_bayes_optimizer():
         emp_fcd_tril = emp_fcd_tril,
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        out_dir = './bayes'
     )
     bo = optimize.BayesOptimizer(popsize=10, n_iter=7)
     bo.setup_problem(problem, seed=1)
@@ -316,42 +306,17 @@ def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wEI'],
-        maps_path = datasets.load_maps('6maps', 'schaefer-100', norm='minmax', return_path=True),
+        maps = datasets.load_maps('6maps', 'schaefer-100', norm='minmax'),
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True),
-        force_cpu = force_cpu 
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        sc_dist = datasets.load_sc('length', 'schaefer-100'),
+        force_cpu = force_cpu,
+        out_dir = './cmaes_het',
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1, 
                                     use_bound_penalty=use_bound_penalty,
                                     algorithm_kws=dict(tolfun=5e-3))
-    cmaes.setup_problem(problem)
-    cmaes.optimize()
-    cmaes.save()
-    return cmaes
-
-def run_cmaes_optimizer_het_nofic():
-    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
-    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
-    problem = optimize.BNMProblem(
-        model = 'rWW',
-        params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
-            'wIE': (1.0, 4.0)
-        },
-        emp_fc_tril = emp_fc_tril,
-        emp_fcd_tril = emp_fcd_tril,
-        het_params = ['wEE', 'wIE'],
-        maps_path = datasets.load_maps('6maps', 'schaefer-100', norm='minmax', return_path=True),
-        duration = 60,
-        TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        do_fic = False
-    )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
     cmaes.optimize()
     cmaes.save()
@@ -375,7 +340,8 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
         node_grouping = node_grouping,
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        out_dir = './cmaes_regional'
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
@@ -397,14 +363,15 @@ def run_nsga2_optimizer_het(force_cpu=False):
         emp_fc_tril = emp_fc_tril,
         emp_fcd_tril = emp_fcd_tril,
         het_params = ['wEE', 'wEI'],
-        maps_path = datasets.load_maps('6maps', 'schaefer-100', norm='minmax', return_path=True),
+        maps = datasets.load_maps('6maps', 'schaefer-100', norm='minmax'),
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        sc_dist = datasets.load_sc('length', 'schaefer-100'),
         force_cpu = force_cpu,
         gof_terms = ['-fc_normec', '-fcd_ks'],
-        multiobj = True
+        multiobj = True,
+        out_dir = './nsga2'
     )
     optimizer = optimize.NSGA2Optimizer(popsize=10, n_iter=3, seed=1)
     optimizer.setup_problem(problem)
@@ -421,5 +388,6 @@ if __name__ == '__main__':
     # gs, scores = run_grid()
     # problem, out = run_problem()
     # cmaes = run_cmaes_optimizer_het()
+    # cmaes = run_cmaes_optimizer_regional()
     # run_grid_many_nodes()
     # nsga2 = run_nsga2_optimizer_het()
