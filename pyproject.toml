@@ -38,6 +38,9 @@ classifiers = [
     'Topic :: Scientific/Engineering',
 ]
 
+[project.scripts]
+cubnm = "cubnm.cli:main"
+
 [tool.setuptools]
 include-package-data = true
 

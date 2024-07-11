@@ -65,7 +65,7 @@ class SimGroup:
                 (only should be used when sc is a path and not a numpy array)
             - None: will not have an output directory (and cannot save outputs)
         ext_out: :obj:`bool`, optional
-            return mean internal model variables to self.sim_states
+            return model state variables to self.sim_states
         states_ts: :obj:`bool`, optional
             return time series of model states to self.sim_states
             Note that this will increase the memory usage and is not

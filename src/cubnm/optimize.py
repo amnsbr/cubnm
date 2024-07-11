@@ -26,7 +26,7 @@ class GridSearch:
 
         Parameters
         ---------
-        model : :obj:`str`, {'rWW', 'rWWEx'}
+        model : :obj:`str`, {'rWW', 'rWWEx', 'Kuramoto'}
         params : :obj:`dict` of :obj:`tuple` or :obj:`float`
             a dictionary including parameter names as keys and their
             fixed values (:obj:`float`) or discrete range of
@@ -138,7 +138,7 @@ class BNMProblem(Problem):
 
         Parameters
         ----------
-        model : :obj:`str`, {'rWW', 'rWWEx'}
+        model : :obj:`str`, {'rWW', 'rWWEx', 'Kuramoto'}
         params : :obj:`dict` of :obj:`tuple` or :obj:`float`
             a dictionary including parameter names as keys and their
             fixed values (:obj:`float`) or continuous range of
