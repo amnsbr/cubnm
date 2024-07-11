@@ -7,12 +7,12 @@
     >
     </div>
 
-The cuBNM toolbox is designed for efficient biophysical network modeling of 
+cuBNM toolbox is designed for efficient biophysical network modeling of 
 the brain on GPUs and CPUs.
 
 Overview
 --------
-The toolbox simulates neuronal activity of network nodes (neural mass models) 
+cuBNM toolbox simulates neuronal activity of network nodes (neural mass models) 
 which are connected through the structural connectome using GPUs/CPUs. 
 Currently three models (`rWW`, `rWWEx` and `Kuramoto`) are implemented, but the
 modular design of the code makes it possible to include additional models in 
@@ -33,12 +33,12 @@ provided optimization algorithms. Regional parameters can be homogeneous or vary
 across nodes based on a parameterized combination of fixed maps or independent 
 free parameters for each node or group of nodes.
 
-The primary focus of the toolbox is on GPU usage but it also supports running the
+GPU usage is the primary focus of the toolbox but it also supports running the
 simulations on single or multiple cores of CPU. CPUs will be used if no GPUs are
 detected or if requested by the user.
 
-The core of the toolbox runs highly parallelized simulations using C++/CUDA, while the 
-user interface, written in Python, allows for user control over simulation 
+At its core the toolbox runs highly parallelized simulations using C++/CUDA, while the 
+user interface is written in Python and allows for user control over simulation 
 configurations:
 
 .. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/flowchart_extended.png
