@@ -35,12 +35,11 @@ Using command line interface:
 
 .. code-block:: bash
 
-    cubnm \
+    cubnm optimize \
         --model rWW --sc example --emp_fc_tril example --emp_fcd_tril example \
         --out_dir ./cmaes_homo_cli \
         --TR 1 --duration 60 --states_ts \
         --params G=0.5:2.5,wEE=0.05:0.75,wEI=0.15 \
-        optimize \
         --optimizer CMAES --optimizer_seed 0 --n_iter 10 --popsize 20
 
 Run a CMAES optimization of reduced Wong Wang model with G as a global free parameter and wEE and wEI as
@@ -80,12 +79,11 @@ Using command line interface:
 
 .. code-block:: bash
 
-    cubnm \
+    cubnm optimize \
         --model rWW --sc example --emp_fc_tril example --emp_fcd_tril example \
         --out_dir ./cmaes_hetero_cli \
         --TR 1 --duration 60 --states_ts \
         --params G=0.5:2.5,wEE=0.05:0.75,wEI=0.15 \
-        optimize \
         --optimizer CMAES --optimizer_seed 0 --n_iter 10 --popsize 30 \
         --het_params wEE wEI --maps example
 
@@ -122,9 +120,8 @@ Using command line interface:
 
 .. code-block:: bash
 
-    cubnm \
+    cubnm grid \
         --model rWW --sc example --emp_fc_tril example --emp_fcd_tril example \
         --out_dir ./grid_cli \
         --TR 1 --duration 60 --states_ts \
-        --params G=0.5:2.5:10,wEE=0.05:0.75:10,wEI=0.21 --sim_verbose \
-        grid
+        --params G=0.5:2.5:10,wEE=0.05:0.75:10,wEI=0.21 --sim_verbose
