@@ -11,6 +11,11 @@ def main():
     # parse the arguments
     args = parser.parse_args()
 
+    if args.cmd not in ['grid', 'optimize']:
+        parser.print_help()
+        return
+
+
     if not args.no_print_args:
         # pretty print the command and its arguments
         if args.cmd == 'grid':
@@ -61,8 +66,6 @@ def main():
         if args.het_params is None:
             args.het_params = []
         run_optimize(args)
-    else:
-        parser.print_help()
 
 def run_grid(args):
     """
