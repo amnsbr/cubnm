@@ -57,8 +57,8 @@ def test_single_sim(opts):
     sg = sim.rWWExSimGroup(
         duration=60,
         TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        sc_dist_path=sc_dist_path,
+        sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_dist=sc_dist_path,
         sim_verbose=False,
         force_cpu=opts['force_cpu'],
     )
@@ -98,8 +98,8 @@ def test_identical_sims(opts):
     sg = sim.rWWExSimGroup(
         duration=60,
         TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        sc_dist_path=sc_dist_path,
+        sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_dist=sc_dist_path,
         sim_verbose=False,
         force_cpu=opts['force_cpu'],
     )
@@ -136,8 +136,8 @@ def test_identical_cpu_gpu(opts):
         sg = sim.rWWExSimGroup(
             duration=60,
             TR=1,
-            sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
-            sc_dist_path=sc_dist_path,
+            sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+            sc_dist=sc_dist_path,
             sim_verbose=False,
             force_cpu=force_cpu,
         )
