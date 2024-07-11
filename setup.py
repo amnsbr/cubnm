@@ -54,7 +54,7 @@ with open(os.path.join(PROJECT, "src", "cubnm", "_setup_opts.py"), "w") as flag_
     )
 
 # determine libraries shared between GPU and CPU versions
-libraries = ["m"]
+libraries = ["m", "rt"]
 if omp_enabled:
     libraries.append("gomp")
 
