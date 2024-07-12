@@ -43,4 +43,25 @@ The package can be installed from source using:
 
     pip install git+https://github.com/amnsbr/cubnm.git -vvv
 
+Using Docker or Singulariy/Apptainer
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Docker images are available for the development and stable versions (except v0.0.1).
+
+.. image:: https://img.shields.io/badge/docker-amnsbr/cubnm-blue.svg?logo=docker
+  :target: https://hub.docker.com/r/amnsbr/cubnm
+
+* Stable (``amnsbr/cubnm:v*``): These are more lightweight and smaller in size. The output simulations given the same input data and random seed should be reproducible across platforms.  
+* Development (``amnsbr/cubnm:dev``): This includes latest changes of the code but is not updated after each commit. The output of identical simulations with the same random seed may be different across platforms, and therefore, tests of expected simulations may fail.
+
+Pull the container via ``docker pull amnsbr/cubnm:<version>`` or ``singularity pull /path/to/cubnm-<version>.sif docker://amnsbr/cubnm:<version>``. 
+
+The containers can be used in two modes:
+
+* Interactively: ``docker run -it --entrypoint /bin/bash amnsbr/cubnm:<version>`` or ``singularity shell /path/to/cubnm-<version>.sif``. ``cubnm`` is installed and can be imported in ``python3.10`` (stable versions) or ``/opt/miniconda/bin/python`` (development version).
+* Using :doc:`command line interface </cli>`: ``docker run amnsbr/cubnm:*`` or ``singularity run /path/to/cubnm-<version>.sif``. Command line interface is not available in ``v0.0.2``.
+
+Remember to bind your input and output directories to the container via ``-v`` in Docker and ``-B`` in Singularity.
+    
+To use GPUs add the flag ``--gpus all`` to Docker (before container name) and ``--nv`` to Singularity (before path to image). For more details on prerequisites for using GPUs inside the containers see `Docker <https://docs.docker.com/config/containers/resource_constraints/#gpu>`_ and `Singularity <https://docs.sylabs.io/guides/3.5/user-guide/gpu.html>`_ documentations.
+
 .. install-end
