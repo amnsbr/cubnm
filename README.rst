@@ -7,6 +7,21 @@
     >
     </div>
 
+.. image:: https://img.shields.io/pypi/v/cubnm
+  :target: https://pypi.org/project/cubnm/
+
+.. image:: https://img.shields.io/readthedocs/cubnm
+  :target: https://cubnm.readthedocs.io
+
+.. image:: https://img.shields.io/badge/docker-amnsbr/cubnm-blue.svg?logo=docker
+  :target: https://hub.docker.com/r/amnsbr/cubnm
+
+.. image:: https://app.codacy.com/project/badge/Grade/e1af99e878bc4dbf9525d8eb610e0026
+  :target: https://app.codacy.com/gh/amnsbr/cubnm/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade
+
+.. image:: https://img.shields.io/github/license/amnsbr/cubnm
+  :target: ./LICENSE
+
 cuBNM toolbox is designed for efficient biophysical network modeling of 
 the brain on GPUs and CPUs.
 
