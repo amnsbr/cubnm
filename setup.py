@@ -68,7 +68,7 @@ shared_includes = [
     os.path.join(PROJECT,"include"),
     os.path.join(PROJECT, "src", "ext"),
     np.get_include(),
-    os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
+    "/opt/miniconda/include" # added for conda-based cibuildwheel
 ]
 gpu_includes = [
     "/usr/lib/cuda/include",
@@ -108,7 +108,7 @@ if gpu_enabled:
             "/usr/lib/cuda", 
             "/usr/local/cuda/lib64",
             os.path.join(PROJECT, "src", "ext"),
-            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
+            "/opt/miniconda/lib" # added for conda-based cibuildwheel
         ],
     )
 else:
@@ -121,7 +121,7 @@ else:
         libraries=libraries,
         include_dirs=shared_includes,
         library_dirs=[
-            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
+            "/opt/miniconda/lib" # added for conda-based cibuildwheel
         ],
     )
 
@@ -136,9 +136,9 @@ class build_ext_gsl_cuda(build_ext):
                     "/usr/lib", 
                     "/lib", 
                     "/usr/local/lib",
-                    os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib'), # cibuildwheel
+                    "/opt/miniconda/lib", # cibuildwheel
                     # TODO: identify and search current conda env
-                    os.path.join(os.environ.get('HOME', '/root'), '.cubnm', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
+                    os.path.join(os.environ.get('HOME', '/opt'), '.cubnm', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
                 ]
         found_gsl = False
         for lib_dir in lib_dirs:
@@ -152,7 +152,7 @@ class build_ext_gsl_cuda(build_ext):
         if not found_gsl:
             print("Downloading and building GSL")
             try:
-                gsl_dir = os.path.join(os.environ.get('HOME', '/root'), '.cubnm', 'gsl')
+                gsl_dir = os.path.join(os.environ.get('HOME', '/opt'), '.cubnm', 'gsl')
                 os.makedirs(gsl_dir, exist_ok=True)
             except OSError:
                 gsl_dir = os.path.join(os.path.abspath(self.build_lib), 'gsl')
