@@ -24,6 +24,7 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
     ext_out = True
     states_ts = True
     states_sampling = BOLD_TR
+    noise_out = True
 
     np.random.seed(0)
 
@@ -71,7 +72,7 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         'rWW', SC[None, :], np.repeat(0, N_SIMS),
         SC_dist, global_params, regional_params, v_list,
         model_config,
-        ext_out, states_ts, do_delay, force_reinit, force_cpu,
+        ext_out, states_ts, noise_out, do_delay, force_reinit, force_cpu,
         N_SIMS, nodes, time_steps, BOLD_TR, states_sampling,
         window_size, window_step, rand_seed
     )
@@ -385,8 +386,8 @@ def run_nsga2_optimizer_het(force_cpu=False):
     return optimizer
 
 if __name__ == '__main__':
-    sim_bolds, sim_fc_trils, sim_fcd_trils = run_sims(2, force_cpu=False)
-    # sg = run_sim_group(force_cpu=False)
+    # sim_bolds, sim_fc_trils, sim_fcd_trils = run_sims(2, force_cpu=False)
+    sg = run_sim_group(force_cpu=False)
     # sg = run_sim_group_400(force_cpu=False)
     # sg = run_sim_group_rWWEx(force_cpu=False)
     # sg_kuramoto = run_sim_group_kuramoto(force_cpu=False)

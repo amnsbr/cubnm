@@ -129,6 +129,19 @@ void array_to_np_2d(T ** arr, PyObject * np_arr) {
     }
 }
 
+template<typename T>
+void array_to_np_1d(T * arr, PyObject * np_arr) {
+    // converts a 1d array to a nd numpy array
+    // Note that unlike the other 2d and 3d functions
+    // here np_arr can be n-dimensional
+    int size = PyArray_Size(np_arr);
+    T* data = (T*)PyArray_DATA(np_arr);
+
+    for (int i = 0; i < size; i++) {
+        data[i] = arr[i];
+    }
+}
+
 static PyObject* init(PyObject* self, PyObject* args) {
     // this function is called only once at the beginning of the session
     // (i.e. when core is imported)
@@ -185,10 +198,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
     PyArrayObject *py_SC, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
     PyObject* config_dict;
-    bool ext_out, states_ts, do_delay, force_reinit, use_cpu;
+    bool ext_out, states_ts, noise_out, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, window_size, window_step, rand_seed;
 
-    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiiii", 
             &model_name,
             &PyArray_Type, &py_SC,
             &PyArray_Type, &py_SC_indices,
@@ -199,6 +212,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             &config_dict,
             &ext_out,
             &states_ts,
+            &noise_out,
             &do_delay,
             &force_reinit,
             &use_cpu,
@@ -338,13 +352,34 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     }
     npy_intp global_bools_dims[2] = {model->get_n_global_out_bool(), N_SIMS};
     npy_intp global_ints_dims[2] = {model->get_n_global_out_int(), N_SIMS};
+    npy_intp noise_dims[1] = {model->noise_size};
+    #ifdef NOISE_SEGMENT
+    npy_intp shuffled_nodes_dims[2] = {model->noise_repeats, model->nodes};
+    npy_intp shuffled_ts_dims[2] = {model->noise_repeats, model->base_conf.noise_time_steps};
+    #endif
 
-    PyObject* py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
-    PyObject* py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
-    PyObject* py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
-    PyObject* py_states_out = PyArray_SimpleNew(3, states_dims, PyArray_DOUBLE);
-    PyObject* py_global_bools_out = PyArray_SimpleNew(2, global_bools_dims, PyArray_BOOL);
-    PyObject* py_global_ints_out = PyArray_SimpleNew(2, global_ints_dims, PyArray_INT);
+    PyObject *py_BOLD_ex_out, *py_fc_trils_out, *py_fcd_trils_out,
+        *py_states_out, *py_global_bools_out, *py_global_ints_out,
+        *py_noise_out;
+    #ifdef NOISE_SEGMENT
+    PyObject *py_shuffled_nodes_out, *py_shuffled_ts_out;
+    #endif
+
+    py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
+    py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
+    py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
+    if (ext_out) {
+        py_states_out = PyArray_SimpleNew(3, states_dims, PyArray_DOUBLE);
+        py_global_bools_out = PyArray_SimpleNew(2, global_bools_dims, PyArray_BOOL);
+        py_global_ints_out = PyArray_SimpleNew(2, global_ints_dims, PyArray_INT);
+    }
+    if (noise_out) {
+        py_noise_out = PyArray_SimpleNew(1, noise_dims, PyArray_DOUBLE);
+        #ifdef NOISE_SEGMENT
+        py_shuffled_nodes_out = PyArray_SimpleNew(2, shuffled_nodes_dims, PyArray_INT);
+        py_shuffled_ts_out = PyArray_SimpleNew(2, shuffled_ts_dims, PyArray_INT);
+        #endif
+    }
 
     std::cout << "Running " << N_SIMS << " simulations..." << std::endl;
     start = std::chrono::high_resolution_clock::now();
@@ -377,6 +412,13 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     array_to_np_3d<u_real>(model->states_out, py_states_out);
     array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
     array_to_np_2d<int>(model->global_out_int, py_global_ints_out);
+    if (noise_out) {
+        array_to_np_1d<u_real>(model->noise, py_noise_out);
+        #ifdef NOISE_SEGMENT
+        array_to_np_1d<int>(model->shuffled_nodes, py_shuffled_nodes_out);
+        array_to_np_1d<int>(model->shuffled_ts, py_shuffled_ts_out);
+        #endif
+    }
 
     if (model->modifies_params) {
         // copy updated global_params back to py_global_params
@@ -393,22 +435,30 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         }
     }
     
+    PyObject* out_list = PyList_New(3);
+    PyList_SetItem(out_list, 0, py_BOLD_ex_out);
+    PyList_SetItem(out_list, 1, py_fc_trils_out);
+    PyList_SetItem(out_list, 2, py_fcd_trils_out);
     if (ext_out) {
-        return Py_BuildValue("OOOOOO", 
-            py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out,
-            py_states_out, py_global_bools_out, py_global_ints_out
-        );
-    } 
-    else {
-        return Py_BuildValue("OOO", py_BOLD_ex_out, py_fc_trils_out, py_fcd_trils_out);
+        PyList_Append(out_list, py_states_out);
+        PyList_Append(out_list, py_global_bools_out);
+        PyList_Append(out_list, py_global_ints_out);
     }
+    if (noise_out) {
+        PyList_Append(out_list, py_noise_out);
+        #ifdef NOISE_SEGMENT
+        PyList_Append(out_list, py_shuffled_nodes_out);
+        PyList_Append(out_list, py_shuffled_ts_out);
+        #endif
+    }
+    return out_list;
 }
 
 
 static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(model_name, SC, SC_indices, SC_dist, global_params, regional_params, \n"
-        "v_list, model_config, ext_out, states_ts do_delay, force_reinit, \n"
+        "v_list, model_config, ext_out, states_ts, noise_out, do_delay, force_reinit, \n"
         "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
@@ -436,8 +486,15 @@ static PyMethodDef methods[] = {
             "\tif no custom configurations are needed / to use defaults\n"
         "ext_out (bool)\n"
             "\twhether to return extended output (averaged across time)\n"
-        "ext_out (bool)\n"
+        "states_ts (bool)\n"
             "\twhether to return extended output as time series\n"
+        "noise_out (bool)\n"
+            "\twhether to return noise"
+            #ifdef NOISE_SEGMENT
+            " segment and ts and nodes shuffling\n"
+            #else
+            "\n"
+            #endif
         "do_delay (bool)\n"
             "\twhether to consider inter-regional conduction delay \n"
         "force_reinit (bool)\n"

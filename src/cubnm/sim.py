@@ -8,7 +8,11 @@ import os
 import gc
 
 from cubnm._core import run_simulations, set_const
-from cubnm._setup_opts import many_nodes_flag, gpu_enabled_flag, max_nodes_reg, max_nodes_many
+from cubnm._setup_opts import (
+    many_nodes_flag, gpu_enabled_flag, 
+    max_nodes_reg, max_nodes_many,
+    noise_segment_flag
+)
 from cubnm import utils
 
 
@@ -23,6 +27,7 @@ class SimGroup:
         ext_out=True,
         states_ts=False,
         states_sampling=None,
+        noise_out=False,
         window_size=10,
         window_step=2,
         rand_seed=410,
@@ -73,6 +78,8 @@ class SimGroup:
         states_sampling: :obj:`float`, optional
             sampling rate of model states in seconds.
             Default is None, which uses BOLD TR as the sampling rate.
+        noise_out: :obj:`bool`, optional
+            return noise time series
         window_size: :obj:`int`, optional
             dynamic FC window size (in TR)
         window_step: :obj:`int`, optional
@@ -136,6 +143,21 @@ class SimGroup:
                 - global parameters with shape (N_SIMS,)
                 - regional parameters with shape (N_SIMS, nodes)
                 - 'v': conduction velocity. Shape: (N_SIMS,)
+
+        Notes
+        -----
+        Derived classes must set the following attributes:
+            model_name: :obj:`str`
+                name of the model used in the simulations
+            global_param_names: :obj:`list` of :obj:`str`
+                names of global parameters
+            regional_param_names: :obj:`list` of :obj:`str`
+                names of regional parameters
+            n_noise: :obj:`int`
+                number of noise elements per node per time point
+                (e.g. 2 if there are noise to E and I neuronal populations)
+        And they must implement the following methods:
+            _set_default_params: set default (example) parameters for the simulations
         """
         self.duration = duration
         self.TR = TR
@@ -163,6 +185,7 @@ class SimGroup:
         self.noise_segment_length = noise_segment_length
         if self.noise_segment_length is None:
             self.noise_segment_length = self.duration
+        self.noise_out = noise_out
         self.sim_verbose = sim_verbose
         self.progress_interval = progress_interval
         # get duration, TR and extended sampling rate in msec
@@ -438,6 +461,7 @@ class SimGroup:
             self._model_config,
             self.ext_out,
             self.states_ts,
+            self.noise_out,
             self.do_delay,
             force_reinit,
             self.use_cpu,
@@ -477,35 +501,104 @@ class SimGroup:
                 simulated FC lower triangle. Shape: (N_SIMS, n_pairs)
             - sim_fcd_trils : :obj:`np.ndarray`
                 simulated FCD lower triangle. Shape: (N_SIMS, n_pairs)
+        If `ext_out` is True, additionally includes:
             - _sim_states: :obj:`np.ndarray`
                 Model state variables. Shape: (n_vars, N_SIMS*nodes[*duration/TR])
             - _global_bools: :obj:`np.ndarray`
                 Global boolean variables. Shape: (n_bools, N_SIMS)
             - _global_ints: :obj:`np.ndarray`
                 Global integer variables. Shape: (n_ints, N_SIMS)
-            `_sim_states`, `_global_bools` and `_global_ints` are only
-            assigned if `ext_out` is True and should be processed 
-            further in model-specific `_process_out` methods
+        If `noise_out` is True, additionally includes:
+            - _noise: :obj:`np.ndarray`
+                Noise segment array. Shape: (nodes*noise_time_steps*10*Model.n_noise,)
+        If `noise_out` is True and noise segmenting is on, additionally includes:
+            - _shuffled_nodes: :obj: `np.ndarray`
+                Node shufflings in each noise repeate. Shape: (noise_repeats, nodes)
+            - _shuffled_ts: :obj: `np.ndarray`
+                Time step shufflings in each noise repeate. Shape: (noise_repeats, noise_time_steps)                
         """
         # assign the output to object attributes
         # and reshape them to (N_SIMS, ...)
+        # in all cases bold, fc and fcd will be returned
+        sim_bold, sim_fc_trils, sim_fcd_trils = out[:3]
+        # assign the additional outputs in indices 3: if
+        # they are returned depending on `ext_out`, `noise_out`
+        # and `noise_segment_flag`
         if self.ext_out:
             (
-                sim_bold,
-                sim_fc_trils,
-                sim_fcd_trils,
                 sim_states,
                 global_bools,
                 global_ints,
-            ) = out
+            ) = out[3:6]
+            noise_start_idx = 6
             self._sim_states = sim_states
             self._global_bools = global_bools
             self._global_ints = global_ints
         else:
-            sim_bold, sim_fc_trils, sim_fcd_trils = out
+            noise_start_idx = 3
+        if self.noise_out:
+            self._noise = out[noise_start_idx]
+            if noise_segment_flag:
+                (
+                    self._shuffled_nodes, 
+                    self._shuffled_ts
+                ) = out[noise_start_idx+1:]
         self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)
         self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
         self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)
+
+    def get_noise(self):
+        """
+        Get the (recreated) noise time series. This requires recreation
+        of the noise array if noise segmenting is on. Noise will be
+        recreated based on shuffling indices of nodes and time steps,
+        similar to how it is done in the core code.
+
+        Returns
+        -------
+        noise: :obj:`np.ndarray`
+            Noise segment array. Shape: (n_noise, nodes, time_steps, 10)
+        """
+        # raise an error if noise was not saved in the simulation
+        if not self.noise_out:
+            raise ValueError(
+                "Noise was not saved in the simulation."
+                " Set `noise_out` to true and redo the simulation."
+                )
+        # raise an error if simulation is not run yet
+        if not hasattr(self, "_noise"):
+            raise ValueError(
+                "Simulation must be run for the noise to be calculated"
+                )
+        # reshape the whole noise array into (nodes, ts) when
+        # noise segmenting is off
+        if not noise_segment_flag:
+            return (
+                self._noise.
+                reshape(int(self.duration*1000), 10, self.nodes, -1)
+                .transpose(3, 2, 0, 1)
+            )
+        # otherwise recreate the noise time series otherwise
+        # first reshape the noise into (noise_segment_length in msec, 10, nodes, n_noise)
+        noise_segment = self._noise.reshape(
+            int(self.noise_segment_length*1000), 10, self.nodes, -1
+        )
+        # then shuffle the noise in each repeat based on the shuffling indices
+        noise_all = []
+        for r in range(self._shuffled_nodes.shape[0]):
+            noise_all.append(
+                noise_segment[
+                    self._shuffled_ts[r] # shuffle time steps
+                ][
+                    :, :, self._shuffled_nodes[r] # shuffle nodes
+                ]
+            )
+        # conctaenate the shuffled noise repeats
+        noise_all = np.concatenate(noise_all, axis=0)
+        # crop the last part of the noise that is not used
+        noise_all = noise_all[:int(self.duration*1000)]
+        # transpose to (n_noise, nodes, time_steps, 10)
+        return noise_all.transpose(3, 2, 0, 1)
 
     def clear(self):
         """
@@ -603,6 +696,7 @@ class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ["G"]
     regional_param_names = ["wEE", "wEI", "wIE"]
+    n_noise = 2
     def __init__(self, 
                  *args, 
                  do_fic = True,
@@ -804,6 +898,7 @@ class rWWExSimGroup(SimGroup):
     model_name = "rWWEx"
     global_param_names = ["G"]
     regional_param_names = ["w", "I0", "sigma"]
+    n_noise = 1
     def __init__(self, *args, **kwargs):
         """
         Group of reduced Wong-Wang simulations (excitatory only, Deco 2013) 
@@ -876,6 +971,7 @@ class KuramotoSimGroup(SimGroup):
     model_name = "Kuramoto"
     global_param_names = ["G"]
     regional_param_names = ["init_theta", "omega", "sigma"]
+    n_noise = 1
     def __init__(self, 
                  *args, 
                  random_init_theta = True,
