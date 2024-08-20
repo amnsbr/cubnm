@@ -5,7 +5,7 @@ Evolutionary optimization
 Run a CMAES optimization of reduced Wong Wang model with G and wEE as free parameters:
 
 .. image:: https://kaggle.com/static/images/open-in-kaggle.svg 
-   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-2-demo-cmaes-homogeneous
+   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-3-demo-cmaes-homogeneous
 
 .. code-block:: python
 
@@ -18,11 +18,11 @@ Run a CMAES optimization of reduced Wong Wang model with G and wEE as free param
             'wEE': (0.05, 0.75),
             'wEI': 0.15,
         },
-        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
-        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
+        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True),
+        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True),
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100'),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
         states_ts = True,
         out_dir = './cmaes_homo',
     )
@@ -47,7 +47,7 @@ regional free parameters that are regionally heterogeneous based on a weighted c
 maps (HCP T1w/T2w, HCP FC G1):
 
 .. image:: https://kaggle.com/static/images/open-in-kaggle.svg
-   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-2-demo-cmaes-heterogeneous
+   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-3-demo-cmaes-heterogeneous
 
 .. code-block:: python
 
@@ -61,12 +61,12 @@ maps (HCP T1w/T2w, HCP FC G1):
             'wEI': (0.05, 0.75),
         },
         het_params = ['wEE', 'wEI'],
-        maps_path = datasets.load_maps(['myelinmap', 'fcgradient01'], 'schaefer-100', norm='zscore'),
-        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
-        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
+        maps = datasets.load_maps(['myelinmap', 'fcgradient01'], 'schaefer-100', norm='zscore'),
+        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True),
+        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True),
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100'),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
         states_ts = True,
         out_dir = './cmaes_hetero',
     )
@@ -92,7 +92,7 @@ Grid search
 Run a 10x10 grid search of reduced Wong Wang model with G and wEE as free parameters:
 
 .. image:: https://kaggle.com/static/images/open-in-kaggle.svg
-   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-2-demo-grid
+   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-3-demo-grid
 
 .. code-block:: python
 
@@ -107,13 +107,14 @@ Run a 10x10 grid search of reduced Wong Wang model with G and wEE as free parame
         },
         duration = 60,
         TR = 1,
-        sc_path = datasets.load_sc('strength', 'schaefer-100'),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
         states_ts = True,
+        noise_out = True,
+        sim_verbose = True,
         out_dir = './grid',
-        sim_verbose = True
     )
-    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
-    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
 
 Using command line interface:
