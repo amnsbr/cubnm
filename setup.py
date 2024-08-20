@@ -109,7 +109,9 @@ if gpu_enabled:
             "/usr/local/cuda/lib64",
             os.path.join(PROJECT, "src", "ext"),
             "/opt/miniconda/lib" # added for conda-based cibuildwheel
-        ],
+        ] + \
+        os.environ.get("LIBRARY_PATH","").split(":") + \
+        os.environ.get("LD_LIBRARY_PATH","").split(":"),
     )
 else:
     print("Compiling for CPU")
@@ -122,7 +124,9 @@ else:
         include_dirs=shared_includes,
         library_dirs=[
             "/opt/miniconda/lib" # added for conda-based cibuildwheel
-        ],
+        ] + \
+        os.environ.get("LIBRARY_PATH","").split(":") + \
+        os.environ.get("LD_LIBRARY_PATH","").split(":"),
     )
 
 # extend build_ext to also build GSL (if needed) and compile GPU code
