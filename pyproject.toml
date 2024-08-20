@@ -4,11 +4,11 @@ requires = [
     "setuptools",
     "numpy<2,>=1.20",
     "GPUtil==1.4",
+    "versioneer[toml]"
 ]
 
 [project]
 name = "cubnm"
-version = "0.0.2"
 license = {file = "LICENSE"}
 dependencies = [
     "numpy<2,>=1.20",
@@ -21,7 +21,7 @@ dependencies = [
 ]
 requires-python = ">=3.7"
 description = "A toolbox for biophysical network modeling on GPUs "
-readme = "README.md"
+readme = "README.rst"
 authors = [
     {name = "Amin Saberi", email="amnsbr@gmail.com"}
 ]
@@ -54,3 +54,11 @@ manylinux-x86_64-image = "sameli/manylinux2014_x86_64_cuda_11.8"
 build-verbosity = 3
 skip = ["pp*", "*-manylinux_i686", "*musllinux*"]
 build = ["*-manylinux_x86_64"]
+
+[tool.versioneer]
+VCS = "git"
+style = "pep440"
+versionfile_source = "src/cubnm/_version.py"
+versionfile_build = "cubnm/_version.py"
+tag_prefix = "v"
+parentdir_prefix = ""

@@ -163,4 +163,5 @@ cython_debug/
 src/cuda/*.o
 src/cuda/*.a
 sample_input/*/
-src/cuBNM/_setup_opts.py
+src/cubnm/_setup_opts.py
+wheelhouse/

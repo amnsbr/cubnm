@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import GPUtil
+import versioneer
 
 PROJECT = os.path.abspath(os.path.dirname(__file__))
 
@@ -248,9 +249,11 @@ class build_ext_gsl_cuda(build_ext):
         super().build_extensions()
 
 setup(
+    version=versioneer.get_version(),
     ext_modules=[bnm_ext],
     cmdclass={
         'build_ext': build_ext_gsl_cuda,
+        **versioneer.get_cmdclass()
     },
 )
 
