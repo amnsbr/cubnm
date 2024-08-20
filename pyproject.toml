@@ -38,6 +38,7 @@ classifiers = [
     'Environment :: GPU :: NVIDIA CUDA',
     'Topic :: Scientific/Engineering',
 ]
+dynamic = ["version"]
 
 [project.scripts]
 cubnm = "cubnm.cli:main"

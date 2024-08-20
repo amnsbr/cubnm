@@ -251,10 +251,9 @@ class build_ext_gsl_cuda(build_ext):
 setup(
     version=versioneer.get_version(),
     ext_modules=[bnm_ext],
-    cmdclass={
+    cmdclass=versioneer.get_cmdclass({
         'build_ext': build_ext_gsl_cuda,
-        **versioneer.get_cmdclass()
-    },
+    }),
 )
 
 # restore OS's original $CC and $CXX
