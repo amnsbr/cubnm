@@ -43,7 +43,7 @@ The package can be installed from source using:
 
     pip install git+https://github.com/amnsbr/cubnm.git -vvv
 
-Using Docker or Singulariy/Apptainer
+Using Docker or Singularity/Apptainer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Docker images are available for the development and stable versions (except v0.0.1).
 
