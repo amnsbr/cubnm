@@ -1068,7 +1068,7 @@ class rJRSimGroup(SimGroup):
                  R_dist='uniform',
                 *args, **kwargs):
         """
-        Group of reduced Jansen-Rit simulations (Jung 2023)
+        Group of reduced Jansen-Rit simulations (Jung 2023 Brain Comm)
         that are executed in parallel
 
         Parameters

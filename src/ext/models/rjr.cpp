@@ -3,7 +3,7 @@
 rJRModel::Constants rJRModel::mc;
 
 void rJRModel::init_constants() {
-    mc.dt = 0.1;
+    mc.dt = 0.0001;
     mc.sqrt_dt = SQRT(mc.dt); 
     mc.Ke  = 100.0;
     mc.Ki = 50.0;
@@ -17,7 +17,6 @@ void rJRModel::init_constants() {
     mc.V50i = 6.0;
     mc.Dr = 1.0;
     mc.V0 = 0.0;
-    mc.C0 = 6.0;
     mc.HeKe = mc.He * mc.Ke;
     mc.HiKi = mc.Hi * mc.Ki;
     mc.DrKe2 = mc.Dr * mc.Ke * 2;

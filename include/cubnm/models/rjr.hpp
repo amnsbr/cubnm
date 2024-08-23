@@ -7,6 +7,10 @@ public:
     // they always must be defined even if empty
 
     struct Constants {
+        // Note: Following Jung 2023 units in this model
+        // (unlike the others) are in sec or 1/sec rather 
+        // than sec or 1/msec
+        // TODO: harmonize it with the other models
         u_real dt;            // Time step (sec)
         u_real sqrt_dt;       // Square root of time step
         u_real Ke;            // Inversion of time constant of the EPSP kernel (1/sec)
@@ -21,7 +25,6 @@ public:
         u_real V50i;          // IPSP that achieves a 50% firing rate of a neural population (mV)
         u_real Dr;            // Damping ratio = 1 for critical damping (Dr > 1: exponential decaying, Dr < 1: Oscillating)
         u_real V0;            // Rest potential (mV) for PSP
-        u_real C0;            // Connectivity weight of E to I
         u_real HeKe;
         u_real HiKi;
         u_real DrKe2;
