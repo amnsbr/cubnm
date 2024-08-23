@@ -25,6 +25,7 @@ Author: Amin Saberi, Feb 2023
 #include "cubnm/models/rww.cuh"
 #include "cubnm/models/rwwex.cuh"
 #include "cubnm/models/kuramoto.cuh"
+#include "cubnm/models/rjr.cuh"
 // other models go here
 
 cudaDeviceProp prop;
@@ -1288,6 +1289,9 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
     }
     else if (strcmp(Model::name, "Kuramoto")==0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_Kuramotoc, &Model::mc, sizeof(typename Model::Constants)));
+    }
+    else if (strcmp(Model::name, "rJR")==0) {
+        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rJRc, &Model::mc, sizeof(typename Model::Constants)));
     }
 
     // allocate device memory for SC

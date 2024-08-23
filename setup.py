@@ -197,6 +197,7 @@ class build_ext_gsl_cuda(build_ext):
                             "models/rww.cu",
                             "models/rwwex.cu",
                             "models/kuramoto.cu",
+                            "models/rjr.cu",
                            ] # TODO: search for all .cu files
             # compile_commands = []
             # obj_paths = []

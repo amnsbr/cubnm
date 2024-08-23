@@ -159,6 +159,27 @@ def run_sim_group_rWWEx(force_cpu=False):
     sim_group.save()
     return sim_group
 
+def run_sim_group_rJR(force_cpu=False):
+    nodes = 100
+    N_SIMS = 2
+    sim_group = sim.rJRSimGroup(
+        duration=60,
+        TR=1,
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        out_dir='~/cubnm_examples/rJR',
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        ext_out=False
+    )
+    sim_group.N = N_SIMS
+    sim_group._set_default_params()
+    sim_group.run()
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+    sim_group.score(emp_fc_tril, emp_fcd_tril)
+    sim_group.save()
+    return sim_group
+
 def run_sim_group_kuramoto(N_SIMS=2, force_cpu=False):
     nodes = 100
     sim_group = sim.KuramotoSimGroup(
@@ -387,9 +408,10 @@ def run_nsga2_optimizer_het(force_cpu=False):
 
 if __name__ == '__main__':
     # sim_bolds, sim_fc_trils, sim_fcd_trils = run_sims(2, force_cpu=False)
-    sg = run_sim_group(force_cpu=False)
+    # sg = run_sim_group(force_cpu=False)
     # sg = run_sim_group_400(force_cpu=False)
     # sg = run_sim_group_rWWEx(force_cpu=False)
+    sg = run_sim_group_rJR(force_cpu=False)
     # sg_kuramoto = run_sim_group_kuramoto(force_cpu=False)
     # gs, scores = run_grid()
     # problem, out = run_problem()

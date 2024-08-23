@@ -1055,3 +1055,109 @@ class KuramotoSimGroup(SimGroup):
             if self.states_ts:
                 for k in self.sim_states:
                     self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
+
+class rJRSimGroup(SimGroup):
+    model_name = "rJR"
+    global_param_names = ["G"]
+    regional_param_names = ["C_EI", "C_IE", "R", "sigma"]
+    n_noise = 1
+    def __init__(self, 
+                 R_mean=2.2, 
+                 R_range=0, 
+                 R_dist='uniform',
+                *args, **kwargs):
+        """
+        Group of reduced Jansen-Rit simulations (Jung 2023)
+        that are executed in parallel
+
+        Parameters
+        ---------
+        *args, **kwargs:
+            see :class:`cubnm.sim.SimGroup` for details
+        R_mean: :obj:`float`, optional
+            mean of the natural frequency distribution
+        R_range: :obj:`float`, optional
+            range of the natural frequency distribution
+        R_dist: :obj:`str`, optional
+            distribution of the natural frequency
+            - 'uniform': uniform distribution
+            - 'normal': normal distribution
+
+        Attributes
+        ----------
+        param_lists: :obj:`dict` of :obj:`np.ndarray`
+            dictionary of parameter lists, including
+                - 'G': global coupling. Shape: (N_SIMS,)
+                - 'C_EI': local I to E connectivity. Shape: (N_SIMS, nodes)
+                - 'C_IE': local E to I connectivity. Shape: (N_SIMS, nodes)
+                - 'R': local natural frequency. Shape: (N_SIMS, nodes)
+                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
+                - 'v': conduction velocity. Shape: (N_SIMS,)
+
+        Example
+        -------
+        To see example usage in grid search and evolutionary algorithms
+        see :mod:`cubnm.optimize`.
+
+        Here, as an example on how to use SimGroup independently, we
+        will run a single simulation and save the outputs to disk. ::
+
+            from cubnm import sim, datasets
+
+            sim_group = sim.rJRSimGroup(
+                duration=60,
+                TR=1,
+                sc=datasets.load_sc('strength', 'schaefer-100'),
+            )
+            sim_group.N = 1
+            sim_group._set_default_params()
+            sim_group.run()
+        """
+        super().__init__(*args, **kwargs)
+        self.R_mean = R_mean
+        self.R_range = R_range
+        self.R_dist = R_dist
+
+    @SimGroup.N.setter
+    def N(self, N):
+        super(rJRSimGroup, rJRSimGroup).N.__set__(self, N)
+        if self.R_dist == 'uniform':
+            # sample from uniform distribution
+            # repeat it across simulations
+            # use the same random seed as the simulation noise
+            rng = np.random.default_rng(self.rand_seed)
+            # TODO: with certain R_range and R_mean some nodes may
+            # have negative R values
+            self.param_lists["R"] = np.tile(
+                (rng.uniform(-1, 1, self.nodes) * self.R_range + 1) * self.R_mean, 
+                (self._N, 1)
+            )
+        elif self.R_dist == 'normal':
+            # TODO
+            raise NotImplementedError
+
+    def _set_default_params(self):
+        """
+        Set default parameters for the simulations.
+        This is used in tests.
+        """
+        super()._set_default_params()
+        self.param_lists["G"] = np.repeat(0.5, self.N)
+        self.param_lists["C_EI"] = np.full((self.N, self.nodes), 6.0)
+        self.param_lists["C_IE"] = np.full((self.N, self.nodes), 6.0)
+        self.param_lists["sigma"] = np.full((self.N, self.nodes), 300.0)
+    
+    def _process_out(self, out):
+        super()._process_out(out)
+        if self.ext_out:
+            # name and reshape the states
+            self.sim_states = {
+                'EPSP': self._sim_states[0],
+                'IPSP': self._sim_states[1],
+                'ExFR': self._sim_states[2],
+                'InFR': self._sim_states[3],
+                'normEPSP': self._sim_states[4],
+            }
+            if self.states_ts:
+                for k in self.sim_states:
+                    self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
