@@ -342,7 +342,11 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         std::cout << "Current session is already initialized" << std::endl;
     }
 
-    // Create NumPy arrays from BOLD_ex_out, fc_trils_out, and fcd_trils_out
+    // Create NumPy arrays for all the outputs
+    // Note: some are directly passed to `run_simulations_*` functions
+    // but for some (nd arrays and 1d arrays that need reshaping) the C array
+    // including the output will be copied to the NumPy array after simulations
+    // are done
     npy_intp bold_dims[2] = {N_SIMS, model->bold_len*nodes};
     npy_intp fc_trils_dims[2] = {N_SIMS, model->n_pairs};
     npy_intp fcd_trils_dims[2] = {N_SIMS, model->n_window_pairs};
@@ -381,6 +385,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         #endif
     }
 
+    // Run simulations
     std::cout << "Running " << N_SIMS << " simulations..." << std::endl;
     start = std::chrono::high_resolution_clock::now();
     // TODO: cast the arrays to double if u_real is float
@@ -409,9 +414,12 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     std::cout << "took " << std::fixed << std::setprecision(6)
         << elapsed_seconds.count() << " s" << std::endl;
 
-    array_to_np_3d<u_real>(model->states_out, py_states_out);
-    array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
-    array_to_np_2d<int>(model->global_out_int, py_global_ints_out);
+    // Copy the output C arrays to NumPy arrays
+    if (ext_out) {
+        array_to_np_3d<u_real>(model->states_out, py_states_out);
+        array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
+        array_to_np_2d<int>(model->global_out_int, py_global_ints_out);
+    }
     if (noise_out) {
         array_to_np_1d<u_real>(model->noise, py_noise_out);
         #ifdef NOISE_SEGMENT
@@ -435,6 +443,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         }
     }
     
+    // Return output as a list with varying number of elements
+    // depending on ext_out and noise_out
     PyObject* out_list = PyList_New(3);
     PyList_SetItem(out_list, 0, py_BOLD_ex_out);
     PyList_SetItem(out_list, 1, py_fc_trils_out);
@@ -534,6 +544,15 @@ static PyMethodDef methods[] = {
             "\tglobal boolean outputs\n"
         "global_out_int (np.ndarray) (n_global_out_int, N_SIMS)\n"
             "\tglobal integer outputs\n"
+        "If noise_out is True, the function also returns:\n"
+        "noise (np.ndarray) (noise_size,)\n"
+            "\tnoise array\n"
+        #ifdef NOISE_SEGMENT
+        "shuffled_nodes (np.ndarray) (noise_repeats, nodes)\n"
+            "\tshuffled nodes\n"
+        "shuffled_ts (np.ndarray) (noise_repeats, noise_time_steps)\n"
+            "\tshuffled time series\n"
+        #endif
     },
     {"init", init, METH_NOARGS, 
         "init()\n"
@@ -554,7 +573,7 @@ static PyMethodDef methods[] = {
 };
 
 static struct PyModuleDef coreModule = {
-    PyModuleDef_HEAD_INIT, "core", // name of the module
+    PyModuleDef_HEAD_INIT, "core",
     "core", -1, methods
 };
 
