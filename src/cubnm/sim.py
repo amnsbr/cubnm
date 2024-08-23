@@ -662,8 +662,9 @@ class SimGroup:
             sim_bold=self.sim_bold,
             sim_fc_trils=self.sim_fc_trils,
             sim_fcd_trils=self.sim_fcd_trils,
-            sim_states=self.sim_states,
         )
+        if self.ext_out:
+            out_data['sim_states'] = self.sim_states
         out_data.update(self.param_lists)
         return out_data
 
