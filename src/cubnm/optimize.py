@@ -563,13 +563,16 @@ class EScBNMProblem(BNMProblem):
             eSC = self.sim_group.sc.copy()
             h_vector = self.sim_group.param_lists['_h'][sim_idx]
             # create h matrix representing the proportion of SC
-            # in each direction (columns: seeds, targets: rows)
+            # in each direction (columns: sources, rows: targets)
             # e.g. if h[j] > h[i], then h_mat[i,j], connections
             # from j to i will be higher than h[j, i]
             h_mat = h_vector[None, :] / (h_vector[None, :] + h_vector[:, None])
             # split up the SC of each edge to the two directions
             # based on h_mat
             eSC *= h_mat
+            # transpose eSC to (sources, targets) format
+            # expected by the core code
+            eSC = eSC.T
             eSCs.append(eSC)
         self.sim_group.sc = np.array(eSCs)
         # set sc_indices so that simulations 0 to N-1 use
