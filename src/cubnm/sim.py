@@ -58,12 +58,14 @@ class SimGroup:
             path to structural connectome strengths (as an unlabled .txt)
             or a numpy array
             Shape: (nodes, nodes)
+            If asymmetric, rows are sources and columns are targets.
         sc_dist: :obj:`str` or :obj:`np.ndarray`, optional
             path to structural connectome distances (as an unlabled .txt)
             or a numpy array
             Shape: (nodes, nodes)
             If provided v (velocity) will be a free parameter and there
             will be delay in inter-regional connections
+            If asymmetric, rows are sources and columns are targets.
         out_dir: {:obj:`str` or 'same' or None}, optional
             - :obj:`str`: will create a directory in the provided path
             - 'same': will create a directory named based on sc
@@ -222,30 +224,18 @@ class SimGroup:
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
         self.use_cpu = (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
-        if (self.nodes > max_nodes_reg):
-            if (not self.use_cpu) and (not many_nodes_flag):
+        max_nodes = max_nodes_many if many_nodes_flag else max_nodes_reg
+        if (self.nodes > max_nodes) and (not self.use_cpu) and (not self.serial_nodes):
+            if many_nodes_flag:
+                raise NotImplementedError(
+                    "The toolbox cannot run simulations"
+                    f" with more than {max_nodes_many} nodes on GPU."
+                )
+            else:
                 raise NotImplementedError(
                     f"With {self.nodes} nodes in the current installation of the toolbox"
                     " simulations will fail. Please reinstall the package from source after"
                     " `export CUBNM_MANY_NODES=1`")
-            if (not self.use_cpu) and (many_nodes_flag) and (self.nodes > max_nodes_many):
-                raise NotImplementedError(
-                    f"Currently the toolbox cannot support more than {max_nodes_many} nodes."
-                )
-            print(
-                "Given the large number of nodes, nodes will be synced "
-                "every 1 msec to reduce the simulation time. To sync nodes "
-                "every 0.1 msec set self.sync_msec to False but note that "
-                "this will significantly increase the simulation time."
-            )
-            self.sync_msec = True
-        else:
-            if (not self.use_cpu) and (many_nodes_flag):
-                print(
-                    "The toolbox is installed with `export CUBNM_MANY_NODES=1` but "
-                    "the number of nodes is not large. For better performance, "
-                    "reinstall the package after `unset CUBNM_MANY_NODES`"
-                )
         # inter-regional delay will be added to the simulations
         # if SC distance matrix is provided
         self.input_sc_dist = sc_dist

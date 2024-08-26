@@ -22,18 +22,19 @@ inline void h_global_input_cond(
     // Note: this will not skip over self-connections
     // if they should be ignored, their SC should be set to 0
     // Note: inlining considerably improves performance for this function
+    // Note: in case of directed SCs, rows are the source and columns are the target
     tmp_globalinput = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
-            tmp_globalinput += SC[j*nodes+k] * conn_state_var_hist[k_buff_idx*nodes+k];
+            k_buff_idx = (buff_idx + delay[k*nodes+j]) % max_delay;
+            tmp_globalinput += SC[k*nodes+j] * conn_state_var_hist[k_buff_idx*nodes+k];
         }
     } else {
         for (k=0; k<nodes; k++) {
-            tmp_globalinput += SC[j*nodes+k] * conn_state_var_1[k];
+            tmp_globalinput += SC[k*nodes+j] * conn_state_var_1[k];
         }            
     }
 }
@@ -55,13 +56,13 @@ inline void h_global_input_osc(
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
-            tmp_globalinput += SC[j*nodes+k] * SIN(conn_state_var_hist[k_buff_idx*nodes+k] - conn_state_var_hist[buff_idx*nodes+j]);
+            k_buff_idx = (buff_idx + delay[k*nodes+j]) % max_delay;
+            tmp_globalinput += SC[k*nodes+j] * SIN(conn_state_var_hist[k_buff_idx*nodes+k] - conn_state_var_hist[buff_idx*nodes+j]);
         }
     } else {
         for (k=0; k<nodes; k++) {
-            tmp_globalinput += SC[j*nodes+k] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
-        }            
+            tmp_globalinput += SC[k*nodes+j] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
+        }
     }
 }
 
