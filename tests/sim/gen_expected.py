@@ -12,7 +12,7 @@ import pickle
 import itertools
 
 import numpy as np
-from cuBNM import sim, datasets, utils
+from cubnm import sim, datasets, utils
 
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'sim')
 
@@ -32,6 +32,8 @@ def gen_expected(model):
         sel_state_var = 'r_E'
     elif model == 'rWWEx':
         sel_state_var = 'r'
+    elif model == 'Kuramoto':
+        sel_state_var = 'theta'
     test_data = {}
     # loop through combinat
     for opts in itertools.product(*[[(k, v) for v in vs] for k, vs in model_opts.items()]):
@@ -65,7 +67,7 @@ def gen_expected(model):
             'sim_sel_state': sg.sim_states[sel_state_var],
         }
         # print a warning if the output has changed from the previous version
-        if opts in prev_test_data:
+        if opts_str in prev_test_data:
             for k in ['sim_bold', 'sim_fc_trils', 'sim_fcd_trils', 'sim_sel_state']:
                 if k in prev_test_data.get(opts_str, {}):
                     if not np.isclose(test_data[opts_str][k], prev_test_data[opts_str][k], atol=1e-12).all():

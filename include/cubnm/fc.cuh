@@ -1,7 +1,7 @@
 __global__ void bold_stats(
     u_real **mean_bold, u_real **ssd_bold,
     u_real **BOLD, int N_SIMS, int nodes,
-    int output_ts, int corr_len, int n_vols_remove);
+    int bold_len, int corr_len, int n_vols_remove);
 
 __global__ void window_bold_stats(
     u_real **BOLD, int N_SIMS, int nodes,
@@ -10,7 +10,7 @@ __global__ void window_bold_stats(
 
 __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
     u_real **BOLD, int N_SIMS, int nodes, int n_pairs, int *pairs_i,
-    int *pairs_j, int output_ts, int n_vols_remove, 
+    int *pairs_j, int bold_len, int n_vols_remove, 
     int corr_len, u_real **mean_bold, u_real **ssd_bold, 
     int n_windows, int window_size_1, u_real **windows_mean_bold, u_real **windows_ssd_bold,
     int *window_starts, int *window_ends,

@@ -11,7 +11,35 @@ Author: Amin Saberi, Feb 2023
 // to avoid overlaps with similar variables on gpu
 #include "cubnm/bnm.hpp"
 
-inline void h_calculateGlobalInput(
+inline void h_global_input_cond(
+        u_real& tmp_globalinput, int& k_buff_idx,
+        const int& nodes, const int& j, 
+        int& k, int& buff_idx, u_real* SC, 
+        int* delay, const bool& has_delay, const int& max_delay,
+        u_real* conn_state_var_hist, u_real* conn_state_var_1
+        ) {
+    // calculates global input from other nodes `k` to current node `j`
+    // Note: this will not skip over self-connections
+    // if they should be ignored, their SC should be set to 0
+    // Note: inlining considerably improves performance for this function
+    // Note: in case of directed SCs, rows are the source and columns are the target
+    tmp_globalinput = 0;
+    if (has_delay) {
+        for (k=0; k<nodes; k++) {
+            // calculate correct index of the other region in the buffer based on j-k delay
+            // buffer is moving backward, therefore the delay timesteps back in history
+            // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
+            k_buff_idx = (buff_idx + delay[k*nodes+j]) % max_delay;
+            tmp_globalinput += SC[k*nodes+j] * conn_state_var_hist[k_buff_idx*nodes+k];
+        }
+    } else {
+        for (k=0; k<nodes; k++) {
+            tmp_globalinput += SC[k*nodes+j] * conn_state_var_1[k];
+        }            
+    }
+}
+
+inline void h_global_input_osc(
         u_real& tmp_globalinput, int& k_buff_idx,
         const int& nodes, const int& j, 
         int& k, int& buff_idx, u_real* SC, 
@@ -28,13 +56,13 @@ inline void h_calculateGlobalInput(
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + delay[j*nodes+k]) % max_delay;
-            tmp_globalinput += SC[j*nodes+k] * conn_state_var_hist[k_buff_idx*nodes+k];
+            k_buff_idx = (buff_idx + delay[k*nodes+j]) % max_delay;
+            tmp_globalinput += SC[k*nodes+j] * SIN(conn_state_var_hist[k_buff_idx*nodes+k] - conn_state_var_hist[buff_idx*nodes+j]);
         }
     } else {
         for (k=0; k<nodes; k++) {
-            tmp_globalinput += SC[j*nodes+k] * conn_state_var_1[k];
-        }            
+            tmp_globalinput += SC[k*nodes+j] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
+        }
     }
 }
 
@@ -84,7 +112,7 @@ void bnm(
     // initialze the sum (eventually mean) of states_out to 0
     // if not asked to return timeseries
     // initialize extended output sums
-    if (model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
+    if (model->base_conf.ext_out && (!model->base_conf.states_ts)) {
         for (int j=0; j<model->nodes; j++) {
             for (int ii=0; ii<Model::n_state_vars; ii++) {
                 model->states_out[ii][sim_idx][j] = 0;
@@ -96,6 +124,7 @@ void bnm(
     for (int j=0; j<model->nodes; j++) {
         model->h_init(
             _state_vars[j], _intermediate_vars[j],
+            _global_params, _regional_params[j],
             _ext_int[j], _ext_bool[j],
             _ext_int_shared, _ext_bool_shared
         );
@@ -196,7 +225,15 @@ void bnm(
     }
 
     // allocate memory to BOLD gsl matrix used for FC and FCD calculation
-    gsl_matrix * bold_gsl = gsl_matrix_alloc(model->output_ts, model->nodes);
+    gsl_matrix * bold_gsl = gsl_matrix_alloc(model->bold_len, model->nodes);
+
+    // define global input function
+    HGlobalInputFunc h_global_input_func;
+    if (Model::is_osc) {
+        h_global_input_func = &h_global_input_osc;
+    } else {
+        h_global_input_func = &h_global_input_cond;
+    }
 
     // allocate memory for globalinput
     u_real *tmp_globalinput = (u_real*)malloc(sizeof(u_real) * model->nodes);
@@ -204,7 +241,7 @@ void bnm(
     // Integration
     bool restart = false;
     int j{0}, k{0}, k_buff_idx{0}, int_i{0},
-        BOLD_len_i{0}, ts_bold{0}, bold_idx{0};
+        bold_i{0}, states_i{0}, ts_bold{0};
     long noise_idx{0};
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
@@ -218,20 +255,25 @@ void bnm(
     Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
     vary in each repeat.
     */
-    int curr_noise_repeat{0}, ts_noise{0}, sh_j{0}, sh_ts_noise{0};
+    int curr_noise_repeat{0}, sh_j{0}, sh_ts_noise{0};
     #endif
     // outer loop for 1 msec steps
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
-    while (ts_bold <= model->time_steps) {
-        // TODO: similar to CPU add the option for sync_msec
+    while (ts_bold < model->time_steps) {
         #ifdef NOISE_SEGMENT
-        sh_ts_noise = model->shuffled_ts[ts_noise+curr_noise_repeat*model->base_conf.noise_time_steps];
+        // get shuffled timepoint corresponding to
+        // current noise repeat and the amount of time
+        // past in the repeat
+        sh_ts_noise = model->shuffled_ts[
+            (ts_bold % model->base_conf.noise_time_steps)
+            +(curr_noise_repeat*model->base_conf.noise_time_steps)
+        ];
         #endif
         // calculate global input every msec
         if (model->base_conf.sync_msec) {
             for (j=0; j<model->nodes; j++) {
-                h_calculateGlobalInput(
+                h_global_input_func(
                     tmp_globalinput[j], k_buff_idx,
                     model->nodes, j, 
                     k, buff_idx, SC, 
@@ -245,7 +287,7 @@ void bnm(
             // calculate global input every 0.1 msec
             if (!model->base_conf.sync_msec) {
                 for (j=0; j<model->nodes; j++) {
-                    h_calculateGlobalInput(
+                    h_global_input_func(
                         tmp_globalinput[j], k_buff_idx,
                         model->nodes, j, 
                         k, buff_idx, SC, 
@@ -305,33 +347,22 @@ void bnm(
         }
 
 
-        /*
-        Compute BOLD for that time-step (subsampled to 1 ms)
-        save BOLD in addition to S_E, S_I, and r_E, r_I if requested
-        */
+        // Balloon-Windkessel model equations here since its
+        // dt is 1 msec
         for (j=0; j<model->nodes; j++) {
             h_bw_step(
                 bw_x[j], bw_f[j], bw_nu[j], bw_q[j], tmp_f,
                 _state_vars[j][Model::bold_state_var_idx]
             );
         }
-        if (ts_bold % model->BOLD_TR == 0) {
+        // Calculate and write BOLD to memory every TR
+        if ((ts_bold+1) % model->BOLD_TR == 0) {
             for (j = 0; j<model->nodes; j++) {
-                bold_idx = BOLD_len_i*model->nodes+j;
-                BOLD_ex[bold_idx] = bwc.V_0 * (bwc.k1 * (1 - bw_q[j]) + bwc.k2 * (1 - bw_q[j]/bw_nu[j]) + bwc.k3 * (1 - bw_nu[j]));
-                gsl_matrix_set(bold_gsl, BOLD_len_i, j, BOLD_ex[bold_idx]);
-                if (model->base_conf.extended_output && model->base_conf.extended_output_ts) {
-                    for (int ii=0; ii<Model::n_state_vars; ii++) {
-                        model->states_out[ii][sim_idx][bold_idx] = _state_vars[j][ii];
-                    }
-                }
-                if ((BOLD_len_i>=model->n_vols_remove) && model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
-                    for (int ii=0; ii<Model::n_state_vars; ii++) {
-                        model->states_out[ii][sim_idx][j] += _state_vars[j][ii];
-                    }
-                }
+                BOLD_ex[(bold_i*model->nodes)+j] = bwc.V_0 * (bwc.k1 * (1 - bw_q[j]) + bwc.k2 * (1 - bw_q[j]/bw_nu[j]) + bwc.k3 * (1 - bw_nu[j]));
+                gsl_matrix_set(bold_gsl, bold_i, j, BOLD_ex[(bold_i*model->nodes)+j]);
             }
-            BOLD_len_i++;
+            bold_i++;
+            // update progress
             if (model->base_conf.verbose) {
                 #ifdef OMP_ENABLED
                 #pragma omp critical 
@@ -343,17 +374,37 @@ void bnm(
                 }
             }
         }
-        ts_bold++;
+
+        // Write states to memory or update their sum
+        if (model->base_conf.ext_out) {
+            if ((ts_bold+1) % model->states_sampling == 0) {
+                for (j = 0; j<model->nodes; j++) {
+                    if (model->base_conf.states_ts) {
+                        for (int ii=0; ii<Model::n_state_vars; ii++) {
+                            model->states_out[ii][sim_idx][(states_i*model->nodes)+j] = _state_vars[j][ii];
+                        }
+                    } else if (states_i >= model->n_states_samples_remove) {
+                        // update sum (later mean) of extended
+                        // output only after n_samples_remove_states
+                        for (int ii=0; ii<Model::n_state_vars; ii++) {
+                            model->states_out[ii][sim_idx][j] += _state_vars[j][ii];
+                        }                    
+                    }
+                }
+                states_i++;
+            }
+        }
 
         #ifdef NOISE_SEGMENT
-        // update noise segment time
-        ts_noise++;
         // reset noise segment time 
         // and shuffle nodes if the segment
         // has reached to the end
-        if (ts_noise % model->base_conf.noise_time_steps == 0) {
-            curr_noise_repeat++;
-            ts_noise = 0;
+        if ((ts_bold+1) % model->base_conf.noise_time_steps == 0) {
+            // at the last time point don't do this
+            // to avoid going over the extent of shuffled_nodes
+            if (ts_bold+1 < model->time_steps) {
+                curr_noise_repeat++;
+            }
         }
         #endif
 
@@ -368,12 +419,18 @@ void bnm(
             );
         }
 
+        // move forward outer bw loop
+        // this has to be before restart
+        // because restart will reset ts_bold to 0
+        ts_bold++;
+        
         // if restart is indicated (e.g. FIC failed in rWW)
         // reset the simulation and start from the beginning
         if (restart) {
             // model-specific restart
             model->h_restart(
                 _state_vars, _intermediate_vars,
+                _global_params, _regional_params,
                 _ext_int, _ext_bool,
                 _ext_int_shared, _ext_bool_shared
             );
@@ -402,17 +459,17 @@ void bnm(
                 #pragma omp critical 
                 #endif
                 {
-                    progress -= BOLD_len_i;
+                    progress -= bold_i;
                 }
             }
             // reset indices
-            BOLD_len_i = 0;
+            bold_i = 0;
+            states_i = 0;
             ts_bold = 0;
             // reset delay buffer index
             buff_idx = max_delay-1;
             #ifdef NOISE_SEGMENT
             curr_noise_repeat = 0;
-            ts_noise = 0;
             #endif
             restart = false; // restart is done
         }
@@ -433,12 +490,12 @@ void bnm(
     }
 
     // divide sum of extended output by number of time points
-    // to calculate the mean
-    if (model->base_conf.extended_output && (!model->base_conf.extended_output_ts)) {
-        int extended_output_time_points = BOLD_len_i - model->n_vols_remove;
+    // after n_states_samples_remove to calculate the mean
+    if (model->base_conf.ext_out && (!model->base_conf.states_ts)) {
+        int ext_out_time_points = states_i - model->n_states_samples_remove;
         for (int j=0; j<model->nodes; j++) {
             for (int ii=0; ii<Model::n_state_vars; ii++) {
-                model->states_out[ii][sim_idx][j] /= extended_output_time_points;
+                model->states_out[ii][sim_idx][j] /= ext_out_time_points;
             }
         }
     }
@@ -450,7 +507,7 @@ void bnm(
     gsl_matrix_view bold_window =  gsl_matrix_submatrix(
         bold_gsl, 
         model->n_vols_remove, 0, 
-        model->output_ts-model->n_vols_remove, model->nodes);
+        model->bold_len-model->n_vols_remove, model->nodes);
     gsl_vector * fc_tril = model->calculate_fc_tril(&bold_window.matrix);
     gsl_vector * fcd_tril = model->calculate_fcd_tril(bold_gsl, model->window_starts, model->window_ends);
 
@@ -520,15 +577,9 @@ void _run_simulations_cpu(
         m->global_out_bool, m->global_out_int);
 
     // run the simulations
-    size_t ext_out_size;
-    if (m->base_conf.extended_output_ts) {
-        ext_out_size = m->bold_size;
-    } else {
-        ext_out_size = m->nodes;
-    }
     // keep track of a global progress
     uint progress{0};
-    uint progress_final{m->output_ts * m->N_SIMS};
+    uint progress_final{m->bold_len * m->N_SIMS};
     // run the simulations
     #ifdef OMP_ENABLED
     #pragma omp parallel
@@ -584,10 +635,10 @@ void _init_cpu(BaseModel *m) {
 
     // allocate memory for extended output
     size_t ext_out_size = m->nodes;
-    if (m->base_conf.extended_output_ts) {
-        ext_out_size *= m->output_ts;
+    if (m->base_conf.states_ts) {
+        ext_out_size *= m->states_len;
     }
-    if (m->base_conf.extended_output) {
+    if (m->base_conf.ext_out) {
         m->states_out = (u_real***)(malloc(Model::n_state_vars * sizeof(u_real**)));
         for (int i = 0; i < Model::n_state_vars; i++) {
             m->states_out[i] = (u_real**)(malloc(m->N_SIMS * sizeof(u_real*)));
@@ -597,10 +648,12 @@ void _init_cpu(BaseModel *m) {
         }
     }
 
-    // specify n_vols_remove (for extended output and FC calculations)
+    // specify n_vols_remove (for FC(D) calculations)
     m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR; 
+    // specifiy n_states_samples_remove (for states mean calculations)
+    m->n_states_samples_remove = m->base_conf.bold_remove_s * 1000 / m->states_sampling;
     // calculate length of BOLD after removing initial volumes
-    m->corr_len = m->output_ts - m->n_vols_remove;
+    m->corr_len = m->bold_len - m->n_vols_remove;
     if (m->corr_len < 2) {
         std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
         exit(1);
@@ -610,7 +663,7 @@ void _init_cpu(BaseModel *m) {
     // calculate the number of windows and their start-ends
     m->n_windows = get_dfc_windows(
         &(m->window_starts), &(m->window_ends), 
-        m->corr_len, m->output_ts, m->n_vols_remove,
+        m->corr_len, m->bold_len, m->n_vols_remove,
         m->window_step, m->window_size,
         m->base_conf.drop_edges
         );
@@ -629,14 +682,13 @@ void _init_cpu(BaseModel *m) {
         #ifndef NOISE_SEGMENT
         // precalculate the entire noise needed; can use up a lot of memory
         // with high N of nodes and longer durations leads maxes out the memory
-        m->noise_size = m->nodes * (m->time_steps+1) * 10 * Model::n_noise;
-            // +1 for inclusive last time point, *10 for 0.1msec
+        m->noise_size = m->nodes * m->time_steps * 10 * Model::n_noise; // *10 for 0.1msec
         #else
         // otherwise precalculate a noise segment and arrays of shuffled
         // nodes and time points and reuse-shuffle the noise segment
         // throughout the simulation for `noise_repeats`
         m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
-        m->noise_repeats = ceil((float)(m->time_steps+1) / (float)(m->base_conf.noise_time_steps)); // +1 for inclusive last time point
+        m->noise_repeats = ceil((float)(m->time_steps) / (float)(m->base_conf.noise_time_steps));
         #endif
         if (m->base_conf.verbose) {
             std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;
@@ -706,7 +758,7 @@ void BaseModel::free_cpu() {
     free(this->noise);
     free(this->window_ends);
     free(this->window_starts);
-    if (this->base_conf.extended_output) {
+    if (this->base_conf.ext_out) {
         for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {
             for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
                 free(this->states_out[var_idx][sim_idx]);

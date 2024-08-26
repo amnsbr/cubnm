@@ -1,3 +1,5 @@
+import sys
+import os
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -6,9 +8,11 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'cuBNM'
+project = 'cubnm'
 copyright = '2024, Amin Saberi'
 author = 'Amin Saberi'
+
+sys.path.insert(0, os.path.abspath(os.path.join('..', 'src')))
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -17,17 +21,18 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'autoapi.extension',
-    'sphinx_rtd_theme'
+    'sphinx_rtd_theme',
+    'sphinxarg.ext'
 ]
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 # -- Options for autoapi -----------------------------------------------------
-autoapi_dirs = ['../src/cuBNM']
+autoapi_dirs = ['../src/cubnm']
 autoapi_type = "python"
 autoapi_python_class_content = "both"
-autoapi_ignore = ["*_core*", "*_setup_flags*"]
+autoapi_ignore = ["*_core*", "*_setup_flags*", "*cli*"]
 autoapi_template_dir = '_autoapi_templates'
 autoapi_options = [
     'members', 'undoc-members', 'show-inheritance', 

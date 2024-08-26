@@ -3,9 +3,9 @@ Testing consistency of rWW simulations
 """
 # TODO: consider testing all models in a single test file
 import pytest
-from cuBNM import sim
-from cuBNM import datasets
-from cuBNM.utils import avail_gpus
+from cubnm import sim
+from cubnm import datasets
+from cubnm.utils import avail_gpus
 import numpy as np
 import os
 import pickle
@@ -61,8 +61,8 @@ def test_single_sim(opts):
     sg = sim.rWWSimGroup(
         duration=60,
         TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        sc_dist_path=sc_dist_path,
+        sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_dist=sc_dist_path,
         sim_verbose=False,
         force_cpu=opts['force_cpu'],
         do_fic=opts['do_fic'],
@@ -107,8 +107,8 @@ def test_identical_sims(opts):
     sg = sim.rWWSimGroup(
         duration=60,
         TR=1,
-        sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
-        sc_dist_path=sc_dist_path,
+        sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+        sc_dist=sc_dist_path,
         sim_verbose=False,
         force_cpu=opts['force_cpu'],
         do_fic=opts['do_fic'],
@@ -148,8 +148,8 @@ def test_identical_cpu_gpu(opts):
         sg = sim.rWWSimGroup(
             duration=60,
             TR=1,
-            sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
-            sc_dist_path=sc_dist_path,
+            sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
+            sc_dist=sc_dist_path,
             sim_verbose=False,
             force_cpu=force_cpu,
             do_fic=opts['do_fic'],

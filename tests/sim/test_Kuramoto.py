@@ -1,5 +1,5 @@
 """
-Testing consistency of rWWEx simulations
+Testing consistency of Kuramoto model simulations
 """
 # TODO: consider testing all models in a single test file
 import pytest
@@ -12,7 +12,7 @@ import pickle
 import gzip
 
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'sim')
-sel_state_var = 'r'
+sel_state_var = 'theta'
 
 def no_gpu():
     # to skip GPU-dependent tests
@@ -46,7 +46,7 @@ def test_single_sim(opts):
     # to differences in the random arrays (TODO: test it)
     # TODO: skip tests if binaries are built differently
     # load expected
-    with gzip.open(os.path.join(test_data_dir, 'rWWEx.pkl.gz'), 'rb') as f:
+    with gzip.open(os.path.join(test_data_dir, 'Kuramoto.pkl.gz'), 'rb') as f:
         expected = pickle.load(f)[opts]
     # run simulation
     opts = {i.split(':')[0]:int(i.split(':')[1]) for i in opts.split(',')}
@@ -54,7 +54,7 @@ def test_single_sim(opts):
         sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True)
     else:
         sc_dist_path = None
-    sg = sim.rWWExSimGroup(
+    sg = sim.KuramotoSimGroup(
         duration=60,
         TR=1,
         sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
@@ -95,7 +95,7 @@ def test_identical_sims(opts):
         sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True)
     else:
         sc_dist_path = None
-    sg = sim.rWWExSimGroup(
+    sg = sim.KuramotoSimGroup(
         duration=60,
         TR=1,
         sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),
@@ -133,7 +133,7 @@ def test_identical_cpu_gpu(opts):
     sc_dist_path = None
     sgs = {}
     for force_cpu in [True, False]:
-        sg = sim.rWWExSimGroup(
+        sg = sim.KuramotoSimGroup(
             duration=60,
             TR=1,
             sc=datasets.load_sc('strength', 'schaefer-100', return_path=True),

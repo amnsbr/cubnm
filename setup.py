@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import GPUtil
+import versioneer
 
 PROJECT = os.path.abspath(os.path.dirname(__file__))
 
@@ -32,15 +33,15 @@ def has_gpus(method='nvcc'):
             return False
 
 # specify installation options
-many_nodes = os.environ.get("CUBNM_MANY_NODES") is not None
+many_nodes = not ("CUBNM_NO_MANY_NODES" in os.environ)
 max_nodes_reg = os.environ.get("CUBNM_MAX_NODES_REG", 200)
-max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 500)
+max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 1024)
 gpu_enabled = has_gpus()
-omp_enabled = not (('CIBUILDWHEEL' in os.environ) or ('CUBNM_NO_OMP' in os.environ))
-noise_segment = os.environ.get("CUBNM_NOISE_WHOLE") is None
+omp_enabled = not ("CUBNM_NO_OMP" in os.environ)
+noise_segment = not ("CUBNM_NOISE_WHOLE" in os.environ)
 
 # Write the flags to a temporary _flags.py file
-with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_opts.py"), "w") as flag_file:
+with open(os.path.join(PROJECT, "src", "cubnm", "_setup_opts.py"), "w") as flag_file:
     flag_file.write(
         "\n".join(
             [f"many_nodes_flag = {many_nodes}", 
@@ -54,7 +55,7 @@ with open(os.path.join(PROJECT, "src", "cuBNM", "_setup_opts.py"), "w") as flag_
     )
 
 # determine libraries shared between GPU and CPU versions
-libraries = ["m"]
+libraries = ["m", "rt"]
 if omp_enabled:
     libraries.append("gomp")
 
@@ -68,11 +69,9 @@ shared_includes = [
     os.path.join(PROJECT,"include"),
     os.path.join(PROJECT, "src", "ext"),
     np.get_include(),
-    os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'include') # added for conda-based cibuildwheel
+    "/opt/miniconda/include" # added for conda-based cibuildwheel
 ]
 gpu_includes = [
-    # should not be included with nvcc as it will cause errors
-    # also probably not needed with g++
     "/usr/lib/cuda/include",
     "/usr/include/cuda",
 ]
@@ -100,7 +99,7 @@ if gpu_enabled:
     print("Compiling for GPU+CPU")
     libraries += ["bnm", "cudart_static"]
     bnm_ext = Extension(
-        "cuBNM.core",
+        "cubnm.core",
         [os.path.join("src", "ext", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args+["-D GPU_ENABLED"],
@@ -108,22 +107,27 @@ if gpu_enabled:
         include_dirs=all_includes,
         library_dirs=[
             "/usr/lib/cuda", 
+            "/usr/local/cuda/lib64",
             os.path.join(PROJECT, "src", "ext"),
-            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
-        ],
+            "/opt/miniconda/lib" # added for conda-based cibuildwheel
+        ] + \
+        os.environ.get("LIBRARY_PATH","").split(":") + \
+        os.environ.get("LD_LIBRARY_PATH","").split(":"),
     )
 else:
     print("Compiling for CPU")
     bnm_ext = Extension(
-        "cuBNM.core",
+        "cubnm.core",
         [os.path.join("src", "ext", "core.cpp")],
         language="c++",
         extra_compile_args=extra_compile_args,
         libraries=libraries,
         include_dirs=shared_includes,
         library_dirs=[
-            os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib') # added for conda-based cibuildwheel
-        ],
+            "/opt/miniconda/lib" # added for conda-based cibuildwheel
+        ] + \
+        os.environ.get("LIBRARY_PATH","").split(":") + \
+        os.environ.get("LD_LIBRARY_PATH","").split(":"),
     )
 
 # extend build_ext to also build GSL (if needed) and compile GPU code
@@ -137,9 +141,9 @@ class build_ext_gsl_cuda(build_ext):
                     "/usr/lib", 
                     "/lib", 
                     "/usr/local/lib",
-                    os.path.join(os.environ.get('HOME', '/root'), 'miniconda', 'lib'), # cibuildwheel
+                    "/opt/miniconda/lib", # cibuildwheel
                     # TODO: identify and search current conda env
-                    os.path.join(os.environ.get('HOME', '/root'), '.cuBNM', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
+                    os.path.join(os.environ.get('HOME', '/opt'), '.cubnm', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
                 ]
         found_gsl = False
         for lib_dir in lib_dirs:
@@ -153,7 +157,7 @@ class build_ext_gsl_cuda(build_ext):
         if not found_gsl:
             print("Downloading and building GSL")
             try:
-                gsl_dir = os.path.join(os.path.expanduser('~'), '.cuBNM', 'gsl')
+                gsl_dir = os.path.join(os.environ.get('HOME', '/opt'), '.cubnm', 'gsl')
                 os.makedirs(gsl_dir, exist_ok=True)
             except OSError:
                 gsl_dir = os.path.join(os.path.abspath(self.build_lib), 'gsl')
@@ -189,8 +193,11 @@ class build_ext_gsl_cuda(build_ext):
             conf_flags = " ".join([f"-D {f}" for f in conf_flags])
             include_flags = " ".join([f"-I {p}" for p in shared_includes])
             source_files = ["bnm.cu", "utils.cu", "fc.cu", 
-                             "models/bw.cu", "models/rww.cu",
-                             "models/rwwex.cu"] # TODO: search for all .cu files
+                            "models/bw.cu", 
+                            "models/rww.cu",
+                            "models/rwwex.cu",
+                            "models/kuramoto.cu",
+                           ] # TODO: search for all .cu files
             # compile_commands = []
             # obj_paths = []
             # for source_file in source_files:
@@ -242,10 +249,11 @@ class build_ext_gsl_cuda(build_ext):
         super().build_extensions()
 
 setup(
+    version=versioneer.get_version(),
     ext_modules=[bnm_ext],
-    cmdclass={
+    cmdclass=versioneer.get_cmdclass({
         'build_ext': build_ext_gsl_cuda,
-    },
+    }),
 )
 
 # restore OS's original $CC and $CXX

@@ -11,7 +11,8 @@
 
    Installation <install>
    Quickstart <quickstart>
-   API References <autoapi/cuBNM/index>
+   Command Line Interface <cli>
+   API References <autoapi/cubnm/index>
 
 
 Indices and tables

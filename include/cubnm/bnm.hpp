@@ -9,4 +9,13 @@ void _run_simulations_cpu(
 
 template <typename Model>
 void _init_cpu(BaseModel *m);
+
+typedef void (*HGlobalInputFunc)(
+    u_real&, int&,
+    const int&, const int&, 
+    int&, int&, u_real*, 
+    int*, const bool&, const int&,
+    u_real*, u_real*
+);
+
 #endif

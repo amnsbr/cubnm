@@ -2,25 +2,26 @@
 build-backend = "setuptools.build_meta"
 requires = [
     "setuptools",
-    "numpy>=1.20",
+    "numpy<2,>=1.20",
     "GPUtil==1.4",
+    "versioneer[toml]"
 ]
 
 [project]
-name = "cuBNM"
-version = "0.0.2-alpha"
+name = "cubnm"
 license = {file = "LICENSE"}
 dependencies = [
-    "numpy>=1.20",
+    "numpy<2,>=1.20",
     "GPUtil==1.4",
     "scipy",
     "pandas",
     "pymoo==0.6",
     "scikit-optimize==0.9",
+    "tabulate"
 ]
 requires-python = ">=3.7"
 description = "A toolbox for biophysical network modeling on GPUs "
-readme = "README.md"
+readme = "README.rst"
 authors = [
     {name = "Amin Saberi", email="amnsbr@gmail.com"}
 ]
@@ -37,23 +38,28 @@ classifiers = [
     'Environment :: GPU :: NVIDIA CUDA',
     'Topic :: Scientific/Engineering',
 ]
+dynamic = ["version"]
+
+[project.scripts]
+cubnm = "cubnm.cli:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.cibuildwheel]
 before-all = "bash {project}/tools/cibw_before_all.sh {project}"
-# update path to the location of gcc-10 and nvcc
-# it is important to add gcc-10 to the beginning to override gcc-12
-# and important to put miniconda at the end (not to override cibw's Python)
-# reason for downgrade is to solve this offending symbol (with manylinux_2_28):
-# libstdc++.so.6  offending symbols: _ZSt28__throw_bad_array_new_lengthv@GLIBCXX_3.4.29
-# environment = { PATH="/opt/rh/gcc-toolset-10/root/usr/bin:$PATH:/root/miniconda/bin" }
-# Update: will not use gcc-10
-environment = { PATH="$PATH:/root/miniconda/bin" }
-manylinux-x86_64-image = "manylinux_2_28"
-manylinux-aarch64-image = "manylinux_2_28"
-manylinux-ppc64le-image = "manylinux_2_28"
-build-verbosity = 3 # temporary
+# add miniconda to path to enable `conda`
+# (at the end to avoid overriding cibw's Python)
+environment = { PATH="$PATH:/opt/miniconda/bin" }
+manylinux-x86_64-image = "sameli/manylinux2014_x86_64_cuda_11.8"
+build-verbosity = 3
 skip = ["pp*", "*-manylinux_i686", "*musllinux*"]
 build = ["*-manylinux_x86_64"]
+
+[tool.versioneer]
+VCS = "git"
+style = "pep440"
+versionfile_source = "src/cubnm/_version.py"
+versionfile_build = "cubnm/_version.py"
+tag_prefix = "v"
+parentdir_prefix = ""

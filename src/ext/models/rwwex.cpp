@@ -17,7 +17,8 @@ void rWWExModel::init_constants() {
 }
 
 void rWWExModel::h_init(
-    u_real* _state_vars, u_real* _intermediate_vars, 
+    u_real* _state_vars, u_real* _intermediate_vars,
+    u_real* _global_params, u_real* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -25,7 +26,8 @@ void rWWExModel::h_init(
 }
 
 void rWWExModel::_j_restart(
-    u_real* _state_vars, u_real* _intermediate_vars, 
+    u_real* _state_vars, u_real* _intermediate_vars,
+    u_real* _global_params, u_real* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {

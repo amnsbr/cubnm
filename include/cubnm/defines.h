@@ -6,6 +6,8 @@
     #define EXP expf
     #define POW powf
     #define SQRT sqrtf
+    #define SIN sinf
+    #define FMOD fmodf
     #define CUDA_MAX fmaxf
     #define CUDA_MIN fminf
 #else
@@ -13,15 +15,18 @@
     #define EXP exp
     #define POW pow
     #define SQRT sqrt
+    #define SIN sin
+    #define FMOD fmod
     #define CUDA_MAX max
     #define CUDA_MIN min
 #endif
+#define PI 3.14159265358979323846
 
 #ifndef MAX_NODES_REG
     #define MAX_NODES_REG 200
 #endif
 #ifndef MAX_NODES_MANY
-    #define MAX_NODES_MANY 500
+    #define MAX_NODES_MANY 1024
 #endif
 #ifndef MANY_NODES
     #define MAX_NODES MAX_NODES_REG

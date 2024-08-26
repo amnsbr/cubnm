@@ -1,38 +1,67 @@
 #ifndef BASE_HPP
 #define BASE_HPP
 #include "cubnm/models/bw.hpp" // will be used by all derived models
+#include "cubnm/models/boilerplate.hpp"
 
 class BaseModel {
 public:
     BaseModel(
-        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int time_steps, bool do_delay, 
-        int window_size, int window_step, int rand_seed
+        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
+        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed
         ) : nodes{nodes},
             N_SIMS{N_SIMS},
             N_SCs{N_SCs},
             BOLD_TR{BOLD_TR},
+            states_sampling{states_sampling},
             time_steps{time_steps},
             do_delay{do_delay},
             window_size{window_size},
             window_step{window_step},
             rand_seed{rand_seed}
         {
-            u_real TR = (u_real)BOLD_TR / 1000; // TR in seconds
-            // calculate length of BOLD time-series
-            // +1 to make it inclusive of the last vol
-            output_ts = (time_steps / (TR / 0.001))+1;
-            bold_size = output_ts * nodes;
+            set_bold_states_len();
         };
     // create virtual destructor and free
     // the memory allocated for the arrays
     virtual ~BaseModel() = default;
 
     static constexpr char *name = "Base";
+
+    virtual void update(
+        int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
+        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed
+        ) {
+            this->nodes = nodes;
+            this->N_SIMS = N_SIMS;
+            this->N_SCs = N_SCs;
+            this->BOLD_TR = BOLD_TR;
+            this->states_sampling = states_sampling;
+            this->time_steps = time_steps;
+            this->do_delay = do_delay;
+            this->window_size = window_size;
+            this->window_step = window_step;
+            this->rand_seed = rand_seed;
+            this->set_bold_states_len();
+    }
+
+    virtual void set_bold_states_len() {
+        // bold samples (volumes) length
+        // and total matrix size
+        bold_len = time_steps / BOLD_TR;
+        bold_size = bold_len * nodes;
+        // states samples length and
+        // total matrix size
+        states_len = time_steps / states_sampling;
+        states_size = states_len * nodes;
+    }
+
     virtual void free_cpu();
 
-    int nodes{}, N_SIMS{}, N_SCs{}, BOLD_TR{}, time_steps{}, window_size{}, window_step{}, 
-        rand_seed{}, n_pairs{}, n_windows{}, n_window_pairs{}, output_ts{}, bold_size{},
-        n_vols_remove{}, corr_len{}, noise_size{}, noise_repeats{},
+    int nodes{}, N_SIMS{}, N_SCs{}, BOLD_TR{}, states_sampling{}, time_steps{}, 
+        window_size{}, window_step{}, rand_seed{}, n_pairs{}, n_windows{}, 
+        n_window_pairs{}, bold_len{}, bold_size{}, states_len{}, states_size{},
+        n_vols_remove{}, n_states_samples_remove{}, corr_len{}, 
+        noise_size{}, noise_repeats{},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
         last_noise_time_steps{0};
         // TODO: make some short or size_t
@@ -64,13 +93,10 @@ public:
         bool exc_interhemispheric{true};
         bool drop_edges{true};
         bool sync_msec{false};
-        bool extended_output{true};
-        bool extended_output_ts{false};
+        bool ext_out{true};
+        bool states_ts{false};
         // set a default length of noise segment (msec)
-        // (+1 to avoid having an additional repeat for a single time point
-        // when time_steps can be divided by 30(000), as the actual duration of
-        // simulation (in msec) is always user request time steps + 1)
-        int noise_time_steps{30001};
+        int noise_time_steps{30000};
         bool verbose{false}; // print simulation info + progress
         int progress_interval{500}; // msec; interval for updating progress
         bool serial{false};
@@ -83,6 +109,7 @@ public:
         std::cout << "N_SIMS: " << N_SIMS << std::endl;
         std::cout << "N_SCs: " << N_SCs << std::endl;
         std::cout << "BOLD_TR: " << BOLD_TR << std::endl;
+        std::cout << "states_sampling: " << states_sampling << std::endl;
         std::cout << "time_steps: " << time_steps << std::endl;
         std::cout << "do_delay: " << do_delay << std::endl;
         std::cout << "window_size: " << window_size << std::endl;
@@ -135,7 +162,8 @@ public:
     }
 
     virtual void h_init(
-        u_real* _state_vars, u_real* _intermediate_vars, 
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
         int* _ext_int, bool* _ext_bool,
         int* _ext_int_shared, bool* _ext_bool_shared
     ) = 0;
@@ -176,18 +204,21 @@ public:
         }
     };
     virtual void _j_restart(
-        u_real* _state_vars, u_real* _intermediate_vars, 
+        u_real* _state_vars, u_real* _intermediate_vars,
+        u_real* _global_params, u_real* _regional_params,
         int* _ext_int, bool* _ext_bool,
         int* _ext_int_shared, bool* _ext_bool_shared
     ) {};
     virtual void h_restart(
         u_real** _state_vars, u_real** _intermediate_vars, 
+        u_real* _global_params, u_real** _regional_params,
         int** _ext_int, bool** _ext_bool,
         int* _ext_int_shared, bool* _ext_bool_shared
     ) {
         for (int j=0; j<this->nodes; j++) {
             _j_restart(
-                _state_vars[j], _intermediate_vars[j], 
+                _state_vars[j], _intermediate_vars[j],
+                _global_params, _regional_params[j],
                 _ext_int[j], _ext_bool[j], 
                 _ext_int_shared, _ext_bool_shared
             );
@@ -216,7 +247,7 @@ public:
 
 protected:
     void set_base_conf(std::map<std::string, std::string> config_map) {
-        // Note: some of the base_conf members (extended_output, extended_output_ts) 
+        // Note: some of the base_conf members (ext_out, states_ts) 
         // are set directly based on arguments passed from Python
         for (const auto& pair : config_map) {
             if (pair.first == "exc_interhemispheric") {

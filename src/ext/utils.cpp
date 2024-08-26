@@ -19,7 +19,7 @@ int get_fc_n_pairs(int nodes, bool exc_interhemispheric) {
 
 int get_dfc_windows(
         std::vector<int> *window_starts_p, std::vector<int> *window_ends_p,
-        int corr_len, int output_ts, int n_vols_remove,
+        int corr_len, int bold_len, int n_vols_remove,
         int window_step, int window_size, bool drop_edges
     ) {
     int n_windows = 0;
@@ -39,8 +39,8 @@ int get_dfc_windows(
         if (window_start < 0)
             window_start = 0;
         window_end = window_center + (window_size/2);
-        if (window_end >= output_ts)
-            window_end = output_ts-1;
+        if (window_end >= bold_len)
+            window_end = bold_len-1;
         (*window_starts_p).push_back(window_start);
         (*window_ends_p).push_back(window_end);
         window_center += window_step;
@@ -55,13 +55,13 @@ int get_dfc_windows(
 
 int get_dfc_windows(
         int **window_starts_p, int **window_ends_p,
-        int corr_len, int output_ts, int n_vols_remove,
+        int corr_len, int bold_len, int n_vols_remove,
         int window_step, int window_size, bool drop_edges
     ) {
     std::vector<int> _window_starts, _window_ends;
     int n_windows = get_dfc_windows(
         &_window_starts, &_window_ends, 
-        corr_len, output_ts, n_vols_remove,
+        corr_len, bold_len, n_vols_remove,
         window_step, window_size, drop_edges);
     // copy the vectors to arrays
     *window_starts_p = (int *)malloc(sizeof(int) * n_windows);

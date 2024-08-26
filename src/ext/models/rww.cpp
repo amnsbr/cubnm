@@ -63,7 +63,7 @@ void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
     for (const auto& pair : config_map) {
         if (pair.first == "do_fic") {
             this->conf.do_fic = (bool)std::stoi(pair.second);
-            this->base_conf.extended_output = this->conf.do_fic || this->base_conf.extended_output;
+            this->base_conf.ext_out = this->conf.do_fic || this->base_conf.ext_out;
             this->modifies_params = true;
         } else if (pair.first == "max_fic_trials") {
             this->conf.max_fic_trials = std::stoi(pair.second);
@@ -101,12 +101,13 @@ void rWWModel::prep_params(
             if (copy_sc) {
                 for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
                     gsl_matrix* SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
-                    for (int i = 0; i < this->nodes; i++) {
-                        for (int j = 0; j < this->nodes; j++) {
-                            gsl_matrix_set(SC_gsl, i, j, SC[SC_idx][i*nodes + j]);
+                    for (int j = 0; j < this->nodes; j++) {
+                        for (int k = 0; k < this->nodes; k++) {
+                            // while copying transpose it from the shape (source, target) to (target, source)
+                            // as this is the format expected by the FIC function
+                            gsl_matrix_set(SC_gsl, j, k, SC[SC_idx][k*nodes + j]);
                         }
                     }
-                    std::cout << gsl_matrix_get(SC_gsl, 0, 10) << std::endl;
                     SCs_gsl.push_back(SC_gsl);
                 }
            }
@@ -144,6 +145,7 @@ void rWWModel::prep_params(
 
 void rWWModel::h_init(
     u_real* _state_vars, u_real* _intermediate_vars, 
+    u_real* _global_params, u_real* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -162,6 +164,7 @@ void rWWModel::h_init(
 
 void rWWModel::_j_restart(
     u_real* _state_vars, u_real* _intermediate_vars, 
+    u_real* _global_params, u_real* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -221,10 +224,10 @@ void rWWModel::_j_post_bw_step(
         int& ts_bold
         ) {
     if (_ext_bool_shared[0]) {
-        if ((ts_bold >= rWWModel::mc.I_SAMPLING_START) & (ts_bold <= rWWModel::mc.I_SAMPLING_END)) {
+        if (((ts_bold+1) >= rWWModel::mc.I_SAMPLING_START) & ((ts_bold+1) <= rWWModel::mc.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
-        if (ts_bold == rWWModel::mc.I_SAMPLING_END) {
+        if ((ts_bold+1) == rWWModel::mc.I_SAMPLING_END) {
             restart = false;
             _intermediate_vars[4] /= rWWModel::mc.I_SAMPLING_DURATION;
             _intermediate_vars[6] = _intermediate_vars[4] - rWWModel::mc.b_a_ratio_E;
@@ -262,7 +265,7 @@ void rWWModel::h_post_bw_step(u_real** _state_vars, u_real** _intermediate_vars,
         ts_bold);
     // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
     // the simulation until the end
-    if ((_ext_bool_shared[0]) && (ts_bold == rWWModel::mc.I_SAMPLING_END)) {
+    if ((_ext_bool_shared[0]) && ((ts_bold+1) == rWWModel::mc.I_SAMPLING_END)) {
         if (restart) {
             if (_ext_int_shared[0] < (this->conf.max_fic_trials)) {
                 _ext_int_shared[0]++; // increment fic_trial
