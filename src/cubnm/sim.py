@@ -877,11 +877,12 @@ class rWWSimGroup(SimGroup):
             dictionary of simulation outputs and parameters
         """
         out_data = super()._get_save_data()
-        out_data.update(
-            fic_unstable=self.fic_unstable,
-            fic_failed=self.fic_failed,
-            fic_ntrials=self.fic_ntrials,
-        )
+        if self.do_fic:
+            out_data.update(
+                fic_unstable=self.fic_unstable,
+                fic_failed=self.fic_failed,
+                fic_ntrials=self.fic_ntrials,
+            )
         return out_data
     
     def clear(self):
