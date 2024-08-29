@@ -32,52 +32,57 @@ cudaDeviceProp prop;
 
 __device__ void global_input_cond(
         u_real& tmp_globalinput, int& k_buff_idx,
-        const int& nodes, const int& sim_idx, const int& j, 
-        int& k, int& buff_idx, u_real* _SC, 
+        const int& nodes, const int& sim_idx, const int& SC_idx,
+        const int& j, int& k, int& buff_idx, u_real** SC, 
         int** delay, const bool& has_delay, const int& max_delay,
         u_real** conn_state_var_hist, u_real* conn_state_var_1
         ) {
     // calculates global input from other nodes `k` to current node `j`
     // Note: this will not skip over self-connections
     // if they should be ignored, their SC should be set to 0
+    // Note 2: In SC and delay rows must be sources (k) and columns must
+    // be targets (j), so that among threads of the same warp,
+    // memory read is coalesced, such that at each k, SCs of all
+    // k->j connections are adjacent in memory.
+    // This is very important for performance especially
+    // in higher number of nodes.
     tmp_globalinput = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
-            tmp_globalinput += _SC[k] * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
+            k_buff_idx = (buff_idx + delay[sim_idx][k*nodes+j]) % max_delay;
+            tmp_globalinput += SC[SC_idx][k*nodes+j] * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
         }
     } else {
         for (k=0; k<nodes; k++) {
-            tmp_globalinput += _SC[k] * conn_state_var_1[k];
+            tmp_globalinput += SC[SC_idx][k*nodes+j] * conn_state_var_1[k];
         }            
     }
 }
 
 __device__ void global_input_osc(
         u_real& tmp_globalinput, int& k_buff_idx,
-        const int& nodes, const int& sim_idx, const int& j, 
-        int& k, int& buff_idx, u_real* _SC, 
+        const int& nodes, const int& sim_idx, const int& SC_idx,
+        const int& j, int& k, int& buff_idx, u_real** SC, 
         int** delay, const bool& has_delay, const int& max_delay,
         u_real** conn_state_var_hist, u_real* conn_state_var_1
         ) {
     // calculates global input from other nodes `k` to current node `j`
-    // Note: this will not skip over self-connections
-    // if they should be ignored, their SC should be set to 0
+    // See notes in global_input_cond
     tmp_globalinput = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + delay[sim_idx][j*nodes+k]) % max_delay;
-            tmp_globalinput += _SC[k] * SIN(conn_state_var_hist[sim_idx][k_buff_idx*nodes+k] - conn_state_var_hist[sim_idx][buff_idx*nodes+j]);
+            k_buff_idx = (buff_idx + delay[sim_idx][k*nodes+j]) % max_delay;
+            tmp_globalinput += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_hist[sim_idx][k_buff_idx*nodes+k] - conn_state_var_hist[sim_idx][buff_idx*nodes+j]);
         }
     } else {
         for (k=0; k<nodes; k++) {
-            tmp_globalinput += _SC[k] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
+            tmp_globalinput += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
         }            
     }
 }
@@ -111,6 +116,7 @@ __global__ void bnm(
     const bool ext_out = model->base_conf.ext_out;
     const bool states_ts = model->base_conf.states_ts;
     const bool sync_msec = model->base_conf.sync_msec;
+    const int SC_idx = SC_indices[sim_idx];
 
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
@@ -229,25 +235,6 @@ __global__ void bnm(
         conn_state_var_1[j] = _state_vars[Model::conn_state_var_idx];
     }
 
-    // copy SC to thread memory to make it faster
-    // (especially with lower N of simulations)
-    u_real *_SC;
-    u_real __SC[MAX_NODES_REG];
-    if (nodes <= MAX_NODES_REG) {
-        // copy SC to local memory
-        // for better performance
-        _SC = __SC;
-        for (int k=0; k<nodes; k++) {
-            _SC[k] = SC[SC_indices[sim_idx]][j*nodes+k];
-        }
-    } 
-    #ifdef MANY_NODES
-    else {
-        // use global memory
-        _SC = &(SC[SC_indices[sim_idx]][j*nodes]);
-    }
-    #endif
-
     // determine the global input function
     GlobalInputKernel global_input_kernel;
     if (Model::is_osc) {
@@ -289,8 +276,8 @@ __global__ void bnm(
             __syncthreads();
             global_input_kernel(
                 tmp_globalinput, k_buff_idx,
-                nodes, sim_idx, j, 
-                k, buff_idx, _SC, 
+                nodes, sim_idx, SC_idx,
+                j, k, buff_idx, SC, 
                 delay, has_delay, max_delay,
                 conn_state_var_hist, conn_state_var_1
             );
@@ -302,8 +289,8 @@ __global__ void bnm(
                 __syncthreads();
                 global_input_kernel(
                     tmp_globalinput, k_buff_idx,
-                    nodes, sim_idx, j, 
-                    k, buff_idx, _SC, 
+                    nodes, sim_idx, SC_idx,
+                    j, k, buff_idx, SC, 
                     delay, has_delay, max_delay,
                     conn_state_var_hist, conn_state_var_1
                 );
@@ -658,8 +645,8 @@ __global__ void bnm_serial(
             for (j=0; j<nodes; j++) {
                 global_input_kernel(
                     tmp_globalinput[j], k_buff_idx,
-                    nodes, sim_idx, j, 
-                    k, buff_idx, &(SC[SC_idx][j*nodes]), 
+                    nodes, sim_idx, SC_idx,
+                    j, k, buff_idx, SC, 
                     delay, has_delay, max_delay,
                     conn_state_var_hist, conn_state_var_1
                 );
@@ -672,8 +659,8 @@ __global__ void bnm_serial(
                 for (j=0; j<nodes; j++) {
                     global_input_kernel(
                         tmp_globalinput[j], k_buff_idx,
-                        nodes, sim_idx, j, 
-                        k, buff_idx, &(SC[SC_idx][j*nodes]), 
+                        nodes, sim_idx, SC_idx,
+                        j, k, buff_idx, SC, 
                         delay, has_delay, max_delay,
                         conn_state_var_hist, conn_state_var_1
                     );

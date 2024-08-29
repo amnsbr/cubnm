@@ -101,9 +101,11 @@ void rWWModel::prep_params(
             if (copy_sc) {
                 for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
                     gsl_matrix* SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
-                    for (int i = 0; i < this->nodes; i++) {
-                        for (int j = 0; j < this->nodes; j++) {
-                            gsl_matrix_set(SC_gsl, i, j, SC[SC_idx][i*nodes + j]);
+                    for (int j = 0; j < this->nodes; j++) {
+                        for (int k = 0; k < this->nodes; k++) {
+                            // while copying transpose it from the shape (source, target) to (target, source)
+                            // as this is the format expected by the FIC function
+                            gsl_matrix_set(SC_gsl, j, k, SC[SC_idx][k*nodes + j]);
                         }
                     }
                     SCs_gsl.push_back(SC_gsl);

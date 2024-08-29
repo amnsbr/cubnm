@@ -33,9 +33,9 @@ def has_gpus(method='nvcc'):
             return False
 
 # specify installation options
-many_nodes = ("CUBNM_MANY_NODES" in os.environ)
+many_nodes = not ("CUBNM_NO_MANY_NODES" in os.environ)
 max_nodes_reg = os.environ.get("CUBNM_MAX_NODES_REG", 200)
-max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 500)
+max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 1024)
 gpu_enabled = has_gpus()
 omp_enabled = not ("CUBNM_NO_OMP" in os.environ)
 noise_segment = not ("CUBNM_NOISE_WHOLE" in os.environ)

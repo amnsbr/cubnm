@@ -26,7 +26,7 @@
     #define MAX_NODES_REG 200
 #endif
 #ifndef MAX_NODES_MANY
-    #define MAX_NODES_MANY 500
+    #define MAX_NODES_MANY 1024
 #endif
 #ifndef MANY_NODES
     #define MAX_NODES MAX_NODES_REG
