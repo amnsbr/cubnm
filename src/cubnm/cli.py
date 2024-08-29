@@ -1,7 +1,6 @@
 """
 Command line interface for cuBNM
 """
-import argparse
 import os
 import pandas as pd
 from cubnm import datasets, optimize, cli_parser

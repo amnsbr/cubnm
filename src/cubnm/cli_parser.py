@@ -6,7 +6,6 @@ sphinx doesn't require pandas and cubnm
 for autogenerating the CLI docs
 """
 import argparse
-import os
 
 def parse_params(param_str):
     """
@@ -61,20 +60,6 @@ def parse_maps_coef_range(value):
         return maps_coef_range[0]
     else:
         return maps_coef_range
-
-def get_optimizer(optimizer_str):
-    """
-    Gets an Optimizer class based on its name
-
-    Parameters
-    ----------
-    optimizer_str : :obj:`str`
-
-    Returns
-    -------
-    :class:`cubnm.optimize.Optimizer` derived class
-    """
-    return getattr(optimize, f'{optimizer_str}Optimizer')
 
 def add_shared_arguments(parser):
     # simgroup arguments shared between all commands
