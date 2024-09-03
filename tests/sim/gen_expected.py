@@ -12,7 +12,7 @@ import pickle
 import itertools
 
 import numpy as np
-from cubnm import sim, datasets, utils
+from cubnm import sim, utils
 
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'sim')
 
@@ -22,21 +22,10 @@ def gen_expected(model):
     else:
         prev_test_data = {}
     ModelSimGroup = getattr(sim, f'{model}SimGroup')
-    model_opts = {
-        'force_cpu': [False, True],
-        'do_delay': [False, True],
-    }
-    if model == 'rWW':
-        model_opts['do_fic'] = [False, True]
-    if model == 'rWW':
-        sel_state_var = 'r_E'
-    elif model == 'rWWEx':
-        sel_state_var = 'r'
-    elif model == 'Kuramoto':
-        sel_state_var = 'theta'
+    test_configs = ModelSimGroup._get_test_configs(cpu_gpu_identity=False)
     test_data = {}
     # loop through combinat
-    for opts in itertools.product(*[[(k, v) for v in vs] for k, vs in model_opts.items()]):
+    for opts in itertools.product(*[[(k, v) for v in vs] for k, vs in test_configs.items()]):
         opts_str = ','.join([f'{k}:{int(v)}' for k, v in opts])
         opts_dict = {k: v for k, v in opts}
         print(opts_str)
@@ -44,19 +33,7 @@ def gen_expected(model):
         if (not opts_dict['force_cpu']) & (utils.avail_gpus() == 0):
             print("Warning: no GPU available, skipping GPU")
             continue
-        if opts_dict['do_delay']:
-            sc_dist_path = datasets.load_sc('length', 'schaefer-100', return_path=True)
-        else:
-            sc_dist_path = None
-        opts_dict.pop('do_delay')
-        sg = ModelSimGroup(
-            duration=60,
-            TR=1,
-            sc_path=datasets.load_sc('strength', 'schaefer-100', return_path=True),
-            sc_dist_path=sc_dist_path,
-            sim_verbose=True,
-            **opts_dict
-        )
+        sg = ModelSimGroup._get_test_instance(opts_dict)
         sg.N = 1
         sg._set_default_params()
         sg.run()
@@ -64,7 +41,7 @@ def gen_expected(model):
             'sim_bold': sg.sim_bold,
             'sim_fc_trils': sg.sim_fc_trils,
             'sim_fcd_trils': sg.sim_fcd_trils,
-            'sim_sel_state': sg.sim_states[sel_state_var],
+            'sim_sel_state': sg.sim_states[ModelSimGroup.sel_state_var], # TODO: use all state variables
         }
         # print a warning if the output has changed from the previous version
         if opts_str in prev_test_data:
