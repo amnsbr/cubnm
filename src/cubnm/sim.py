@@ -13,7 +13,7 @@ from cubnm._setup_opts import (
     max_nodes_reg, max_nodes_many,
     noise_segment_flag
 )
-from cubnm import utils
+from cubnm import utils, datasets
 
 
 class SimGroup:
@@ -155,6 +155,8 @@ class SimGroup:
                 names of global parameters
             regional_param_names: :obj:`list` of :obj:`str`
                 names of regional parameters
+            sel_state_var: :obj:`str`
+                name of the state variable used in the tests
             n_noise: :obj:`int`
                 number of noise elements per node per time point
                 (e.g. 2 if there are noise to E and I neuronal populations)
@@ -681,12 +683,67 @@ class SimGroup:
             np.savez_compressed(os.path.join(sims_dir, f"it{self.it}.npz"), **out_data)
         elif save_as == "txt":
             raise NotImplementedError
+    @classmethod
+    def _get_test_configs(cls, cpu_gpu_identity=False):
+        """
+        Get configs for testing the simulations
 
+        Parameters
+        ----------
+        cpu_gpu_identity: :obj:`bool`, optional
+            indicates whether configs are for CPU/GPU identity tests
+            in which case force_cpu is not included in the configs
+            since tests will be done on both CPU and GPU
+
+        Returns
+        -------
+        configs: :obj:`dict` of :obj:`list`
+        """
+        configs = {}
+        # for compatibality with previously-stored
+        # expected simulation files force_cpu must
+        # be the first item
+        # TODO: fix this and recompute the expected files
+        if not cpu_gpu_identity:
+            configs['force_cpu'] = [0, 1]
+        configs['do_delay'] = [0, 1]
+        return configs
+    @classmethod
+    def _get_test_instance(cls, opts):
+        """
+        Initializes an instance that is used in tests
+
+        Parameters
+        ----------
+        opts: :obj:`dict`
+            dictionary of test options
+
+        Returns
+        -------
+        sim_group: :obj:`cubnm.sim.SimGroup`
+            simulation group object of the test simulation
+            which is not run yet
+        """
+        do_delay = bool(opts.pop('do_delay'))
+        if do_delay:
+            sc_dist = datasets.load_sc('length', 'schaefer-100')
+        else:
+            sc_dist = None
+        sim_group = cls(
+            duration=60,
+            TR=1,
+            sc=datasets.load_sc('strength', 'schaefer-100'),
+            sc_dist=sc_dist,
+            sim_verbose=False,
+            **opts
+        )
+        return sim_group
 
 class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ["G"]
     regional_param_names = ["wEE", "wEI", "wIE"]
+    sel_state_var = 'r_E' # TODO: use all states
     n_noise = 2
     def __init__(self, 
                  *args, 
@@ -885,11 +942,55 @@ class rWWSimGroup(SimGroup):
                 delattr(self, attr)
         gc.collect()
 
+    @classmethod
+    def _get_test_configs(cls, cpu_gpu_identity=False):
+        """
+        Get configs for testing the simulations
+
+        Parameters
+        ----------
+        cpu_gpu_identity: :obj:`bool`, optional
+            indicates whether configs are for CPU/GPU identity tests
+            in which case force_cpu is not included in the configs
+            since tests will be done on both CPU and GPU
+
+        Returns
+        -------
+        configs: :obj:`dict` of :obj:`list`
+        """
+        configs = super()._get_test_configs(cpu_gpu_identity)
+        configs.update({
+            'do_fic': [0, 1]
+        })
+        return configs
+
+    @classmethod
+    def _get_test_instance(cls, opts):
+        """
+        Initializes an instance that is used in tests
+
+        Parameters
+        ----------
+        opts: :obj:`dict`
+            dictionary of test options
+
+        Returns
+        -------
+        sim_group: :obj:`cubnm.sim.rWWSimGroup`
+            simulation group object of the test simulation
+            which is not run yet
+        """
+        # initialze sim group
+        sim_group = super()._get_test_instance(opts)
+        # set do_fic
+        sim_group.do_fic = bool(opts['do_fic'])
+        return sim_group
 
 class rWWExSimGroup(SimGroup):
     model_name = "rWWEx"
     global_param_names = ["G"]
     regional_param_names = ["w", "I0", "sigma"]
+    sel_state_var = 'r' # TODO: use all states
     n_noise = 1
     def __init__(self, *args, **kwargs):
         """
@@ -963,6 +1064,7 @@ class KuramotoSimGroup(SimGroup):
     model_name = "Kuramoto"
     global_param_names = ["G"]
     regional_param_names = ["init_theta", "omega", "sigma"]
+    sel_state_var = 'theta'
     n_noise = 1
     def __init__(self, 
                  *args, 
