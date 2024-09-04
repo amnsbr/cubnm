@@ -8,7 +8,7 @@ void _run_simulations_cpu(
 );
 
 template <typename Model>
-void _init_cpu(BaseModel *m);
+void _init_cpu(BaseModel *m, bool force_reinit);
 
 typedef void (*HGlobalInputFunc)(
     u_real&, int&,

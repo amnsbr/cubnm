@@ -14,5 +14,5 @@ template void _run_simulations_gpu<rWWModel>(
     BaseModel*
 );
 
-template void _init_gpu<rWWModel>(BaseModel*, BWConstants);
+template void _init_gpu<rWWModel>(BaseModel*, BWConstants, bool);
 #endif

@@ -321,7 +321,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     start = std::chrono::high_resolution_clock::now();
     if (use_cpu & ((!model->cpu_initialized) | (force_reinit))) {
         std::cout << "Initializing CPU session..." << std::endl;
-        model->init_cpu();
+        model->init_cpu(force_reinit);
         end = std::chrono::high_resolution_clock::now();
         init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6)
@@ -330,7 +330,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     #ifdef GPU_ENABLED
     else if (!use_cpu & ((!model->gpu_initialized) | (force_reinit))) {
         std::cout << "Initializing GPU session..." << std::endl;
-        model->init_gpu(bwc);
+        model->init_gpu(bwc, force_reinit);
         end = std::chrono::high_resolution_clock::now();
         init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6) 

@@ -1260,7 +1260,7 @@ void _run_simulations_gpu(
 }
 
 template <typename Model>
-void _init_gpu(BaseModel *m, BWConstants bwc) {
+void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
     // check CUDA device avaliability and properties
     prop = get_device_prop(m->base_conf.verbose);
 
@@ -1459,7 +1459,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc) {
         (m->time_steps != m->last_time_steps) ||
         (m->nodes != m->last_nodes) ||
         (m->base_conf.noise_time_steps != m->last_noise_time_steps) ||
-        (!m->gpu_initialized)
+        (!m->gpu_initialized) ||
+        force_reinit
         ) {
         // pre-calculate normally-distributed noise on CPU
         // this is necessary to ensure consistency of noise given the same seed
