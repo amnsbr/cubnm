@@ -5,7 +5,7 @@ Evolutionary optimization
 Run a CMAES optimization of reduced Wong Wang model with G and wEE as free parameters:
 
 .. image:: https://kaggle.com/static/images/open-in-kaggle.svg 
-   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-3-demo-cmaes-homogeneous
+   :target: https://www.kaggle.com/code/aminsaberi/cubnm-demo-cmaes-homogeneous
 
 .. code-block:: python
 
@@ -47,7 +47,7 @@ regional free parameters that are regionally heterogeneous based on a weighted c
 maps (HCP T1w/T2w, HCP FC G1):
 
 .. image:: https://kaggle.com/static/images/open-in-kaggle.svg
-   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-3-demo-cmaes-heterogeneous
+   :target: https://www.kaggle.com/code/aminsaberi/cubnm-demo-cmaes-heterogeneous
 
 .. code-block:: python
 
@@ -92,7 +92,7 @@ Grid search
 Run a 10x10 grid search of reduced Wong Wang model with G and wEE as free parameters:
 
 .. image:: https://kaggle.com/static/images/open-in-kaggle.svg
-   :target: https://www.kaggle.com/code/aminsaberi/cubnm-0-0-3-demo-grid
+   :target: https://www.kaggle.com/code/aminsaberi/cubnm-demo-grid
 
 .. code-block:: python
 
