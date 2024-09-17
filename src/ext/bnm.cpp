@@ -617,7 +617,7 @@ void _run_simulations_cpu(
 }
 
 template <typename Model>
-void _init_cpu(BaseModel *m) {
+void _init_cpu(BaseModel *m, bool force_reinit) {
     // set up global int and bool outputs
     if (Model::n_global_out_int > 0) {
         m->global_out_int = (int**)malloc(Model::n_global_out_int * sizeof(int*));
@@ -676,7 +676,8 @@ void _init_cpu(BaseModel *m) {
         (m->time_steps != m->last_time_steps) ||
         (m->nodes != m->last_nodes) ||
         (m->base_conf.noise_time_steps != m->last_noise_time_steps) ||
-        (!m->cpu_initialized)
+        (!m->cpu_initialized) ||
+        force_reinit
         ) {
         // precalculate noise (segments) similar to GPU
         #ifndef NOISE_SEGMENT

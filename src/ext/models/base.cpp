@@ -2,7 +2,7 @@
 #ifdef GPU_ENABLED
 // declare gpu functions which will be provided by bnm.cu compiled library
 template<typename Model>
-extern void _init_gpu(BaseModel *model, BWConstants bwc);
+extern void _init_gpu(BaseModel *model, BWConstants bwc, bool force_reinit);
 
 template<typename Model>
 extern void _run_simulations_gpu(

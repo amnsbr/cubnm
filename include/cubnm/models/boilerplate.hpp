@@ -123,8 +123,8 @@ See rWWEx model as a simple example, and rWW as a more complex one.
         u_real** global_params, u_real** regional_params, \
         u_real* _global_params, u_real* _regional_params, \
         int& sim_idx, const int& nodes, int& j); \
-    void init_gpu(BWConstants bwc) override final { \
-        _init_gpu<CLASS_NAME>(this, bwc); \
+    void init_gpu(BWConstants bwc, bool force_reinit) override final { \
+        _init_gpu<CLASS_NAME>(this, bwc, force_reinit); \
     } \
     void run_simulations_gpu( \
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out, \
@@ -150,8 +150,8 @@ See rWWEx model as a simple example, and rWW as a more complex one.
         u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
-    void init_cpu() override final { \
-        _init_cpu<CLASS_NAME>(this); \
+    void init_cpu(bool force_reinit) override final { \
+        _init_cpu<CLASS_NAME>(this, force_reinit); \
     } \
     void run_simulations_cpu( \
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out, \
@@ -231,8 +231,8 @@ See rWWEx model as a simple example, and rWW as a more complex one.
         u_real* _global_params, u_real* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
-    void init_cpu() override final { \
-        _init_cpu<CLASS_NAME>(this); \
+    void init_cpu(bool force_reinit) override final { \
+        _init_cpu<CLASS_NAME>(this, force_reinit); \
     } \
     void run_simulations_cpu( \
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out, \

@@ -128,13 +128,13 @@ public:
         set_base_conf(config_map);
     }
     #ifdef _GPU_ENABLED
-    virtual void init_gpu(BWConstants bwc) = 0;
+    virtual void init_gpu(BWConstants bwc, bool force_reinit) = 0;
     virtual void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
         u_real ** SC, int * SC_indices, u_real * SC_dist) = 0;
     #endif
-    virtual void init_cpu() = 0;
+    virtual void init_cpu(bool force_reinit) = 0;
     virtual void run_simulations_cpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
@@ -281,7 +281,7 @@ extern void _run_simulations_gpu(
 );
 
 template<typename Model>
-extern void _init_gpu(BaseModel *model, BWConstants bwc);
+extern void _init_gpu(BaseModel *model, BWConstants bwc, bool force_reinit);
 #endif
 
 template <typename Model>
@@ -292,5 +292,5 @@ void _run_simulations_cpu(
 );
 
 template <typename Model>
-void _init_cpu(BaseModel *m);
+void _init_cpu(BaseModel *m, bool force_reinit);
 #endif

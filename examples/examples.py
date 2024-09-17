@@ -76,7 +76,7 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         N_SIMS, nodes, time_steps, BOLD_TR, states_sampling,
         window_size, window_step, rand_seed
     )
-    sim_bolds , sim_fc_trils, sim_fcd_trils = out[:3]
+    init_time, run_time, sim_bolds , sim_fc_trils, sim_fcd_trils = out[:5]
 
     for sim_idx in range(N_SIMS):
         print(f"BOLD Python {sim_idx}: shape {sim_bolds.shape}, idx 500 {sim_bolds[sim_idx, 500]}")

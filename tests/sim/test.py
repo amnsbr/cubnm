@@ -10,7 +10,6 @@ import os
 import pickle
 import gzip
 import itertools
-import copy
 
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'sim')
 sel_state_var = 'theta'
@@ -19,7 +18,21 @@ def no_gpu():
     # to skip GPU-dependent tests
     return avail_gpus()==0
 
-def get_opts(cpu_gpu_identity=False):
+def get_test_params(cpu_gpu_identity=False):
+    """
+    Get all possible test parameters for all the models
+
+    Parameters
+    -------
+    cpu_gpu_identity: (bool)
+        whether cpu-gpu identity is being tested, in which
+        case force_cpu will not be a variable
+    
+    Returns
+    -------
+    test_params: (list)
+        list of pytest test parameters
+    """
     test_params = []
     # get all model names
     model_names = [m.replace('SimGroup', '') for m in dir(sim) if 'SimGroup' in m]
@@ -44,7 +57,7 @@ def get_opts(cpu_gpu_identity=False):
 
 @pytest.mark.parametrize(
     "model, opts_str", 
-    get_opts()
+    get_test_params()
 )
 def test_single_sim(model, opts_str):
     """
@@ -92,7 +105,7 @@ def test_single_sim(model, opts_str):
 
 @pytest.mark.parametrize(
     "model, opts_str", 
-    get_opts()
+    get_test_params()
 )
 def test_identical_sims(model, opts_str):
     """
@@ -127,7 +140,7 @@ def test_identical_sims(model, opts_str):
 @pytest.mark.skipif(no_gpu(), reason="No GPU available")
 @pytest.mark.parametrize(
     "model, opts_str", 
-    get_opts(cpu_gpu_identity=True)
+    get_test_params(cpu_gpu_identity=True)
 )
 def test_identical_cpu_gpu(model, opts_str):
     """

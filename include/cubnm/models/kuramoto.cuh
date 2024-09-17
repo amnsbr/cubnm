@@ -9,5 +9,5 @@ template void _run_simulations_gpu<KuramotoModel>(
     BaseModel*
 );
 
-template void _init_gpu<KuramotoModel>(BaseModel*, BWConstants);
+template void _init_gpu<KuramotoModel>(BaseModel*, BWConstants, bool);
 #endif

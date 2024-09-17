@@ -1,11 +1,6 @@
-.. raw:: html
-
-    <div align="center">
-    <img 
-        src="https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/logo_text.png" 
-        style="width:300px; margin:auto; padding-bottom:10px;" alt="cuBNM logo"
-    >
-    </div>
+.. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/logo_text.png
+    :align: center
+    :width: 350px
 
 .. image:: https://img.shields.io/pypi/v/cubnm
   :target: https://pypi.org/project/cubnm/

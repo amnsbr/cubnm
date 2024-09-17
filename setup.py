@@ -5,9 +5,7 @@ import subprocess
 import os
 import fnmatch
 import sys
-from pathlib import Path
 import numpy as np
-import GPUtil
 import versioneer
 
 PROJECT = os.path.abspath(os.path.dirname(__file__))
@@ -21,8 +19,17 @@ def find_file(file_name, search_path):
 
 # detect if there are GPUs
 def has_gpus(method='nvcc'):
-    if method == 'gputil':
-        return len(GPUtil.getAvailable()) > 0
+    if method == 'nvidia-smi':
+        try:
+            output = subprocess.check_output(['nvidia-smi', '-L'])
+            output = output.decode('utf-8').strip()
+            gpu_list = output.split('\n')
+            gpu_count = len(gpu_list)
+            return gpu_count>0
+        except subprocess.CalledProcessError:
+            return False
+        except FileNotFoundError:
+            return False
     elif method == 'nvcc':
         # can be useful for compiling code on a
         # non-GPU system for running it later
@@ -171,7 +178,7 @@ class build_ext_gsl_cuda(build_ext):
             # of bnm extension as it has already been set to g++
             os.environ["CC"] = _CC
             gsl_setup_commands = [
-                f"wget https://mirror.ibcp.fr/pub/gnu/gsl/gsl-2.7.tar.gz -O {gsl_tar}",
+                f"curl https://mirror.ibcp.fr/pub/gnu/gsl/gsl-2.7.tar.gz -o {gsl_tar}",
                 f"cd {gsl_dir} && tar -xf {gsl_tar} &&"
                 f"cd {gsl_src} && ./configure --prefix={gsl_build} --enable-shared &&"
                 f"make && make install",

@@ -3,7 +3,7 @@ Utility functions
 """
 import numpy as np
 import scipy
-import GPUtil
+import subprocess
 
 def avail_gpus():
     """
@@ -14,7 +14,16 @@ def avail_gpus():
     :obj:`int`
         Number of available GPUs
     """
-    return len(GPUtil.getAvailable())
+    try:
+        output = subprocess.check_output(['nvidia-smi', '-L'])
+        output = output.decode('utf-8').strip()
+        gpu_list = output.split('\n')
+        gpu_count = len(gpu_list)
+        return gpu_count
+    except subprocess.CalledProcessError:
+        return 0
+    except FileNotFoundError:
+        return 0
 
 def is_jupyter():
     """

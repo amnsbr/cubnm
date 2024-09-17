@@ -145,6 +145,8 @@ class SimGroup:
                 - global parameters with shape (N_SIMS,)
                 - regional parameters with shape (N_SIMS, nodes)
                 - 'v': conduction velocity. Shape: (N_SIMS,)
+        Additional attributes will be added after running the simulations.
+        See :func:`cubnm.sim.SimGroup._process_out` for details.
 
         Notes
         -----
@@ -487,6 +489,10 @@ class SimGroup:
         Notes
         -----
         The simulation outputs are assigned to the following object attributes:
+            - init_time: :obj:`float`
+                initialization time of the simulations
+            - run_time: :obj:`float`
+                run time of the simulations
             - sim_bold : :obj:`np.ndarray`
                 simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
             - sim_fc_trils : :obj:`np.ndarray`
@@ -511,9 +517,15 @@ class SimGroup:
         """
         # assign the output to object attributes
         # and reshape them to (N_SIMS, ...)
-        # in all cases bold, fc and fcd will be returned
-        sim_bold, sim_fc_trils, sim_fcd_trils = out[:3]
-        # assign the additional outputs in indices 3: if
+        # in all cases init time, run time, bold, fc and fcd will be returned
+        (
+            self.init_time, 
+            self.run_time, 
+            sim_bold, 
+            sim_fc_trils, 
+            sim_fcd_trils
+         ) = out[:5]
+        # assign the additional outputs in indices 5: if
         # they are returned depending on `ext_out`, `noise_out`
         # and `noise_segment_flag`
         if self.ext_out:
@@ -521,13 +533,13 @@ class SimGroup:
                 sim_states,
                 global_bools,
                 global_ints,
-            ) = out[3:6]
-            noise_start_idx = 6
+            ) = out[5:8]
+            noise_start_idx = 8
             self._sim_states = sim_states
             self._global_bools = global_bools
             self._global_ints = global_ints
         else:
-            noise_start_idx = 3
+            noise_start_idx = 5
         if self.noise_out:
             self._noise = out[noise_start_idx]
             if noise_segment_flag:

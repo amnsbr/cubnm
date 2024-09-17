@@ -312,9 +312,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     model->base_conf.ext_out = ext_out;
     model->base_conf.states_ts = states_ts;
 
-    // time_t start, end;
     std::chrono::time_point<std::chrono::system_clock> start, end;
-    std::chrono::duration<double> elapsed_seconds;
+    std::chrono::duration<double> init_seconds, run_seconds;
 
     if (!use_cpu) {
         #ifndef GPU_ENABLED
@@ -330,20 +329,20 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     start = std::chrono::high_resolution_clock::now();
     if (use_cpu & ((!model->cpu_initialized) | (force_reinit))) {
         std::cout << "Initializing CPU session..." << std::endl;
-        model->init_cpu();
+        model->init_cpu(force_reinit);
         end = std::chrono::high_resolution_clock::now();
-        elapsed_seconds = end - start;
+        init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6)
-            << elapsed_seconds.count() << " s" << std::endl;
+            << init_seconds.count() << " s" << std::endl;
     } 
     #ifdef GPU_ENABLED
     else if (!use_cpu & ((!model->gpu_initialized) | (force_reinit))) {
         std::cout << "Initializing GPU session..." << std::endl;
-        model->init_gpu(bwc);
+        model->init_gpu(bwc, force_reinit);
         end = std::chrono::high_resolution_clock::now();
-        elapsed_seconds = end - start;
+        init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6) 
-            << elapsed_seconds.count() << " s" << std::endl;
+            << init_seconds.count() << " s" << std::endl;
     }
     #endif
     else {
@@ -418,9 +417,9 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     }
     #endif
     end = std::chrono::high_resolution_clock::now();
-    elapsed_seconds = end - start;
+    run_seconds = end - start;
     std::cout << "took " << std::fixed << std::setprecision(6)
-        << elapsed_seconds.count() << " s" << std::endl;
+        << run_seconds.count() << " s" << std::endl;
 
     // Copy the output C arrays to NumPy arrays
     if (ext_out) {
@@ -450,13 +449,19 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             }
         }
     }
+
+    // convert inti_seconds and run_seconds to Python floats
+    PyObject* py_init_seconds = PyFloat_FromDouble(init_seconds.count());
+    PyObject* py_run_seconds = PyFloat_FromDouble(run_seconds.count());
     
     // Return output as a list with varying number of elements
     // depending on ext_out and noise_out
-    PyObject* out_list = PyList_New(3);
-    PyList_SetItem(out_list, 0, py_BOLD_ex_out);
-    PyList_SetItem(out_list, 1, py_fc_trils_out);
-    PyList_SetItem(out_list, 2, py_fcd_trils_out);
+    PyObject* out_list = PyList_New(5);
+    PyList_SetItem(out_list, 0, py_init_seconds);
+    PyList_SetItem(out_list, 1, py_run_seconds);
+    PyList_SetItem(out_list, 2, py_BOLD_ex_out);
+    PyList_SetItem(out_list, 3, py_fc_trils_out);
+    PyList_SetItem(out_list, 4, py_fcd_trils_out);
     if (ext_out) {
         PyList_Append(out_list, py_states_out);
         PyList_Append(out_list, py_global_bools_out);
