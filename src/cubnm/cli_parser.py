@@ -79,6 +79,10 @@ def add_shared_arguments(parser):
                         help='Structural connectivity .txt file or "example" (required)')
     parser.add_argument('--sc_dist', type=str, 
                         help='Structural connectivity distribution .txt file or "example"')
+    parser.add_argument('--dt', type=str, default='0.1', 
+                        help='Neuronal model integration step (msec)')
+    parser.add_argument('--bw_dt', type=str, default='1.0', 
+                        help='Balloon-Windkessel model integration step (msec)')
     parser.add_argument('-d', '--out_dir', type=str, default="same", 
                         help='Output directory')
     # TODO: emp FC and FCD do not have to be required for grid search

@@ -115,6 +115,8 @@ def run_optimize(args):
         out_dir=args.out_dir,
         duration=args.duration,
         TR=args.TR,
+        dt=args.dt,
+        bw_dt=args.bw_dt,
         states_ts=args.states_ts,
         states_sampling=args.states_sampling,
         window_size=args.window_size,
