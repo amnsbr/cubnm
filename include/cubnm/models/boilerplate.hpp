@@ -91,7 +91,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     static constexpr bool is_osc = IS_OSC; \
     static Constants mc; \
     Config conf; \
-    static void init_constants(); \
+    static void init_constants(u_real dt = 0.1); \
     CUDA_CALLABLE_MEMBER void init( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
         u_real* _global_params, u_real* _regional_params, \
@@ -215,7 +215,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     static constexpr bool has_post_integration = HAS_POST_INT; \
     static Constants mc; \
     Config conf; \
-    static void init_constants(); \
+    static void init_constants(u_real dt = 0.1); \
     void h_init( \
         u_real* _state_vars, u_real* _intermediate_vars,  \
         u_real* _global_params, u_real* _regional_params, \

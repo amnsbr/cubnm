@@ -7,7 +7,8 @@ class BaseModel {
 public:
     BaseModel(
         int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
-        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed
+        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed,
+        u_real dt, u_real bw_dt
         ) : nodes{nodes},
             N_SIMS{N_SIMS},
             N_SCs{N_SCs},
@@ -17,9 +18,12 @@ public:
             do_delay{do_delay},
             window_size{window_size},
             window_step{window_step},
-            rand_seed{rand_seed}
+            rand_seed{rand_seed},
+            dt{dt}, // in msec
+            bw_dt{bw_dt / 1000.0} // input is in msec, but bw_dt is in seconds in the code
         {
             set_bold_states_len();
+            set_loop_iters();
         };
     // create virtual destructor and free
     // the memory allocated for the arrays
@@ -29,7 +33,8 @@ public:
 
     virtual void update(
         int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
-        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed
+        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed,
+        u_real dt, u_real bw_dt
         ) {
             this->nodes = nodes;
             this->N_SIMS = N_SIMS;
@@ -41,7 +46,10 @@ public:
             this->window_size = window_size;
             this->window_step = window_step;
             this->rand_seed = rand_seed;
+            this->dt = dt; // msec
+            this->bw_dt = bw_dt / 1000.0; // input is in msec, but bw_dt is in seconds in the code
             this->set_bold_states_len();
+            this->set_loop_iters();
     }
 
     virtual void set_bold_states_len() {
@@ -49,10 +57,18 @@ public:
         // and total matrix size
         bold_len = time_steps / BOLD_TR;
         bold_size = bold_len * nodes;
+        BOLD_TR_iters = (BOLD_TR / 1000) / bw_dt;
         // states samples length and
         // total matrix size
         states_len = time_steps / states_sampling;
         states_size = states_len * nodes;
+        states_sampling_iters = (states_sampling / 1000) / bw_dt;
+    }
+
+    virtual void set_loop_iters() {
+        // TODO: add checks in Python to make sure they are divisible
+        bw_it = (time_steps / 1000) / bw_dt;
+        inner_it = (bw_dt * 1000) / dt;
     }
 
     virtual void free_cpu();
@@ -63,9 +79,11 @@ public:
         n_vols_remove{}, n_states_samples_remove{}, corr_len{}, 
         noise_size{}, noise_repeats{},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
-        last_noise_time_steps{0};
+        last_noise_time_steps{0},
+        bw_it{}, inner_it{}, BOLD_TR_iters{}, states_sampling_iters{};
         // TODO: make some short or size_t
     bool cpu_initialized{false}, modifies_params{false}, do_delay{};
+    u_real dt{}, bw_dt{};
     
     #ifdef _GPU_ENABLED
     virtual void free_gpu();
@@ -79,6 +97,7 @@ public:
     int *window_starts, *window_ends;
     #ifdef NOISE_SEGMENT
     int *shuffled_nodes, *shuffled_ts;
+    int noise_bw_it;
     #endif
     #ifdef _GPU_ENABLED
     u_real **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,

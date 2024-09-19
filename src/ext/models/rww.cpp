@@ -2,8 +2,8 @@
 
 rWWModel::Constants rWWModel::mc;
 
-void rWWModel::init_constants() {
-    mc.dt  = 0.1; // Time-step of synaptic activity model (msec)
+void rWWModel::init_constants(u_real dt) {
+    mc.dt  = dt; // Time-step of synaptic activity model (msec)
     mc.sqrt_dt = SQRT(mc.dt); 
     mc.J_NMDA  = 0.15;
     mc.a_E = 310; // (n/C)
@@ -48,14 +48,6 @@ void rWWModel::init_constants() {
     mc.I_E_ss = 0.3773805650; // nA
     mc.S_I_ss = 0.0392184486; // dimensionless
     mc.S_E_ss = 0.1647572075; // dimensionless
-
-    /*
-    Config
-    */
-    mc.I_SAMPLING_START = 1000;
-    mc.I_SAMPLING_END = 10000;
-    mc.I_SAMPLING_DURATION = mc.I_SAMPLING_END - mc.I_SAMPLING_START + 1;
-    mc.init_delta = 0.02;
 }
 
 void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
@@ -69,7 +61,14 @@ void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
             this->conf.max_fic_trials = std::stoi(pair.second);
         } else if (pair.first == "fic_verbose") {
             this->conf.fic_verbose = (bool)std::stoi(pair.second);
+        } else if (pair.first == "I_SAMPLING_START") {
+            this->conf.I_SAMPLING_START = (std::stoi(pair.second) / 1000) / this->bw_dt;
+        } else if (pair.first == "I_SAMPLING_END") {
+            this->conf.I_SAMPLING_END = (std::stoi(pair.second) / 1000) / this->bw_dt;
+        } else if (pair.first == "init_delta") {
+            this->conf.init_delta = std::stod(pair.second);
         }
+        this->conf.I_SAMPLING_DURATION = this->conf.I_SAMPLING_END - this->conf.I_SAMPLING_START + 1;
     }
 }
 
@@ -156,7 +155,7 @@ void rWWModel::h_init(
     _state_vars[5] = 0.001; // S_I
     // numerical FIC initializations
     _intermediate_vars[4] = 0.0; // mean_I_E
-    _intermediate_vars[5] = rWWModel::mc.init_delta; // delta
+    _intermediate_vars[5] = this->conf.init_delta; // delta
     _ext_int_shared[0] = 0; // fic_trial
     _ext_bool_shared[0] = this->conf.do_fic & (this->conf.max_fic_trials > 0); // _adjust_fic in current sim
     _ext_bool_shared[1] = false; // fic_failed
@@ -221,15 +220,15 @@ void rWWModel::_j_post_bw_step(
         int* _ext_int_shared, bool* _ext_bool_shared,
         bool& restart,
         u_real* _global_params, u_real* _regional_params,
-        int& ts_bold
+        int& bw_i
         ) {
     if (_ext_bool_shared[0]) {
-        if (((ts_bold+1) >= rWWModel::mc.I_SAMPLING_START) & ((ts_bold+1) <= rWWModel::mc.I_SAMPLING_END)) {
+        if (((bw_i+1) >= this->conf.I_SAMPLING_START) & ((bw_i+1) <= this->conf.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
-        if ((ts_bold+1) == rWWModel::mc.I_SAMPLING_END) {
+        if ((bw_i+1) == this->conf.I_SAMPLING_END) {
             restart = false;
-            _intermediate_vars[4] /= rWWModel::mc.I_SAMPLING_DURATION;
+            _intermediate_vars[4] /= this->conf.I_SAMPLING_DURATION;
             _intermediate_vars[6] = _intermediate_vars[4] - rWWModel::mc.b_a_ratio_E;
             if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
                 restart = true;
@@ -255,17 +254,17 @@ void rWWModel::h_post_bw_step(u_real** _state_vars, u_real** _intermediate_vars,
         int* _ext_int_shared, bool* _ext_bool_shared,
         bool& restart,
         u_real* _global_params, u_real** _regional_params,
-        int& ts_bold) {
+        int& bw_i) {
     BaseModel::h_post_bw_step(
         _state_vars, _intermediate_vars, 
         _ext_int, _ext_bool, 
         _ext_int_shared, _ext_bool_shared,
         restart, 
         _global_params, _regional_params, 
-        ts_bold);
+        bw_i);
     // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
     // the simulation until the end
-    if ((_ext_bool_shared[0]) && ((ts_bold+1) == rWWModel::mc.I_SAMPLING_END)) {
+    if ((_ext_bool_shared[0]) && ((bw_i+1) == this->conf.I_SAMPLING_END)) {
         if (restart) {
             if (_ext_int_shared[0] < (this->conf.max_fic_trials)) {
                 _ext_int_shared[0]++; // increment fic_trial

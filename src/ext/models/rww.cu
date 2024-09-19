@@ -14,7 +14,7 @@ __device__ __NOINLINE__ void rWWModel::init(
     _state_vars[5] = 0.001; // S_I
     // numerical FIC initializations
     _intermediate_vars[4] = 0.0; // mean_I_E
-    _intermediate_vars[5] = d_rWWc.init_delta; // delta
+    _intermediate_vars[5] = this->conf.init_delta; // delta
     _ext_int_shared[0] = 0; // fic_trial
     _ext_bool_shared[0] = this->conf.do_fic & (this->conf.max_fic_trials > 0); // _adjust_fic in current sim
     _ext_bool_shared[1] = false; // fic_failed
@@ -79,16 +79,16 @@ __device__ __NOINLINE__ void rWWModel::post_bw_step(
         int* _ext_int_shared, bool* _ext_bool_shared,
         bool& restart,
         u_real* _global_params, u_real* _regional_params,
-        int& ts_bold
+        int& bw_i
         ) {
     if (_ext_bool_shared[0]) {
-        if (((ts_bold+1) >= d_rWWc.I_SAMPLING_START) & ((ts_bold+1) <= d_rWWc.I_SAMPLING_END)) {
+        if (((bw_i+1) >= this->conf.I_SAMPLING_START) & ((bw_i+1) <= this->conf.I_SAMPLING_END)) {
             _intermediate_vars[4] += _state_vars[0];
         }
-        if ((ts_bold+1) == d_rWWc.I_SAMPLING_END) {
+        if ((bw_i+1) == this->conf.I_SAMPLING_END) {
             restart = false;
             __syncthreads(); // all threads must be at the same time point here given needs_fic_adjustment is shared
-            _intermediate_vars[4] /= d_rWWc.I_SAMPLING_DURATION;
+            _intermediate_vars[4] /= this->conf.I_SAMPLING_DURATION;
             _intermediate_vars[6] = _intermediate_vars[4] - d_rWWc.b_a_ratio_E;
             if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
                 restart = true;

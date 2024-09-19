@@ -147,10 +147,7 @@ void bnm(
     // memory to conn_state_var_hist according to the max_delay
     int *delay;
     u_real *conn_state_var_hist, *conn_state_var_1;
-    float sim_velocity = v_list[sim_idx];
-    if (!model->base_conf.sync_msec) {
-        sim_velocity /= 10;
-    }
+    float sim_velocity = v_list[sim_idx] * model->dt; // how much signal travels in each integration step (mm)
     int max_delay{0};
     float max_length{0.0};
     float curr_length{0.0};
@@ -164,7 +161,7 @@ void bnm(
             for (int j = 0; j < model->nodes; j++) {
                 curr_length = SC_dist[i*model->nodes+j];
                 if (i > j) {
-                    curr_delay = (int)round(curr_length/sim_velocity);
+                    curr_delay = (int)round(curr_length/sim_velocity); // how many integration steps between i and j
                     // set minimum delay to 1 because a node
                     // cannot access instantaneous states of 
                     // other nodes, as they might not have been
@@ -191,15 +188,9 @@ void bnm(
     // allocate memory for history of conn_state_var
     if (has_delay) {
         if (model->base_conf.verbose) {
-            std::string velocity_unit = "m/s";
-            std::string delay_unit = "msec";
-            if (!model->base_conf.sync_msec) {
-                velocity_unit = "m/0.1s";
-                delay_unit = "0.1msec";
-            }
-            std::cout << "Max distance " << max_length << " (mm) with a velocity of " 
-                << sim_velocity << " (" << velocity_unit << ") => Max delay: "
-                << max_delay << " (" << delay_unit << ")" << std::endl;
+            std::cout << "Max distance " << max_length << " (mm) with a minimum velocity of " 
+                << sim_velocity << " (mm/dt) => Max delay: " 
+                << max_delay << " (dt)" << std::endl;
         }
         // allocate memory to conn_state_var_hist for (nodes * max_delay)
         conn_state_var_hist = (u_real*)malloc(sizeof(u_real) * model->nodes * max_delay);
@@ -240,38 +231,38 @@ void bnm(
 
     // Integration
     bool restart = false;
-    int j{0}, k{0}, k_buff_idx{0}, int_i{0},
-        bold_i{0}, states_i{0}, ts_bold{0};
+    int j{0}, k{0}, k_buff_idx{0}, inner_i{0},
+        bw_i{0}, bold_i{0}, states_i{0};
     long noise_idx{0};
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
     /* 
     How noise shuffling works?
-    At each time point we will have `ts_bold` which is the real time (in msec) 
-    from the start of simulation, `ts_noise` which is the real time passed within 
-    each repeat of the noise segment (`curr_noise_repeat`), `sh_ts_noise` which is 
-    the shuffled timepoint (column of the noise segment) that will be used for getting 
-    the noise of nodes * 10 int_i * 2 neurons for the current msec. 
+    At each outer iteration we will have `i_bw` which is the real time (in units of bw_dt) 
+    from the start of simulation, `i_bw % noise_bw_it` which is the real 
+    time passed within  each repeat of the noise segment (`curr_noise_repeat`), 
+    `sh_ts_noise` which is the shuffled timepoint (column of the noise segment). 
     Similarly, in each thread we have `j` which is mapped to a `sh_j` which will 
     vary in each repeat.
     */
     int curr_noise_repeat{0}, sh_j{0}, sh_ts_noise{0};
     #endif
-    // outer loop for 1 msec steps
+    // outer loop (of bw iterations, default: 1 msec)
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
-    while (ts_bold < model->time_steps) {
+    while (bw_i < model->bw_it) {
         #ifdef NOISE_SEGMENT
         // get shuffled timepoint corresponding to
         // current noise repeat and the amount of time
         // past in the repeat
         sh_ts_noise = model->shuffled_ts[
-            (ts_bold % model->base_conf.noise_time_steps)
-            +(curr_noise_repeat*model->base_conf.noise_time_steps)
+            (bw_i % model->noise_bw_it)
+            +(curr_noise_repeat*model->noise_bw_it)
         ];
         #endif
-        // calculate global input every msec
-        if (model->base_conf.sync_msec) {
+        // inner loop (of model iterations, default: 0.1 msec)
+        for (inner_i=0; inner_i<model->inner_it; inner_i++) {
+            // calculate global input
             for (j=0; j<model->nodes; j++) {
                 h_global_input_func(
                     tmp_globalinput[j], k_buff_idx,
@@ -281,29 +272,13 @@ void bnm(
                     conn_state_var_hist, conn_state_var_1
                 );
             }
-        }
-        // inner loop for 0.1 msec steps
-        for (int_i = 0; int_i < 10; int_i++) {
-            // calculate global input every 0.1 msec
-            if (!model->base_conf.sync_msec) {
-                for (j=0; j<model->nodes; j++) {
-                    h_global_input_func(
-                        tmp_globalinput[j], k_buff_idx,
-                        model->nodes, j, 
-                        k, buff_idx, SC, 
-                        delay, has_delay, max_delay,
-                        conn_state_var_hist, conn_state_var_1
-                    );
-                }
-            }
             // run the model step function
             for (j=0; j<model->nodes; j++) {
                 #ifdef NOISE_SEGMENT
-                // * 10 for 0.1 msec steps, nodes * 2 and [sh_]j*2 for two E and I neurons
                 sh_j = model->shuffled_nodes[curr_noise_repeat*model->nodes+j];
-                noise_idx = (((sh_ts_noise * 10 + int_i) * model->nodes * Model::n_noise) + (sh_j * Model::n_noise));
+                noise_idx = (((sh_ts_noise * model->inner_it + inner_i) * model->nodes * Model::n_noise) + (sh_j * Model::n_noise));
                 #else
-                noise_idx = (((ts_bold * 10 + int_i) * model->nodes * Model::n_noise) + (j * Model::n_noise));
+                noise_idx = (((bw_i * model->inner_it + inner_i) * model->nodes * Model::n_noise) + (j * Model::n_noise));
                 #endif
                 model->h_step(
                     _state_vars[j], _intermediate_vars[j],
@@ -312,25 +287,6 @@ void bnm(
                 );
             }
             // update states of nodes in history every 0.1 msec
-            if (!model->base_conf.sync_msec) {
-                if (has_delay) {
-                    // save the activity of current time point in the buffer
-                    for (j=0; j<model->nodes; j++) {
-                        conn_state_var_hist[buff_idx*model->nodes+j] = _state_vars[j][Model::conn_state_var_idx];
-                    }
-                    // move buffer index 1 step back for the next time point
-                    buff_idx = (buff_idx + max_delay - 1) % max_delay;
-                } else {
-                    // save the activity of current time point in the immediate history
-                    for (j=0; j<model->nodes; j++) {
-                        conn_state_var_1[j] = _state_vars[j][Model::conn_state_var_idx];
-                    }
-                }
-            }
-        }
-
-        // update states of nodes in history every 1 msec
-        if (model->base_conf.sync_msec) {
             if (has_delay) {
                 // save the activity of current time point in the buffer
                 for (j=0; j<model->nodes; j++) {
@@ -346,9 +302,7 @@ void bnm(
             }
         }
 
-
-        // Balloon-Windkessel model equations here since its
-        // dt is 1 msec
+        // Balloon-Windkessel model equations
         for (j=0; j<model->nodes; j++) {
             h_bw_step(
                 bw_x[j], bw_f[j], bw_nu[j], bw_q[j], tmp_f,
@@ -356,7 +310,7 @@ void bnm(
             );
         }
         // Calculate and write BOLD to memory every TR
-        if ((ts_bold+1) % model->BOLD_TR == 0) {
+        if ((bw_i+1) % model->BOLD_TR_iters == 0) {
             for (j = 0; j<model->nodes; j++) {
                 BOLD_ex[(bold_i*model->nodes)+j] = bwc.V_0 * (bwc.k1 * (1 - bw_q[j]) + bwc.k2 * (1 - bw_q[j]/bw_nu[j]) + bwc.k3 * (1 - bw_nu[j]));
                 gsl_matrix_set(bold_gsl, bold_i, j, BOLD_ex[(bold_i*model->nodes)+j]);
@@ -377,7 +331,7 @@ void bnm(
 
         // Write states to memory or update their sum
         if (model->base_conf.ext_out) {
-            if ((ts_bold+1) % model->states_sampling == 0) {
+            if ((bw_i+1) % model->states_sampling_iters == 0) {
                 for (j = 0; j<model->nodes; j++) {
                     if (model->base_conf.states_ts) {
                         for (int ii=0; ii<Model::n_state_vars; ii++) {
@@ -399,10 +353,10 @@ void bnm(
         // reset noise segment time 
         // and shuffle nodes if the segment
         // has reached to the end
-        if ((ts_bold+1) % model->base_conf.noise_time_steps == 0) {
+        if ((bw_i+1) % model->noise_bw_it == 0) {
             // at the last time point don't do this
             // to avoid going over the extent of shuffled_nodes
-            if (ts_bold+1 < model->time_steps) {
+            if (bw_i+1 < model->bw_it) {
                 curr_noise_repeat++;
             }
         }
@@ -415,14 +369,14 @@ void bnm(
                 _ext_int_shared, _ext_bool_shared,
                 restart,
                 _global_params, _regional_params,
-                ts_bold
+                bw_i
             );
         }
 
         // move forward outer bw loop
         // this has to be before restart
-        // because restart will reset ts_bold to 0
-        ts_bold++;
+        // because restart will reset bw_i to 0
+        bw_i++;
         
         // if restart is indicated (e.g. FIC failed in rWW)
         // reset the simulation and start from the beginning
@@ -465,7 +419,7 @@ void bnm(
             // reset indices
             bold_i = 0;
             states_i = 0;
-            ts_bold = 0;
+            bw_i = 0;
             // reset delay buffer index
             buff_idx = max_delay-1;
             #ifdef NOISE_SEGMENT
@@ -618,6 +572,10 @@ void _run_simulations_cpu(
 
 template <typename Model>
 void _init_cpu(BaseModel *m, bool force_reinit) {
+    // set up constants (based on dt and bw dt)
+    Model::init_constants(m->dt);
+    init_bw_constants(&bwc, m->bw_dt);
+
     // set up global int and bool outputs
     if (Model::n_global_out_int > 0) {
         m->global_out_int = (int**)malloc(Model::n_global_out_int * sizeof(int*));
@@ -683,13 +641,14 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         #ifndef NOISE_SEGMENT
         // precalculate the entire noise needed; can use up a lot of memory
         // with high N of nodes and longer durations leads maxes out the memory
-        m->noise_size = m->nodes * m->time_steps * 10 * Model::n_noise; // *10 for 0.1msec
+        m->noise_size = m->nodes * m->bw_it * m->inner_it * Model::n_noise; // *10 for 0.1msec
         #else
         // otherwise precalculate a noise segment and arrays of shuffled
         // nodes and time points and reuse-shuffle the noise segment
         // throughout the simulation for `noise_repeats`
-        m->noise_size = m->nodes * (m->base_conf.noise_time_steps) * 10 * Model::n_noise;
-        m->noise_repeats = ceil((float)(m->time_steps) / (float)(m->base_conf.noise_time_steps));
+        m->noise_bw_it = ((m->base_conf.noise_time_steps / 1000)/ m->bw_dt);
+        m->noise_size = m->nodes * m->noise_bw_it * m->inner_it * Model::n_noise;
+        m->noise_repeats = ceil((float)(m->bw_it) / (float)(m->noise_bw_it));
         #endif
         if (m->base_conf.verbose) {
             std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;
@@ -726,7 +685,7 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         m->shuffled_nodes = (int*)malloc(m->noise_repeats * m->nodes * sizeof(int));
         m->shuffled_ts = (int*)malloc(m->noise_repeats * m->base_conf.noise_time_steps * sizeof(int));
         get_shuffled_nodes_ts(&(m->shuffled_nodes), &(m->shuffled_ts),
-            m->nodes, m->base_conf.noise_time_steps, m->noise_repeats, &rand_gen);
+            m->nodes, m->noise_bw_it, m->noise_repeats, &rand_gen);
         #endif
     } else {
         if (m->base_conf.verbose) {

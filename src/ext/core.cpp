@@ -146,12 +146,8 @@ static PyObject* init(PyObject* self, PyObject* args) {
     // this function is called only once at the beginning of the session
     // (i.e. when core is imported)
 
-    // initialize constants and configurations
-    // with default values
+    // initialize ballon-windkessel model constants
     init_bw_constants(&bwc);
-    rWWModel::init_constants();
-    rWWExModel::init_constants();
-    KuramotoModel::init_constants();
 
     Py_RETURN_NONE;
 }
@@ -200,8 +196,9 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyObject* config_dict;
     bool ext_out, states_ts, noise_out, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, window_size, window_step, rand_seed;
+    double dt, bw_dt;
 
-    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiiii", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiiiidd", 
             &model_name,
             &PyArray_Type, &py_SC,
             &PyArray_Type, &py_SC_indices,
@@ -223,7 +220,9 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             &states_sampling,
             &window_size,
             &window_step,
-            &rand_seed
+            &rand_seed,
+            &dt,
+            &bw_dt
             )) {
         std::cerr << "Error parsing arguments" << std::endl;
         Py_RETURN_NONE;
@@ -270,19 +269,22 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         if (strcmp(model_name, "rWW")==0) {
             model = new rWWModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, window_size, window_step, rand_seed
+                time_steps, do_delay, window_size, window_step, rand_seed,
+                dt, bw_dt
             );
         } 
         else if (strcmp(model_name, "rWWEx")==0) {
             model = new rWWExModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, window_size, window_step, rand_seed
+                time_steps, do_delay, window_size, window_step, rand_seed,
+                dt, bw_dt
             );
         } 
         else if (strcmp(model_name, "Kuramoto")==0) {
             model = new KuramotoModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, window_size, window_step, rand_seed
+                time_steps, do_delay, window_size, window_step, rand_seed,
+                dt, bw_dt
             );
         }
         else {
@@ -293,7 +295,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         // update model properties based on user data
         model->update(
             nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-            time_steps, do_delay, window_size, window_step, rand_seed
+            time_steps, do_delay, window_size, window_step, rand_seed,
+            dt, bw_dt
         );
         // reset base_conf to defaults
         model->base_conf = BaseModel::Config();
@@ -474,7 +477,7 @@ static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(model_name, SC, SC_indices, SC_dist, global_params, regional_params, \n"
         "v_list, model_config, ext_out, states_ts, noise_out, do_delay, force_reinit, \n"
-        "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed)\n\n"
+        "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, dt, bw_dt)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
         "-----------\n"
@@ -533,6 +536,10 @@ static PyMethodDef methods[] = {
             "\tdynamic FC window step (number of TRs)\n"
         "rand_seed (int)\n"
             "\tseed for random number generator\n\n"
+        "dt (float)\n"
+            "\tintegration time step (msec)\n"
+        "bw_dt (float)\n"
+            "\tintegration time step for the BOLD model (msec)\n\n"
         "Returns:\n"
         "--------\n"
         "sim_bold (np.ndarray) (N_SIMS, TRs*nodes)\n"

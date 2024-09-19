@@ -6,6 +6,7 @@ import scipy.stats
 import pandas as pd
 import os
 import gc
+from decimal import Decimal
 
 from cubnm._core import run_simulations, set_const
 from cubnm._setup_opts import (
@@ -24,6 +25,8 @@ class SimGroup:
         sc,
         sc_dist=None,
         out_dir=None,
+        dt='0.1',
+        bw_dt='1.0',
         ext_out=True,
         states_ts=False,
         states_sampling=None,
@@ -71,6 +74,10 @@ class SimGroup:
             - 'same': will create a directory named based on sc
                 (only should be used when sc is a path and not a numpy array)
             - None: will not have an output directory (and cannot save outputs)
+        dt: :obj:`decimal.Decimal` or :obj:`str`, optional
+            model integration time step (in msec)
+        bw_dt: :obj:`decimal.Decimal` or :obj:`str`, optional
+            Ballon-Windkessel integration time step (in msec)
         ext_out: :obj:`bool`, optional
             return model state variables to self.sim_states
         states_ts: :obj:`bool`, optional
@@ -172,6 +179,8 @@ class SimGroup:
             self.sc = np.loadtxt(self.input_sc)
         else:
             self.sc = self.input_sc
+        self._dt = Decimal(dt)
+        self._bw_dt = Decimal(bw_dt)
         self.ext_out = ext_out
         self.states_ts = self.ext_out & states_ts
         if states_sampling is None:
@@ -198,6 +207,8 @@ class SimGroup:
         self.duration_msec = int(duration * 1000)  # in msec
         self.TR_msec = int(TR * 1000)
         self.states_sampling_msec = int(self.states_sampling * 1000)
+        # ensure bw_dt > dt and divisible by dt + duration is divisible by bw_dt
+        self._check_dt()
         # warn user if serial is set to True
         # + revert unsupported options to default
         if self.serial_nodes and not self.force_cpu:
@@ -246,19 +257,12 @@ class SimGroup:
         if self.input_sc_dist is None:
             self.sc_dist = np.zeros_like(self.sc, dtype=float)
             self.do_delay = False
-            self.sync_msec = False
         else:
             if isinstance(self.input_sc_dist, (str, os.PathLike)):
                 self.sc_dist = np.loadtxt(self.input_sc_dist)
             else:
                 self.sc_dist = self.input_sc_dist
             self.do_delay = True
-            print(
-                "Delay is enabled...will sync nodes every 1 msec\n"
-                "to do syncing every 0.1 msec set self.sync_msec to False\n"
-                "but note that this will increase the simulation time\n"
-            )
-            self.sync_msec = True
         # set Ballon-Windkessel parameters
         self.bw_params = bw_params
         # initialze w_IE_list as all 0s if do_fic
@@ -291,6 +295,24 @@ class SimGroup:
             self.param_lists["v"] = np.zeros(self._N, dtype=float)
 
     @property
+    def dt(self):
+        return self._dt
+    
+    @dt.setter
+    def dt(self, dt):
+        self._dt = Decimal(dt)
+        self._check_dt()
+
+    @property
+    def bw_dt(self):
+        return self._bw_dt
+    
+    @bw_dt.setter
+    def bw_dt(self, bw_dt):
+        self._bw_dt = Decimal(bw_dt)
+        self._check_dt()
+
+    @property
     def bw_params(self):
         return self._bw_params
 
@@ -309,13 +331,26 @@ class SimGroup:
     @do_delay.setter
     def do_delay(self, do_delay):
         self._do_delay = do_delay
-        self.sync_msec = self._do_delay
-        if self._do_delay:
+        if self.do_delay and (self.dt < 1.0):
             print(
-                "Delay is enabled...will sync nodes every 1 msec\n"
-                "to do syncing every 0.1 msec set self.sync_msec to False\n"
-                "but note that this will increase the simulation time\n"
+                "Warning: When using delay in the simulations"
+                " it is recommended to set the model dt to >="
+                " 1.0 msec for better performance."
             )
+
+    def _check_dt(self):
+        """
+        Check if integrations steps are valid
+        """
+        assert self.bw_dt >= self.dt, (
+            "Ballon-Windkessel dt must be greater than or equal to model dt"
+        )
+        assert (self.bw_dt % self.dt) == Decimal(0), (
+            "Ballon-Windkessel dt must be divisible by model dt"
+        )
+        assert (self.duration_msec % self.bw_dt) == Decimal(0), (
+            "Duration must be divisible by Ballon-Windkessel dt"
+        )
 
     def _set_default_params(self):
         """
@@ -378,7 +413,6 @@ class SimGroup:
         """
         model_config = {
             'exc_interhemispheric': str(int(self.exc_interhemispheric)),
-            'sync_msec': str(int(self.sync_msec)),
             'bold_remove_s': str(self.bold_remove_s),
             'drop_edges': str(int(self.fcd_drop_edges)),
             'noise_time_steps': str(int(self.noise_segment_length*1000)), 
@@ -467,6 +501,8 @@ class SimGroup:
             self.window_size,
             self.window_step,
             self.rand_seed,
+            float(self.dt),
+            float(self.bw_dt),
         )
         # avoid reinitializing GPU in the next runs
         # of the same group
@@ -739,13 +775,16 @@ class SimGroup:
         do_delay = bool(opts.pop('do_delay'))
         if do_delay:
             sc_dist = datasets.load_sc('length', 'schaefer-100')
+            dt = '1.0'
         else:
             sc_dist = None
+            dt = '0.1'
         sim_group = cls(
             duration=60,
             TR=1,
             sc=datasets.load_sc('strength', 'schaefer-100'),
             sc_dist=sc_dist,
+            dt = dt,
             sim_verbose=False,
             **opts
         )
@@ -762,6 +801,9 @@ class rWWSimGroup(SimGroup):
                  do_fic = True,
                  max_fic_trials = 5,
                  fic_penalty = True,
+                 fic_i_sampling_start = 1000,
+                 fic_i_sampling_end = 10000,
+                 fic_init_delta = 0.02,
                  **kwargs):
         """
         Group of reduced Wong-Wang simulations (Deco 2014) 
@@ -776,6 +818,11 @@ class rWWSimGroup(SimGroup):
             maximum number of trials for FIC numerical adjustment
         fic_penalty: :obj:`bool`, optional
             penalize deviation from FIC target mean rE of 3 Hz
+        fic_i_sampling_start: :obj:`int`, optional
+            starting time of numerical FIC I_E sampling (msec)
+        fic_i_sampling_end: :obj:`int`, optional
+            end time of numerical FIC I_E sampling (msec)
+        fic_init_delta: :obj:`float`, optional
         *args, **kwargs:
             see :class:`cubnm.sim.SimGroup` for details
 
@@ -813,6 +860,9 @@ class rWWSimGroup(SimGroup):
         self.do_fic = do_fic
         self.max_fic_trials = max_fic_trials
         self.fic_penalty = fic_penalty
+        self.fic_i_sampling_start = fic_i_sampling_start
+        self.fic_i_sampling_end = fic_i_sampling_end
+        self.fic_init_delta = fic_init_delta
         # parent init must be called here because
         # it sets .last_config which may include some
         # model-specific attributes (e.g. self.do_fic)
@@ -835,7 +885,12 @@ class rWWSimGroup(SimGroup):
         config = super().get_config(*args, **kwargs)
         config.update(
             do_fic=self.do_fic, 
-            max_fic_trials=self.max_fic_trials)
+            max_fic_trials=self.max_fic_trials,
+            fic_penalty=self.fic_penalty,
+            fic_i_sampling_start=self.fic_i_sampling_start,
+            fic_i_sampling_end=self.fic_i_sampling_end,
+            fic_init_delta=self.fic_init_delta,
+        )
         return config
     
     @property
@@ -847,6 +902,9 @@ class rWWSimGroup(SimGroup):
         model_config.update({
             'do_fic': str(int(self.do_fic)),
             'max_fic_trials': str(self.max_fic_trials),
+            'I_SAMPLING_START': str(self.fic_i_sampling_start),
+            'I_SAMPLING_END': str(self.fic_i_sampling_end),
+            'init_delta': str(self.fic_init_delta),
         })
         return model_config
     

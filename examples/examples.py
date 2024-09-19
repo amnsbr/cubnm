@@ -1,16 +1,8 @@
 import numpy as np
-import cubnm
-from cubnm._core import run_simulations, set_const
+from cubnm._core import run_simulations
 from cubnm import optimize, sim, utils, datasets
-from cubnm._setup_opts import many_nodes_flag, gpu_enabled_flag
-
-import os
-from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
-from pymoo.optimize import minimize
-from pymoo.termination.default import DefaultSingleObjectiveTermination
-from pymoo.core.termination import Termination
-from pymoo.termination import get_termination
-import cma
+from cubnm._setup_opts import gpu_enabled_flag
+from decimal import Decimal
 
 def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False, serial=False):
     # run identical simulations and check if BOLD is the same
@@ -25,6 +17,8 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
     states_ts = True
     states_sampling = BOLD_TR
     noise_out = True
+    dt = Decimal('0.1')
+    bw_dt = Decimal('1.0')
 
     np.random.seed(0)
 
@@ -74,7 +68,7 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         model_config,
         ext_out, states_ts, noise_out, do_delay, force_reinit, force_cpu,
         N_SIMS, nodes, time_steps, BOLD_TR, states_sampling,
-        window_size, window_step, rand_seed
+        window_size, window_step, rand_seed, float(dt), float(bw_dt)
     )
     init_time, run_time, sim_bolds , sim_fc_trils, sim_fcd_trils = out[:5]
 

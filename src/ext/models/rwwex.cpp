@@ -2,8 +2,8 @@
 
 rWWExModel::Constants rWWExModel::mc;
 
-void rWWExModel::init_constants() {
-    mc.dt = 0.1; // Time-step of synaptic activity model (msec)
+void rWWExModel::init_constants(u_real dt) {
+    mc.dt = dt; // Time-step of synaptic activity model (msec)
     mc.sqrt_dt = SQRT(mc.dt); 
     mc.J_N  = 0.2609; // (nA)
     mc.a = 270; // (n/C)

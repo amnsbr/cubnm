@@ -2,8 +2,8 @@
 
 KuramotoModel::Constants KuramotoModel::mc;
 
-void KuramotoModel::init_constants() {
-    mc.dt = 0.1; // Time-step (msec)
+void KuramotoModel::init_constants(u_real dt) {
+    mc.dt = dt; // Time-step (msec)
     mc.sqrt_dt = SQRT(mc.dt); 
     mc.twopi = 2 * PI;
 }

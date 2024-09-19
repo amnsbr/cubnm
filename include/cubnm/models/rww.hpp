@@ -51,15 +51,15 @@ public:
         double I_E_ss;
         double S_I_ss;
         double S_E_ss;
-        unsigned int I_SAMPLING_START;
-        unsigned int I_SAMPLING_END;
-        unsigned int I_SAMPLING_DURATION;
-        u_real init_delta;
     };
     struct Config {
         bool do_fic{true};
         int max_fic_trials{5};
         bool fic_verbose{false};
+        unsigned int I_SAMPLING_START{1000};
+        unsigned int I_SAMPLING_END{10000};
+        unsigned int I_SAMPLING_DURATION{I_SAMPLING_END - I_SAMPLING_START + 1};
+        u_real init_delta{0.02};
     };
 
     // second, use the boilerplate macro to include
