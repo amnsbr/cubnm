@@ -34,11 +34,11 @@ class SimGroup:
         window_size=10,
         window_step=2,
         rand_seed=410,
-        exc_interhemispheric=True,
+        exc_interhemispheric=False,
         force_cpu=False,
         force_gpu=False,
         serial_nodes=False,
-        gof_terms=["+fc_corr", "-fc_diff", "-fcd_ks"],
+        gof_terms=["+fc_corr", "-fcd_ks"],
         bw_params="friston2003",
         bold_remove_s=30,
         fcd_drop_edges=True,
@@ -799,7 +799,7 @@ class rWWSimGroup(SimGroup):
     def __init__(self, 
                  *args, 
                  do_fic = True,
-                 max_fic_trials = 5,
+                 max_fic_trials = 0,
                  fic_penalty = True,
                  fic_i_sampling_start = 1000,
                  fic_i_sampling_end = 10000,
@@ -812,10 +812,12 @@ class rWWSimGroup(SimGroup):
         Parameters
         ---------
         do_fic: :obj:`bool`, optional
-            do analytical-numerical Feedback Inhibition Control
-            if provided wIE parameters will be ignored
+            do analytical (Demirtas 2019) & numerical (Deco 2014) 
+            Feedback Inhibition Control.
+            If provided wIE parameters will be ignored
         max_fic_trials: :obj:`int`, optional
-            maximum number of trials for FIC numerical adjustment
+            maximum number of trials for FIC numerical adjustment.
+            If set to 0, FIC will be done only analytically
         fic_penalty: :obj:`bool`, optional
             penalize deviation from FIC target mean rE of 3 Hz
         fic_i_sampling_start: :obj:`int`, optional
@@ -868,7 +870,7 @@ class rWWSimGroup(SimGroup):
         # model-specific attributes (e.g. self.do_fic)
         super().__init__(*args, **kwargs)
         self.ext_out = self.ext_out | self.do_fic
-        if self.serial_nodes:
+        if self.serial_nodes and (self.max_fic_trials > 0):
             print(
                 "Numerical FIC is not supported in serial_nodes mode. "
                 "Setting max_fic_trials to 0."

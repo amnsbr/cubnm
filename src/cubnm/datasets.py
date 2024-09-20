@@ -43,7 +43,7 @@ def load_sc(what, parc, return_path=False):
     return mat
 
 
-def load_functional(what, parc, exc_interhemispheric=True, return_path=False):
+def load_functional(what, parc, exc_interhemispheric=False, return_path=False):
     """
     Load example lower triangle of FC/FCD
 
