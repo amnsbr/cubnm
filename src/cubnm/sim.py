@@ -1060,7 +1060,7 @@ class rWWSimGroup(SimGroup):
                 "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
             )
         if problem.multiobj:
-            if self.sim_group.do_fic & self.sim_group.fic_penalty:
+            if self.do_fic & self.fic_penalty:
                 problem.obj_names.append("+fic_penalty")
                 problem.n_obj += 1
 

@@ -308,12 +308,14 @@ class BNMProblem(Problem):
                     self.obj_names.append(term.replace("+", "-"))
         else:
             self.obj_names = ["cost"]
-        n_obj = len(self.obj_names)
+        self.n_obj = len(self.obj_names)
+        # model-specific initialization of problem
+        # (e.g. including FIC penalty in rWW cost function)
         self.sim_group._problem_init(self)
         # initialize pymoo Problem
         super().__init__(
             n_var=self.ndim,
-            n_obj=n_obj,
+            n_obj=self.n_obj,
             n_ieq_constr=0,  # TODO: consider using this for enforcing FIC success
             xl=np.zeros(self.ndim, dtype=float),
             xu=np.ones(self.ndim, dtype=float),
@@ -599,8 +601,15 @@ class Optimizer(ABC):
         ## but change its out_dir, N and parameters to the optimum
         self.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
         os.makedirs(self.problem.sim_group.out_dir, exist_ok=True)
-        res = self.algorithm.result()
-        X = np.atleast_2d(res.X)
+        if type(self).__name__ == "BayesOptimizer":
+            # TODO: ideally implement this part as a separate method
+            # and handle differences of PymooOptimizer and BayesOptimizer
+            # more properly
+            res = self.algorithm.get_result()
+            X = np.atleast_2d(res.x)
+        else:
+            res = self.algorithm.result()
+            X = np.atleast_2d(res.X)
         Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
         opt_scores = self.problem.eval(X)
         pd.concat([Xt, opt_scores], axis=1).to_csv(
@@ -664,6 +673,8 @@ class PymooOptimizer(Optimizer):
             self.termination = get_termination("n_iter", self.n_iter)
         self.print_history = print_history
         self.save_history_sim = save_history_sim
+        # TODO: some of these options are valid for other
+        # non-pymoo optimizers as well, move them to the base class
 
     def setup_problem(self, problem, pymoo_verbose=False, **kwargs):
         """
@@ -745,6 +756,7 @@ class PymooOptimizer(Optimizer):
 
 
 class CMAESOptimizer(PymooOptimizer):
+    max_obj = 1
     def __init__(
         self,
         popsize,
@@ -801,7 +813,6 @@ class CMAESOptimizer(PymooOptimizer):
             cmaes.save()
         """
         super().__init__(**kwargs)
-        self.max_obj = 1
         self.use_bound_penalty = (
             use_bound_penalty  # this option will be set after problem is set up
         )
@@ -836,6 +847,7 @@ class CMAESOptimizer(PymooOptimizer):
 
 
 class NSGA2Optimizer(PymooOptimizer):
+    max_obj = 3
     def __init__(self, popsize, algorithm_kws={}, **kwargs):
         """
         Non-dominated Sorting Genetic Algorithm II (NSGA-II) optimizer
@@ -850,12 +862,12 @@ class NSGA2Optimizer(PymooOptimizer):
             Additional keyword arguments for the base class
         """
         super().__init__(**kwargs)
-        self.max_obj = 3
         self.popsize = popsize
         self.algorithm = NSGA2(pop_size=popsize, **algorithm_kws)
 
 
 class BayesOptimizer(Optimizer):
+    max_obj = 1
     def __init__(self, popsize, n_iter, seed=0):
         """
         Bayesian optimizer
@@ -873,12 +885,10 @@ class BayesOptimizer(Optimizer):
         # the number of dimensions are not known yet
         # TODO: consider defining Problem before optimizer
         # and then passing it on to the optimizer
-        self.max_obj = 1
         self.popsize = popsize
         self.n_iter = n_iter
         self.seed = seed
         self.save_history_sim=False # currently saving history of simulations is not implemented
-
 
     def setup_problem(self, problem, **kwargs):
         """
@@ -914,17 +924,26 @@ class BayesOptimizer(Optimizer):
             X = np.array(self.algorithm.ask(n_points=self.popsize))
             # evaluate them
             out = {}
-            self.problem._evaluate(X, out)
+            # pass an empty scores list to the evaluator to store the individual GOF measures
+            scores = []
+            self.problem._evaluate(X, out, scores=scores)
+            if not self.save_history_sim:
+                # clear current simulation data
+                # it has to be here before .tell
+                self.problem.sim_group.clear()
             # tell the results to the optimizer
             self.algorithm.tell(X.tolist(), out["F"].tolist())
-            # print results
+            # convert results to dataframe
+            ## parameters
             res = pd.DataFrame(
                 self.problem._get_Xt(X), columns=self.problem.free_params
             )
             res.index.name = "sim_idx"
+            ## cost function
             res["F"] = out["F"]
-            print(res)
-            res["gen"] = it + 1
+            ## GOF measures
+            res = pd.concat([res, scores[0]], axis=1)
+            print(res.to_string())
             self.history.append(res)
             self.opt_history.append(res.loc[res["F"].argmin()])
         self.history = pd.concat(self.history, axis=0).reset_index(drop=False)

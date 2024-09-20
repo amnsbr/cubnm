@@ -297,8 +297,8 @@ def run_bayes_optimizer():
         TR = 1,
         sc = datasets.load_sc('strength', 'schaefer-100'),
     )
-    bo = optimize.BayesOptimizer(popsize=10, n_iter=7)
-    bo.setup_problem(problem, seed=1)
+    bo = optimize.BayesOptimizer(popsize=10, n_iter=2, seed=0)
+    bo.setup_problem(problem)
     bo.optimize()
     return bo
 
