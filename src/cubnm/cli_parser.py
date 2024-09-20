@@ -112,13 +112,13 @@ def add_shared_arguments(parser):
                         help='FCD window size')
     parser.add_argument('--window_step', type=int, default=2, 
                         help='FCD window step')
-    parser.add_argument('--inc_interhemispheric', action='store_true', 
-                        help='Include interhemispheric connections in cost')
+    parser.add_argument('--exc_interhemispheric', action='store_true', 
+                        help='Exclude interhemispheric connections in FC/FCD calculations')
     parser.add_argument('--fcd_keep_edges', action='store_true', 
                         help='Keep edge windows from FCD calculations')
     parser.add_argument('--gof_terms',
                         type=lambda s: s.split(','),
-                        default=["+fc_corr","-fc_diff","-fcd_ks"],
+                        default=["+fc_corr","-fcd_ks"],
                         help='Goodness of fit terms (comma separated in quotation marks)'
                             ' e.g. "+fc_corr,-fcd_ks".'
                        )

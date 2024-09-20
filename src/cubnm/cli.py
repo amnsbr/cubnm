@@ -34,8 +34,7 @@ def main():
     # additional refinement of arguments
     args.fcd_drop_edges = not args.fcd_keep_edges
     args.ext_out = not args.no_ext_out
-    args.exc_interhemispheric = not args.inc_interhemispheric
-    del args.fcd_keep_edges, args.no_ext_out, args.inc_interhemispheric
+    del args.fcd_keep_edges, args.no_ext_out
 
     # use example input data if requested
     if args.sc == 'example':
