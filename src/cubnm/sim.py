@@ -649,6 +649,35 @@ class SimGroup:
                 delattr(self, attr)
         gc.collect()
 
+    def _problem_init(self, problem):
+        """
+        Extends BNMProblem initialization if needed.
+        By default it doesn't do anything.
+
+        Parameters
+        ----------
+        problem: :obj:`cubnm.optimize.BNMProblem`
+            optimization problem object
+        """
+        pass
+
+    def _problem_evaluate(self, problem, X, out, *args, **kwargs):
+        """
+        Extends BNMProblem evaluation if needed.
+        By default it doesn't do anything.
+
+        Parameters
+        ----------
+        X : :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        out : :obj:`dict`
+            the output dictionary to store the results with keys 'F' and 'G'.
+            Currently only 'F' (cost) is used.
+        *args, **kwargs
+        """
+        pass
+
     def score(self, emp_fc_tril, emp_fcd_tril):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
@@ -731,6 +760,7 @@ class SimGroup:
             np.savez_compressed(os.path.join(sims_dir, f"it{self.it}.npz"), **out_data)
         elif save_as == "txt":
             raise NotImplementedError
+
     @classmethod
     def _get_test_configs(cls, cpu_gpu_identity=False):
         """
@@ -756,6 +786,7 @@ class SimGroup:
             configs['force_cpu'] = [0, 1]
         configs['do_delay'] = [0, 1]
         return configs
+
     @classmethod
     def _get_test_instance(cls, opts):
         """
@@ -1013,6 +1044,52 @@ class rWWSimGroup(SimGroup):
             if hasattr(self, attr):
                 delattr(self, attr)
         gc.collect()
+
+    def _problem_init(self, problem):
+        """
+        Extends BNMProblem initialization and includes FIC penalty
+        if indicated.
+
+        Parameters
+        ----------
+        problem: :obj:`cubnm.optimize.BNMProblem`
+            optimization problem object
+        """
+        if (self.do_fic) & ("wIE" in problem.het_params):
+            raise ValueError(
+                "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
+            )
+        if problem.multiobj:
+            if self.sim_group.do_fic & self.sim_group.fic_penalty:
+                problem.obj_names.append("+fic_penalty")
+                problem.n_obj += 1
+
+    def _problem_evaluate(self, problem, X, out, *args, **kwargs):
+        """
+        Extends BNMProblem evaluation and includes FIC penalty
+        in the cost function if indicated.
+
+        Parameters
+        ----------
+        X : :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        out : :obj:`dict`
+            the output dictionary to store the results with keys 'F' and 'G'.
+            Currently only 'F' (cost) is used.
+        *args, **kwargs
+        """
+        # Note: scores (inidividual GOF measures) is passed on in kwargs 
+        # in the internal mechanism of pymoo evaluation function
+        scores = kwargs["scores"][-1]
+        if self.do_fic & self.fic_penalty:
+            if problem.multiobj:
+                out["F"] = np.concatenate(
+                    [out["F"], -scores.loc[:, ["-fic_penalty"]].values], axis=1
+                )
+            else:
+                out["F"] -= scores.loc[:, "-fic_penalty"].values
+                
 
     @classmethod
     def _get_test_configs(cls, cpu_gpu_identity=False):

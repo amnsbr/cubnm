@@ -189,11 +189,7 @@ class BNMProblem(Problem):
         # initialize sim_group (N not known yet)
         sim_group_cls = getattr(sim, f"{self.model}SimGroup")
         self.sim_group = sim_group_cls(**kwargs)
-        # raise errors if opts are impossible
-        if (self.model == 'rWW') & (self.sim_group.do_fic) & ("wIE" in self.het_params):
-            raise ValueError(
-                "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
-            )
+        # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")
         # identify free and fixed parameters
@@ -310,12 +306,10 @@ class BNMProblem(Problem):
                     self.obj_names.append(term.replace("-", "+"))
                 elif term.startswith("+"):
                     self.obj_names.append(term.replace("+", "-"))
-            if (self.model == 'rWW') & self.sim_group.do_fic & self.sim_group.fic_penalty:
-                # TODO: consider creating separate problem classes for each model
-                self.obj_names.append("+fic_penalty")
         else:
             self.obj_names = ["cost"]
         n_obj = len(self.obj_names)
+        self.sim_group._problem_init(self)
         # initialize pymoo Problem
         super().__init__(
             n_var=self.ndim,
@@ -468,23 +462,29 @@ class BNMProblem(Problem):
                 self.sim_group.param_lists[param] = curr_param_maps
 
     def _evaluate(self, X, out, *args, **kwargs):
+        """
+        Ovewrites the :meth:`pymoo.core.problem.Problem._evaluate` method
+        to evaluate the goodness of fit of the simulations based on parameters
+        `X` and store the results in `out`.
+
+        Parameters
+        ----------
+        X : :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        out : :obj:`dict`
+            the output dictionary to store the results with keys 'F' and 'G'.
+            Currently only 'F' (cost) is used.
+        *args, **kwargs
+        """
         scores = self.eval(X)
-        if "scores" in kwargs:
-            kwargs["scores"].append(scores)
+        kwargs["scores"].append(scores)
         if self.multiobj:
             out["F"] = -scores.loc[:, self.sim_group.gof_terms].values
-            if (self.model == 'rWW') & self.sim_group.do_fic & self.sim_group.fic_penalty:
-                out["F"] = np.concatenate(
-                    [out["F"], -scores.loc[:, ["-fic_penalty"]].values], axis=1
-                )
         else:
-            if (self.model == 'rWW') & self.sim_group.do_fic & self.sim_group.fic_penalty:
-                out["F"] = (
-                    -scores.loc[:, "-fic_penalty"] - scores.loc[:, "+gof"]
-                ).values
-            else:
-                out["F"] = -scores.loc[:, "+gof"].values
-            # out["G"] = ... # TODO: consider using this for enforcing FIC success
+            out["F"] = -scores.loc[:, "+gof"].values
+        # extend cost function by model-specific costs (e.g. FIC penalty in rWW)
+        self.sim_group._problem_evaluate(self, X, out, *args, **kwargs)
 
     def eval(self, X):
         """
