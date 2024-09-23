@@ -2,6 +2,9 @@
     :align: center
     :width: 350px
 
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.12097797.svg
+  :target: https://zenodo.org/doi/10.5281/zenodo.12097797
+
 .. image:: https://img.shields.io/pypi/v/cubnm
   :target: https://pypi.org/project/cubnm/
 
