@@ -242,16 +242,15 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         (int*)PyArray_DATA(py_SC_indices) + PyArray_SIZE(py_SC_indices)
     ) + 1;
 
-    if ((nodes > MAX_NODES) && (N_SIMS > 1)) {
-        std::cerr << "When running multiple simulations " << 
-            "number of nodes must be less than " << MAX_NODES 
-            << std::endl;
-        #ifndef MANY_NODES    
-        std::cerr << "To use more nodes, reinstall the package after" 
+    #ifndef MANY_NODES
+    if ((nodes > MAX_NODES)) {
+        std::cerr << "Number of nodes must be less than " 
+            << MAX_NODES << std::endl <<
+            "To use more nodes, reinstall the package after" 
             << " `export CUBNM_MANY_NODES=1`" << std::endl;
-        #endif
         Py_RETURN_NONE;
     }
+    #endif
 
     // initialize the model object if needed
     if (

@@ -292,13 +292,6 @@ class SimGroup:
     @N.setter
     def N(self, N):
         self._N = N
-        if (self.nodes > max_nodes_many) and (not self.use_cpu) and (not self.serial_nodes):
-            raise NotImplementedError(
-                "The toolbox cannot run multiple simulations"
-                f" with more than {max_nodes_many} nodes on GPU."
-                " It can only run one simulation at a time with"
-                " large number of nodes."
-            )
         if not self.do_delay:
             self.param_lists["v"] = np.zeros(self._N, dtype=float)
 

@@ -923,19 +923,18 @@ void _run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaDeviceSetLimit(cudaLimitMallocHeapSize, heapSize));
 
     d_model->co_launch = false;
-    int dev = 0;
     int supportsCoopLaunch = 0;
     if (d_model->nodes > MAX_NODES_MANY) {
-        if (d_model->N_SIMS > 1) {
-            std::cerr << "Cooperative launch is not supported for multiple simulations with more than " << MAX_NODES_MANY << " nodes." << std::endl;
-            exit(1);
-        }
-        cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
+        CUDA_CHECK_RETURN(cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, 0));
         if (supportsCoopLaunch) {
-            std::cout << "Using cooperative launch." << std::endl;
+            if (d_model->base_conf.verbose) {
+                std::cout << "Using cooperative launch." << std::endl;
+            }
             d_model->co_launch = true;
         } else {
-            std::cerr << "Cooperative launch is not supported on this device." << std::endl;
+            std::cerr << "Cooperative launch for running simulation "
+                "of many nodes is not supported on this device." 
+                << std::endl;
             exit(1);
         }
     }
