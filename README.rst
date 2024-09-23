@@ -43,6 +43,15 @@ provided optimization algorithms. Regional parameters can be homogeneous or vary
 across nodes based on a parameterized combination of fixed maps or independent 
 free parameters for each node or group of nodes.
 
+GPU parallelization enables massive scaling of the simulations into higher number of
+simulations and nodes. Below you can see how computing time varies
+as a funciton of number of simulations and nodes on GPUs versus CPUs. For example,
+running 2^17 simulations (duration: 60s, nodes: 100) would take 15 days on a single
+CPU core, but only 19 minutes on an A100 GPU:
+
+.. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/scaling.png
+    :alt: Scaling plots
+
 GPU usage is the primary focus of the toolbox but it also supports running the
 simulations on single or multiple cores of CPU. CPUs will be used if no GPUs are
 detected or if requested by the user.
