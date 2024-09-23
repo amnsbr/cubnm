@@ -241,16 +241,17 @@ class SimGroup:
         self.use_cpu = (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
         max_nodes = max_nodes_many if many_nodes_flag else max_nodes_reg
         if (self.nodes > max_nodes) and (not self.use_cpu) and (not self.serial_nodes):
-            if many_nodes_flag:
-                raise NotImplementedError(
-                    "The toolbox cannot run simulations"
-                    f" with more than {max_nodes_many} nodes on GPU."
-                )
-            else:
+            if not many_nodes_flag:
                 raise NotImplementedError(
                     f"With {self.nodes} nodes in the current installation of the toolbox"
                     " simulations will fail. Please reinstall the package from source after"
                     " `export CUBNM_MANY_NODES=1`")
+            if self.dt < 1.0:
+                print(
+                    "Warning: When runnig simulations with large number"
+                    " of nodes it is recommended to set the model dt to"
+                    " >=1.0 msec for better performance."
+                )
         # inter-regional delay will be added to the simulations
         # if SC distance matrix is provided
         self.input_sc_dist = sc_dist
@@ -291,6 +292,13 @@ class SimGroup:
     @N.setter
     def N(self, N):
         self._N = N
+        if (self.nodes > max_nodes_many) and (not self.use_cpu) and (not self.serial_nodes):
+            raise NotImplementedError(
+                "The toolbox cannot run multiple simulations"
+                f" with more than {max_nodes_many} nodes on GPU."
+                " It can only run one simulation at a time with"
+                " large number of nodes."
+            )
         if not self.do_delay:
             self.param_lists["v"] = np.zeros(self._N, dtype=float)
 

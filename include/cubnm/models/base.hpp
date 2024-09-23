@@ -77,12 +77,12 @@ public:
         window_size{}, window_step{}, rand_seed{}, n_pairs{}, n_windows{}, 
         n_window_pairs{}, bold_len{}, bold_size{}, states_len{}, states_size{},
         n_vols_remove{}, n_states_samples_remove{}, corr_len{}, 
-        noise_size{}, noise_repeats{},
+        noise_size{}, noise_repeats{}, max_delay{},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
         last_noise_time_steps{0},
         bw_it{}, inner_it{}, BOLD_TR_iters{}, states_sampling_iters{};
         // TODO: make some short or size_t
-    bool cpu_initialized{false}, modifies_params{false}, do_delay{};
+    bool cpu_initialized{false}, modifies_params{false}, do_delay{}, co_launch{};
     u_real dt{}, bw_dt{};
     
     #ifdef _GPU_ENABLED

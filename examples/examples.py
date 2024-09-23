@@ -78,9 +78,8 @@ def run_sims(N_SIMS=2, v=0.1, force_cpu=False, rand_seed=410, force_reinit=False
         print(f"fcd_trils Python {sim_idx}: shape {sim_fcd_trils.shape}, idx 30 {sim_fcd_trils[sim_idx, 30]}")
     return sim_bolds, sim_fc_trils, sim_fcd_trils
 
-def run_sim_group(force_cpu=False):
+def run_sim_group(N_SIMS=2, force_cpu=False):
     nodes = 100
-    N_SIMS = 2
     sim_group = sim.rWWSimGroup(
         duration=60,
         TR=1,
@@ -99,7 +98,24 @@ def run_sim_group(force_cpu=False):
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
     sim_group.score(emp_fc_tril, emp_fcd_tril)
-    sim_group.save()
+    return sim_group
+
+def run_sim_group_co(nodes, N_SIMS=1):
+    sc = np.ones((nodes, nodes), dtype=float)
+    sc[np.diag_indices(nodes)] = 0
+    sim_group = sim.rWWExSimGroup(
+        duration=60,
+        TR=1,
+        sc=sc,
+        sim_verbose=True,
+        states_ts=False,
+        bold_remove_s=0,
+        noise_segment_length=1,
+        dt='1.0'
+    )
+    sim_group.N = N_SIMS
+    sim_group._set_default_params()
+    sim_group.run()
     return sim_group
 
 def run_sim_group_400(force_cpu=False):

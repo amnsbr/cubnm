@@ -25,5 +25,7 @@
 #include <thread>
 #include <chrono>
 #include <iomanip>
+#include <cooperative_groups.h>
+namespace cg = cooperative_groups;
 
 #endif
