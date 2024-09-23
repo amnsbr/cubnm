@@ -57,17 +57,17 @@ public:
         // and total matrix size
         bold_len = time_steps / BOLD_TR;
         bold_size = bold_len * nodes;
-        BOLD_TR_iters = (BOLD_TR / 1000) / bw_dt;
+        BOLD_TR_iters = ((u_real)BOLD_TR / 1000.0) / bw_dt;
         // states samples length and
         // total matrix size
         states_len = time_steps / states_sampling;
         states_size = states_len * nodes;
-        states_sampling_iters = (states_sampling / 1000) / bw_dt;
+        states_sampling_iters = ((u_real)states_sampling / 1000.0) / bw_dt;
     }
 
     virtual void set_loop_iters() {
         // TODO: add checks in Python to make sure they are divisible
-        bw_it = (time_steps / 1000) / bw_dt;
+        bw_it = ((u_real)time_steps / 1000.0) / bw_dt;
         inner_it = (bw_dt * 1000) / dt;
     }
 
