@@ -646,7 +646,7 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         // otherwise precalculate a noise segment and arrays of shuffled
         // nodes and time points and reuse-shuffle the noise segment
         // throughout the simulation for `noise_repeats`
-        m->noise_bw_it = ((m->base_conf.noise_time_steps / 1000)/ m->bw_dt);
+        m->noise_bw_it = (((u_real)(m->base_conf.noise_time_steps) / 1000.0)/ m->bw_dt);
         m->noise_size = m->nodes * m->noise_bw_it * m->inner_it * Model::n_noise;
         m->noise_repeats = ceil((float)(m->bw_it) / (float)(m->noise_bw_it));
         #endif
