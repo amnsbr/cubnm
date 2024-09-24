@@ -195,10 +195,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyArrayObject *py_SC, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
     PyObject* config_dict;
     bool ext_out, states_ts, noise_out, do_delay, force_reinit, use_cpu;
-    int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, window_size, window_step, rand_seed;
+    int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, rand_seed;
     double dt, bw_dt;
 
-    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiiiidd", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiidd", 
             &model_name,
             &PyArray_Type, &py_SC,
             &PyArray_Type, &py_SC_indices,
@@ -218,8 +218,6 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             &time_steps,
             &BOLD_TR,
             &states_sampling,
-            &window_size,
-            &window_step,
             &rand_seed,
             &dt,
             &bw_dt
@@ -268,22 +266,19 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         if (strcmp(model_name, "rWW")==0) {
             model = new rWWModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, window_size, window_step, rand_seed,
-                dt, bw_dt
+                time_steps, do_delay, rand_seed, dt, bw_dt
             );
         } 
         else if (strcmp(model_name, "rWWEx")==0) {
             model = new rWWExModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, window_size, window_step, rand_seed,
-                dt, bw_dt
+                time_steps, do_delay, rand_seed, dt, bw_dt
             );
         } 
         else if (strcmp(model_name, "Kuramoto")==0) {
             model = new KuramotoModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, window_size, window_step, rand_seed,
-                dt, bw_dt
+                time_steps, do_delay, rand_seed, dt, bw_dt
             );
         }
         else {
@@ -294,8 +289,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         // update model properties based on user data
         model->update(
             nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-            time_steps, do_delay, window_size, window_step, rand_seed,
-            dt, bw_dt
+            time_steps, do_delay, rand_seed, dt, bw_dt
         );
         // reset base_conf to defaults
         model->base_conf = BaseModel::Config();
@@ -370,9 +364,23 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyObject *py_shuffled_nodes_out, *py_shuffled_ts_out;
     #endif
 
+    // Allocate memory for the output arrays
+    // for BOLD, fc_trils and fcd_trils cast the array
+    // data to double pointer which will be passed on 
+    // to run simulations
+    // TODO: make the data transfer between GPU-C arrays-Python
+    // consistent across variables and minimize the number of copies
+    double *BOLD_ex_out, *fc_trils_out, *fcd_trils_out;
     py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
-    py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
-    py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
+    BOLD_ex_out = (double*)PyArray_DATA(py_BOLD_ex_out);
+    if (model->base_conf.do_fc) {
+        py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
+        fc_trils_out = (double*)PyArray_DATA(py_fc_trils_out);
+        if (model->base_conf.do_fcd) {
+            py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
+            fcd_trils_out = (double*)PyArray_DATA(py_fcd_trils_out);
+        }
+    }
     if (ext_out) {
         py_states_out = PyArray_SimpleNew(3, states_dims, PyArray_DOUBLE);
         py_global_bools_out = PyArray_SimpleNew(2, global_bools_dims, PyArray_BOOL);
@@ -392,8 +400,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     // TODO: cast the arrays to double if u_real is float
     if (use_cpu) {
         model->run_simulations_cpu(
-            (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
-            (double*)PyArray_DATA(py_fcd_trils_out),
+            BOLD_ex_out, fc_trils_out, fcd_trils_out,
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
             SC, (int*)PyArray_DATA(py_SC_indices), (double*)PyArray_DATA(py_SC_dist)
@@ -402,8 +409,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     #ifdef GPU_ENABLED
     else {
         model->run_simulations_gpu(
-            (double*)PyArray_DATA(py_BOLD_ex_out), (double*)PyArray_DATA(py_fc_trils_out), 
-            (double*)PyArray_DATA(py_fcd_trils_out),
+            BOLD_ex_out, fc_trils_out, fcd_trils_out,
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
             SC, (int*)PyArray_DATA(py_SC_indices), (double*)PyArray_DATA(py_SC_dist)
@@ -450,12 +456,16 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     
     // Return output as a list with varying number of elements
     // depending on ext_out and noise_out
-    PyObject* out_list = PyList_New(5);
+    PyObject* out_list = PyList_New(3);
     PyList_SetItem(out_list, 0, py_init_seconds);
     PyList_SetItem(out_list, 1, py_run_seconds);
     PyList_SetItem(out_list, 2, py_BOLD_ex_out);
-    PyList_SetItem(out_list, 3, py_fc_trils_out);
-    PyList_SetItem(out_list, 4, py_fcd_trils_out);
+    if (model->base_conf.do_fc) {
+        PyList_Append(out_list, py_fc_trils_out);
+        if (model->base_conf.do_fcd) {
+            PyList_Append(out_list, py_fcd_trils_out);
+        }
+    }
     if (ext_out) {
         PyList_Append(out_list, py_states_out);
         PyList_Append(out_list, py_global_bools_out);
@@ -476,7 +486,7 @@ static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(model_name, SC, SC_indices, SC_dist, global_params, regional_params, \n"
         "v_list, model_config, ext_out, states_ts, noise_out, do_delay, force_reinit, \n"
-        "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, window_size, window_step, rand_seed, dt, bw_dt)\n\n"
+        "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, rand_seed, dt, bw_dt)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
         "-----------\n"
@@ -529,10 +539,6 @@ static PyMethodDef methods[] = {
         "BOLD_TR (int)\n"
             "\tBOLD repetition time (ms)\n"
             "\talso used as the sampling interval of extended output\n"
-        "window_size (int)\n"
-            "\tdynamic FC window size (number of TRs)\n"
-        "window_step (int)\n"
-            "\tdynamic FC window step (number of TRs)\n"
         "rand_seed (int)\n"
             "\tseed for random number generator\n\n"
         "dt (float)\n"
@@ -543,8 +549,10 @@ static PyMethodDef methods[] = {
         "--------\n"
         "sim_bold (np.ndarray) (N_SIMS, TRs*nodes)\n"
             "\tsimulated BOLD time series\n"
+        "If config['do_fc'] is True, the function also returns:\n"
         "sim_fc (np.ndarray) (N_SIMS, edges)\n"
             "\tsimulated functional connectivity matrices\n"
+        "If config['do_fcd'] is True, the function also returns:\n"
         "sim_fcd (np.ndarray) (N_SIMS, n_window_pairs)\n"
             "\tsimulated functional connectivity dynamics matrices\n"
         "If ext_out is True, the function also returns "

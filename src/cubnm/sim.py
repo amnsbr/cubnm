@@ -31,6 +31,8 @@ class SimGroup:
         states_ts=False,
         states_sampling=None,
         noise_out=False,
+        do_fc=True,
+        do_fcd=True,
         window_size=10,
         window_step=2,
         rand_seed=410,
@@ -89,6 +91,10 @@ class SimGroup:
             Default is None, which uses BOLD TR as the sampling rate.
         noise_out: :obj:`bool`, optional
             return noise time series
+        do_fc: :obj:`bool`, optional
+            calculate simulated functional connectivity (FC)
+        do_fcd: :obj:`bool`, optional
+            calculate simulated functional connectivity dynamics (FCD)
         window_size: :obj:`int`, optional
             dynamic FC window size (in TR)
         window_step: :obj:`int`, optional
@@ -187,6 +193,23 @@ class SimGroup:
             self.states_sampling = self.TR
         else:
             self.states_sampling = states_sampling
+        self.do_fc = do_fc
+        if self.do_fc:
+            self.do_fcd = do_fcd
+        elif do_fcd:
+            raise ValueError("Cannot calculate FCD without FC")
+        else:
+            self.do_fcd = False
+        if not self.do_fc:
+            if ('+fc_corr' in gof_terms) or ('-fc_diff' in gof_terms) or ('-fc_normec' in gof_terms):
+                raise ValueError("Cannot calculate FC goodness-of-fit terms without FC."
+                                 " Set do_fc to True or remove FC-related goodness-of-fit"
+                                 " terms.")
+        if not self.do_fcd:
+            if '-fcd_ks' in gof_terms:
+                raise ValueError("Cannot calculate FCD goodness-of-fit terms without FCD."
+                                 " Set do_fcd to True or remove FCD-related goodness-of-fit"
+                                 " terms.")
         self.window_size = window_size
         self.window_step = window_step
         self.rand_seed = rand_seed
@@ -246,6 +269,11 @@ class SimGroup:
                     f"With {self.nodes} nodes in the current installation of the toolbox"
                     " simulations will fail. Please reinstall the package from source after"
                     " `export CUBNM_MANY_NODES=1`")
+            if self.do_fc or self.do_fcd:
+                raise NotImplementedError(
+                    "With many nodes, FC and FCD calculations are not supported."
+                    " Set do_fc and do_fcd to False."
+                )
             if self.dt < 1.0:
                 print(
                     "Warning: When runnig simulations with large number"
@@ -389,6 +417,8 @@ class SimGroup:
             "ext_out": self.ext_out,
             "states_ts": self.states_ts,
             "states_sampling": self.states_sampling,
+            "do_fc": self.do_fc,
+            "do_fcd": self.do_fcd,
             "window_size": self.window_size,
             "window_step": self.window_step,
             "rand_seed": self.rand_seed,
@@ -413,8 +443,12 @@ class SimGroup:
         Internal model configuration used in the simulation
         """
         model_config = {
-            'exc_interhemispheric': str(int(self.exc_interhemispheric)),
+            'do_fc': str(int(self.do_fc)),
+            'do_fcd': str(int(self.do_fcd)),
             'bold_remove_s': str(self.bold_remove_s),
+            'exc_interhemispheric': str(int(self.exc_interhemispheric)),
+            'window_size': str(self.window_size),
+            'window_step': str(self.window_step),
             'drop_edges': str(int(self.fcd_drop_edges)),
             'noise_time_steps': str(int(self.noise_segment_length*1000)), 
             'verbose': str(int(self.sim_verbose)),
@@ -499,8 +533,6 @@ class SimGroup:
             self.duration_msec,
             self.TR_msec,
             self.states_sampling_msec,
-            self.window_size,
-            self.window_step,
             self.rand_seed,
             float(self.dt),
             float(self.bw_dt),
@@ -532,10 +564,12 @@ class SimGroup:
                 run time of the simulations
             - sim_bold : :obj:`np.ndarray`
                 simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
+        If `do_fc` is True, additionally includes:
             - sim_fc_trils : :obj:`np.ndarray`
                 simulated FC lower triangle. Shape: (N_SIMS, n_pairs)
+        If `do_fcd` is True, additionally includes:
             - sim_fcd_trils : :obj:`np.ndarray`
-                simulated FCD lower triangle. Shape: (N_SIMS, n_pairs)
+                simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
         If `ext_out` is True, additionally includes:
             - _sim_states: :obj:`np.ndarray`
                 Model state variables. Shape: (n_vars, N_SIMS*nodes[*duration/TR])
@@ -553,15 +587,23 @@ class SimGroup:
                 Time step shufflings in each noise repeate. Shape: (noise_repeats, noise_time_steps)                
         """
         # assign the output to object attributes
-        # and reshape them to (N_SIMS, ...)
+        # and reshape them to (N, ...)
         # in all cases init time, run time, bold, fc and fcd will be returned
         (
             self.init_time, 
             self.run_time, 
             sim_bold, 
-            sim_fc_trils, 
-            sim_fcd_trils
-         ) = out[:5]
+         ) = out[:3]
+        self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)
+        idx = 3
+        if self.do_fc:
+            sim_fc_trils = out[idx]
+            self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
+            idx += 1
+            if self.do_fcd:
+                sim_fcd_trils = out[idx]
+                self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)
+                idx += 1
         # assign the additional outputs in indices 5: if
         # they are returned depending on `ext_out`, `noise_out`
         # and `noise_segment_flag`
@@ -570,23 +612,19 @@ class SimGroup:
                 sim_states,
                 global_bools,
                 global_ints,
-            ) = out[5:8]
-            noise_start_idx = 8
+            ) = out[idx:idx+3]
+            idx += 3
             self._sim_states = sim_states
             self._global_bools = global_bools
             self._global_ints = global_ints
-        else:
-            noise_start_idx = 5
         if self.noise_out:
-            self._noise = out[noise_start_idx]
+            self._noise = out[idx]
+            idx += 1
             if noise_segment_flag:
                 (
                     self._shuffled_nodes, 
                     self._shuffled_ts
-                ) = out[noise_start_idx+1:]
-        self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)
-        self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
-        self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)
+                ) = out[idx:]
 
     def get_noise(self):
         """
@@ -679,15 +717,15 @@ class SimGroup:
         """
         pass
 
-    def score(self, emp_fc_tril, emp_fcd_tril):
+    def score(self, emp_fc_tril=None, emp_fcd_tril=None):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
 
         Parameters
         --------
-        emp_fc_tril: :obj:`np.ndarray`
+        emp_fc_tril: :obj:`np.ndarray` or None
             1D array of empirical FC lower triangle. Shape: (edges,)
-        emp_fcd_tril: :obj:`np.ndarray`
+        emp_fcd_tril: :obj:`np.ndarray` or None
             1D array of empirical FCD lower triangle. Shape: (window_pairs,)
 
         Returns
@@ -697,22 +735,35 @@ class SimGroup:
         """
         # + => aim to maximize; - => aim to minimize
         # TODO: add the option to provide empirical BOLD as input
-        columns = ["+fc_corr", "-fc_diff", "-fcd_ks", "-fc_normec", "+gof"]
+        # get list of columns to be calculated
+        # based on availability of FC and FCD (simulated and empirical)
+        # and gof_terms
+        columns = []
+        if self.do_fc and (emp_fc_tril is not None):
+            columns += list(set(["+fc_corr", "-fc_diff", "-fc_normec"]) & set(self.gof_terms))
+        if self.do_fcd and (emp_fcd_tril is not None):
+            columns += list(set(["-fcd_ks"]) & set(self.gof_terms))
+        columns += ["+gof"]
         scores = pd.DataFrame(columns=columns, dtype=float)
         # calculate GOF
         for idx in range(self.N):
-            scores.loc[idx, "+fc_corr"] = scipy.stats.pearsonr(
-                self.sim_fc_trils[idx], emp_fc_tril
-            ).statistic
-            scores.loc[idx, "-fc_diff"] = -np.abs(
-                self.sim_fc_trils[idx].mean() - emp_fc_tril.mean()
-            )
-            scores.loc[idx, "-fcd_ks"] = -scipy.stats.ks_2samp(
-                self.sim_fcd_trils[idx], emp_fcd_tril
-            ).statistic
-            scores.loc[idx, "-fc_normec"] = -utils.fc_norm_euclidean(
-                self.sim_fc_trils[idx], emp_fc_tril
-            )
+            for column in columns:
+                if column == "+fc_corr":                    
+                    scores.loc[idx, column] = scipy.stats.pearsonr(
+                        self.sim_fc_trils[idx], emp_fc_tril
+                    ).statistic
+                elif column == "-fc_diff":
+                    scores.loc[idx, column] = -np.abs(
+                        self.sim_fc_trils[idx].mean() - emp_fc_tril.mean()
+                    )
+                elif column == "-fc_normec":
+                    scores.loc[idx, column] = -utils.fc_norm_euclidean(
+                        self.sim_fc_trils[idx], emp_fc_tril
+                    )
+                elif column == "-fcd_ks":
+                    scores.loc[idx, column] = -scipy.stats.ks_2samp(
+                        self.sim_fcd_trils[idx], emp_fcd_tril
+                    ).statistic
             # combined the selected terms into gof (that should be maximized)
             scores.loc[idx, "+gof"] = 0
             for term in self.gof_terms:

@@ -1075,18 +1075,9 @@ void _run_simulations_gpu(
     if (d_model->base_conf.verbose) {
         std::cout << "Simulation completed" << std::endl;
     }
-    if (d_model->co_launch) {
-        // set fc trils and fcd trils to 0 for now
-        // TODO: make calculation of FC and FCD optional
-        for (int i=0; i<d_model->N_SIMS; i++) {
-            for (int j=0; j<d_model->n_pairs; j++) {
-                d_model->fc_trils[i][j] = 0.0;
-            }
-            for (int j=0; j<d_model->n_window_pairs; j++) {
-                d_model->fcd_trils[i][j] = 0.0;
-            }
-        }
-    } else {
+
+    // FC and FCD calculations
+    if (d_model->base_conf.do_fc) {
         // calculate mean and sd bold for FC calculation
         threadsPerBlock.x = d_model->nodes;
         bold_stats<<<numBlocks, threadsPerBlock>>>(
@@ -1095,16 +1086,18 @@ void _run_simulations_gpu(
             d_model->bold_len, d_model->corr_len, d_model->n_vols_remove);
         CUDA_CHECK_LAST_ERROR();
         CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-        // calculate window mean and sd bold for FCD calculations
-        numBlocks.x = d_model->N_SIMS;
-        numBlocks.y = d_model->n_windows;
-        window_bold_stats<<<numBlocks,threadsPerBlock>>>(
-            d_model->BOLD, d_model->N_SIMS, d_model->nodes, 
-            d_model->n_windows, d_model->window_size+1, d_model->window_starts, d_model->window_ends,
-            d_model->windows_mean_bold, d_model->windows_ssd_bold);
-        CUDA_CHECK_LAST_ERROR();
-        CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-        // calculate FC and window FCs
+        if (d_model->base_conf.do_fcd) {
+            // calculate window mean and sd bold for FCD calculations
+            numBlocks.x = d_model->N_SIMS;
+            numBlocks.y = d_model->n_windows;
+            window_bold_stats<<<numBlocks,threadsPerBlock>>>(
+                d_model->BOLD, d_model->N_SIMS, d_model->nodes, 
+                d_model->n_windows, d_model->base_conf.window_size+1, d_model->window_starts, d_model->window_ends,
+                d_model->windows_mean_bold, d_model->windows_ssd_bold);
+            CUDA_CHECK_LAST_ERROR();
+            CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+        }
+        // calculate FC (and window FCs)
         int maxThreadsPerBlock = prop.maxThreadsPerBlock;
         numBlocks.x = d_model->N_SIMS;
         numBlocks.y = ceil((float)d_model->n_pairs / (float)maxThreadsPerBlock);
@@ -1120,50 +1113,52 @@ void _run_simulations_gpu(
             d_model->fc_trils, d_model->windows_fc_trils, d_model->BOLD, d_model->N_SIMS, d_model->nodes, d_model->n_pairs, 
             d_model->pairs_i, d_model->pairs_j,
             d_model->bold_len, d_model->n_vols_remove, d_model->corr_len, d_model->mean_bold, d_model->ssd_bold,
-            d_model->n_windows, d_model->window_size+1, d_model->windows_mean_bold, d_model->windows_ssd_bold,
+            d_model->n_windows, d_model->base_conf.window_size+1, d_model->windows_mean_bold, d_model->windows_ssd_bold,
             d_model->window_starts, d_model->window_ends,
             maxThreadsPerBlock
         );
         CUDA_CHECK_LAST_ERROR();
         CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-        // calculate window mean and sd fc_tril for FCD calculations
-        numBlocks.x = d_model->N_SIMS;
-        numBlocks.y = 1;
-        numBlocks.z = 1;
-        threadsPerBlock.x = d_model->n_windows;
-        if (d_model->n_windows >= prop.maxThreadsPerBlock) {
-            std::cerr << "Error: Mean/ssd FC tril of " << d_model->n_windows 
-                << " windows cannot be calculated on this device" << std::endl;
-            exit(1);
+        if (d_model->base_conf.do_fcd) {
+            // calculate window mean and sd fc_tril for FCD calculations
+            numBlocks.x = d_model->N_SIMS;
+            numBlocks.y = 1;
+            numBlocks.z = 1;
+            threadsPerBlock.x = d_model->n_windows;
+            if (d_model->n_windows >= prop.maxThreadsPerBlock) {
+                std::cerr << "Error: Mean/ssd FC tril of " << d_model->n_windows 
+                    << " windows cannot be calculated on this device" << std::endl;
+                exit(1);
+            }
+            window_fc_stats<<<numBlocks,threadsPerBlock>>>(
+                d_model->windows_mean_fc, d_model->windows_ssd_fc,
+                NULL, NULL, NULL, NULL, // skipping L and R stats
+                d_model->windows_fc_trils, d_model->N_SIMS, d_model->n_windows, d_model->n_pairs,
+                false, 0);
+            CUDA_CHECK_LAST_ERROR();
+            CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+            // calculate FCD
+            numBlocks.x = d_model->N_SIMS;
+            numBlocks.y = ceil((float)d_model->n_window_pairs / (float)maxThreadsPerBlock);
+            numBlocks.z = 1;
+            if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
+                std::cerr << "Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]" << std::endl;
+                exit(1);
+            }
+            threadsPerBlock.x = maxThreadsPerBlock;
+            threadsPerBlock.y = 1;
+            threadsPerBlock.z = 1;
+            fcd<<<numBlocks, threadsPerBlock>>>(
+                d_model->fcd_trils, NULL, NULL, // skipping separate L and R fcd
+                d_model->windows_fc_trils, 
+                d_model->windows_mean_fc, d_model->windows_ssd_fc,
+                NULL, NULL, NULL, NULL,
+                d_model->N_SIMS, d_model->n_pairs, d_model->n_windows, d_model->n_window_pairs, 
+                d_model->window_pairs_i, d_model->window_pairs_j, maxThreadsPerBlock,
+                false, 0);
+            CUDA_CHECK_LAST_ERROR();
+            CUDA_CHECK_RETURN(cudaDeviceSynchronize());
         }
-        window_fc_stats<<<numBlocks,threadsPerBlock>>>(
-            d_model->windows_mean_fc, d_model->windows_ssd_fc,
-            NULL, NULL, NULL, NULL, // skipping L and R stats
-            d_model->windows_fc_trils, d_model->N_SIMS, d_model->n_windows, d_model->n_pairs,
-            false, 0);
-        CUDA_CHECK_LAST_ERROR();
-        CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-        // calculate FCD
-        numBlocks.x = d_model->N_SIMS;
-        numBlocks.y = ceil((float)d_model->n_window_pairs / (float)maxThreadsPerBlock);
-        numBlocks.z = 1;
-        if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
-            std::cerr << "Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]" << std::endl;
-            exit(1);
-        }
-        threadsPerBlock.x = maxThreadsPerBlock;
-        threadsPerBlock.y = 1;
-        threadsPerBlock.z = 1;
-        fcd<<<numBlocks, threadsPerBlock>>>(
-            d_model->fcd_trils, NULL, NULL, // skipping separate L and R fcd
-            d_model->windows_fc_trils, 
-            d_model->windows_mean_fc, d_model->windows_ssd_fc,
-            NULL, NULL, NULL, NULL,
-            d_model->N_SIMS, d_model->n_pairs, d_model->n_windows, d_model->n_window_pairs, 
-            d_model->window_pairs_i, d_model->window_pairs_j, maxThreadsPerBlock,
-            false, 0);
-        CUDA_CHECK_LAST_ERROR();
-        CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 
         #ifdef USE_FLOATS
         // Convert FC and FCD to doubles for GOF calculation
@@ -1174,28 +1169,28 @@ void _run_simulations_gpu(
         float2double<<<numBlocks, threadsPerBlock>>>(d_model->d_fc_trils, d_model->fc_trils, d_model->N_SIMS, d_model->n_pairs);
         CUDA_CHECK_LAST_ERROR();
         CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-        numBlocks.x = d_model->N_SIMS;
-        numBlocks.y = d_model->n_window_pairs;
-        float2double<<<numBlocks, threadsPerBlock>>>(d_model->d_fcd_trils, d_model->fcd_trils, d_model->N_SIMS, d_model->n_window_pairs);
-        CUDA_CHECK_LAST_ERROR();
-        CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+        if (d_model->base_conf.do_fcd) {
+            numBlocks.x = d_model->N_SIMS;
+            numBlocks.y = d_model->n_window_pairs;
+            float2double<<<numBlocks, threadsPerBlock>>>(d_model->d_fcd_trils, d_model->fcd_trils, d_model->N_SIMS, d_model->n_window_pairs);
+            CUDA_CHECK_LAST_ERROR();
+            CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+        }
         #endif
     }
 
     // copy the output from managed memory to _out arrays (which can be numpy arrays)
-    size_t ext_out_size = d_model->nodes;
-    if (d_model->base_conf.states_ts) {
-        ext_out_size *= d_model->bold_len;
-    }
-    // TODO: pass the managed arrays data directly
-    // to the python arrays without copying
     for (int sim_idx=0; sim_idx<d_model->N_SIMS; sim_idx++) {
         memcpy(BOLD_out, d_model->BOLD[sim_idx], sizeof(u_real) * d_model->bold_size);
         BOLD_out+=d_model->bold_size;
-        memcpy(fc_trils_out, d_model->fc_trils[sim_idx], sizeof(u_real) * d_model->n_pairs);
-        fc_trils_out+=d_model->n_pairs;
-        memcpy(fcd_trils_out, d_model->fcd_trils[sim_idx], sizeof(u_real) * d_model->n_window_pairs);
-        fcd_trils_out+=d_model->n_window_pairs;
+        if (d_model->base_conf.do_fc) {
+            memcpy(fc_trils_out, d_model->fc_trils[sim_idx], sizeof(u_real) * d_model->n_pairs);
+            fc_trils_out+=d_model->n_pairs;
+            if (d_model->base_conf.do_fcd) {
+                memcpy(fcd_trils_out, d_model->fcd_trils[sim_idx], sizeof(u_real) * d_model->n_window_pairs);
+                fcd_trils_out+=d_model->n_window_pairs;
+            }
+        }
     }
     if (d_model->modifies_params) { // e.g. rWW with FIC
         // copy (potentially) modified parameters back to the original array
@@ -1309,131 +1304,157 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         }
     }
 
-    // specify n_vols_remove (for FC(D) calculations)
-    m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR;
-
     // specifiy n_states_samples_remove (for states mean calculations)
     m->n_states_samples_remove = m->base_conf.bold_remove_s * 1000 / m->states_sampling;
 
-    // preparing FC calculations
-    m->corr_len = m->bold_len - m->n_vols_remove;
-    if (m->corr_len < 2) {
-        std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
-        exit(1);
-    }
+    // allocate memory for BOLD
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->BOLD), sizeof(u_real*) * m->N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->mean_bold), sizeof(u_real*) * m->N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->ssd_bold), sizeof(u_real*) * m->N_SIMS));
-    m->n_pairs = ((m->nodes) * (m->nodes - 1)) / 2;
-    int rh_idx;
-    if (m->base_conf.exc_interhemispheric) {
-        if ((m->nodes % 2) != 0) {
-            std::cerr << "Error: exc_interhemispheric is set but number of nodes is not even" << std::endl;
+
+    if (m->base_conf.do_fc) {
+        // preparing FC calculations
+        // specify n_vols_remove (for FC(D) calculations)
+        m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR;
+        m->corr_len = m->bold_len - m->n_vols_remove;
+        if (m->corr_len < 2) {
+            std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
             exit(1);
         }
-        rh_idx = m->nodes / 2; // assumes symmetric number of parcels and L->R order
-        m->n_pairs -= pow(rh_idx, 2); // exclude the middle square
-    }
-    // create a mapping between pair_idx and i and j
-    int curr_idx = 0;
-    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->pairs_i), sizeof(int) * m->n_pairs));
-    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->pairs_j), sizeof(int) * m->n_pairs));
-    for (int i=0; i < m->nodes; i++) {
-        for (int j=0; j < m->nodes; j++) {
-            if (i > j) {
-                if (m->base_conf.exc_interhemispheric) {
-                    // skip if each node belongs to a different hemisphere
-                    if ((i < rh_idx) ^ (j < rh_idx)) {
-                        continue;
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->mean_bold), sizeof(u_real*) * m->N_SIMS));
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->ssd_bold), sizeof(u_real*) * m->N_SIMS));
+        m->n_pairs = ((m->nodes) * (m->nodes - 1)) / 2;
+        int rh_idx;
+        if (m->base_conf.exc_interhemispheric) {
+            if ((m->nodes % 2) != 0) {
+                std::cerr << "Error: exc_interhemispheric is set but number of nodes is not even" << std::endl;
+                exit(1);
+            }
+            rh_idx = m->nodes / 2; // assumes symmetric number of parcels and L->R order
+            m->n_pairs -= pow(rh_idx, 2); // exclude the middle square
+        }
+        // create a mapping between pair_idx and i and j
+        int curr_idx = 0;
+        CUDA_CHECK_RETURN(cudaMallocManaged(&(m->pairs_i), sizeof(int) * m->n_pairs));
+        CUDA_CHECK_RETURN(cudaMallocManaged(&(m->pairs_j), sizeof(int) * m->n_pairs));
+        for (int i=0; i < m->nodes; i++) {
+            for (int j=0; j < m->nodes; j++) {
+                if (i > j) {
+                    if (m->base_conf.exc_interhemispheric) {
+                        // skip if each node belongs to a different hemisphere
+                        if ((i < rh_idx) ^ (j < rh_idx)) {
+                            continue;
+                        }
+                    }
+                    m->pairs_i[curr_idx] = i;
+                    m->pairs_j[curr_idx] = j;
+                    curr_idx++;
+                }
+            }
+        }
+        // allocate memory for fc trils
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fc_trils), sizeof(u_real*) * m->N_SIMS));
+        #ifdef USE_FLOATS
+        // allocate memory for double version of fc on CPU
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fc_trils), sizeof(double*) * m->N_SIMS));
+        #else
+        // use d_fc_trils as an alias for fc_trils
+        m->d_fc_trils = m->fc_trils;
+        #endif
+
+        // FCD preparation
+        if (!m->base_conf.do_fcd) {
+            // Note: since FC and FCD calculations are entangled in some
+            // kernels (e.g. `fc` kernel calculates both static and dynamic FCs)
+            // skipping FCD calculation can be done by setting n_windows to 0
+            // in which case window fc and fcd calculation kernels are called
+            // but don't do anything
+            m->n_windows = 0;
+            m->n_window_pairs = 0;
+        } else {
+            // Note: since FC and FCD calculations are entangled in some
+            // kernels (e.g. `fc` kernel calculates both static and dynamic FCs)
+            // allocation of memory for FCD is done if do_fc, regardless of do_fcd
+            // TODO: Fix this by separating FC and FCD calculations
+            // calculate number of windows and window start/end indices
+            int *_window_starts, *_window_ends; // are cpu integer arrays
+            m->n_windows = get_dfc_windows(
+                &_window_starts, &_window_ends, 
+                m->corr_len, m->bold_len, m->n_vols_remove,
+                m->base_conf.window_step, m->base_conf.window_size, m->base_conf.drop_edges);
+            if (m->n_windows == 0) {
+                std::cerr << "Error: Number of windows is 0" << std::endl;
+                exit(1);
+            }
+            CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_starts), sizeof(int) * m->n_windows));
+            CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_ends), sizeof(int) * m->n_windows));
+            for (int i=0; i<m->n_windows; i++) {
+                m->window_starts[i] = _window_starts[i];
+                m->window_ends[i] = _window_ends[i];
+            }
+            // allocate memory for mean and ssd BOLD of each window
+            // (n_sims x n_windows x nodes)
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_bold), sizeof(u_real*) * m->N_SIMS));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_bold), sizeof(u_real*) * m->N_SIMS));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_fc_trils), sizeof(u_real*) * m->N_SIMS));
+            // allocate memory for mean and ssd fc_tril of each window
+            // (n_sims x n_windows)
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_fc), sizeof(u_real*) * m->N_SIMS));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_fc), sizeof(u_real*) * m->N_SIMS));
+            // create a mapping between window_pair_idx and i and j
+            m->n_window_pairs = (m->n_windows * (m->n_windows-1)) / 2;
+            curr_idx = 0;
+            CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_pairs_i), sizeof(int) * m->n_window_pairs));
+            CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_pairs_j), sizeof(int) * m->n_window_pairs));
+            for (int i=0; i < m->n_windows; i++) {
+                for (int j=0; j < m->n_windows; j++) {
+                    if (i > j) {
+                        m->window_pairs_i[curr_idx] = i;
+                        m->window_pairs_j[curr_idx] = j;
+                        curr_idx++;
                     }
                 }
-                m->pairs_i[curr_idx] = i;
-                m->pairs_j[curr_idx] = j;
-                curr_idx++;
             }
+            // allocate memory for fcd trils
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fcd_trils), sizeof(u_real*) * m->N_SIMS));
+            #ifdef USE_FLOATS
+            // allocate memory for double version of fcd trils on CPU
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fcd_trils), sizeof(double*) * m->N_SIMS));
+            #else
+            // use d_fc_trils as an alias for fcd_trils
+            m->d_fcd_trils = m->fcd_trils;
+            #endif
         }
     }
-    // allocate memory for fc trils
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fc_trils), sizeof(u_real*) * m->N_SIMS));
-
-    // FCD preparation
-    // calculate number of windows and window start/end indices
-    int *_window_starts, *_window_ends; // are cpu integer arrays
-    m->n_windows = get_dfc_windows(
-        &_window_starts, &_window_ends, 
-        m->corr_len, m->bold_len, m->n_vols_remove,
-        m->window_step, m->window_size, m->base_conf.drop_edges);
-    if (m->n_windows == 0) {
-        std::cerr << "Error: Number of windows is 0" << std::endl;
-        exit(1);
-    }
-    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_starts), sizeof(int) * m->n_windows));
-    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_ends), sizeof(int) * m->n_windows));
-    for (int i=0; i<m->n_windows; i++) {
-        m->window_starts[i] = _window_starts[i];
-        m->window_ends[i] = _window_ends[i];
-    }
-    // allocate memory for mean and ssd BOLD of each window
-    // (n_sims x n_windows x nodes)
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_bold), sizeof(u_real*) * m->N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_bold), sizeof(u_real*) * m->N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_fc_trils), sizeof(u_real*) * m->N_SIMS));
-    // allocate memory for mean and ssd fc_tril of each window
-    // (n_sims x n_windows)
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_fc), sizeof(u_real*) * m->N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_fc), sizeof(u_real*) * m->N_SIMS));
-    // create a mapping between window_pair_idx and i and j
-    m->n_window_pairs = (m->n_windows * (m->n_windows-1)) / 2;
-    curr_idx = 0;
-    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_pairs_i), sizeof(int) * m->n_window_pairs));
-    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_pairs_j), sizeof(int) * m->n_window_pairs));
-    for (int i=0; i < m->n_windows; i++) {
-        for (int j=0; j < m->n_windows; j++) {
-            if (i > j) {
-                m->window_pairs_i[curr_idx] = i;
-                m->window_pairs_j[curr_idx] = j;
-                curr_idx++;
-            }
-        }
-    }
-    // allocate memory for fcd trils
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fcd_trils), sizeof(u_real*) * m->N_SIMS));
-
-    #ifdef USE_FLOATS
-    // allocate memory for double versions of fc and fcd trils on CPU
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fc_trils), sizeof(double*) * m->N_SIMS));
-    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fcd_trils), sizeof(double*) * m->N_SIMS));
-    #else
-    // use d_fc_trils and d_fcd_trils as aliases for fc_trils and fcd_trils
-    m->d_fc_trils = m->fc_trils;
-    m->d_fcd_trils = m->fcd_trils;
-    #endif
-
 
 
     // allocate memory per each simulation
     for (int sim_idx=0; sim_idx<m->N_SIMS; sim_idx++) {
         // allocate a chunk of BOLD to this simulation (not sure entirely if this is the best way to do it)
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->BOLD[sim_idx]), sizeof(u_real) * m->bold_size));
-        // allocate memory for fc calculations
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->mean_bold[sim_idx]), sizeof(u_real) * m->nodes));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->ssd_bold[sim_idx]), sizeof(u_real) * m->nodes));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fc_trils[sim_idx]), sizeof(u_real) * m->n_pairs));
-        // allocate memory for window fc and fcd calculations
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_bold[sim_idx]), sizeof(u_real) * m->n_windows * m->nodes));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_bold[sim_idx]), sizeof(u_real) * m->n_windows * m->nodes));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_fc_trils[sim_idx]), sizeof(u_real) * m->n_windows * m->n_pairs));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_fc[sim_idx]), sizeof(u_real) * m->n_windows));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_fc[sim_idx]), sizeof(u_real) * m->n_windows));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fcd_trils[sim_idx]), sizeof(u_real) * m->n_window_pairs));
-        #ifdef USE_FLOATS
-        // allocate memory for double copies of fc and fcd
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fc_trils[sim_idx]), sizeof(double) * m->n_pairs));
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fcd_trils[sim_idx]), sizeof(double) * m->n_window_pairs));
-        #endif
+        if (m->base_conf.do_fc) {
+            // allocate memory for fc calculations
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->mean_bold[sim_idx]), sizeof(u_real) * m->nodes));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->ssd_bold[sim_idx]), sizeof(u_real) * m->nodes));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fc_trils[sim_idx]), sizeof(u_real) * m->n_pairs));
+            #ifdef USE_FLOATS
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fc_trils[sim_idx]), sizeof(double) * m->n_pairs));
+            #endif
+            if (m->base_conf.do_fcd) {
+                // allocate memory for window fc and fcd calculations
+                // See note above about entanglement of FC and FCD calculations
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_bold[sim_idx]), sizeof(u_real) * m->n_windows * m->nodes));
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_bold[sim_idx]), sizeof(u_real) * m->n_windows * m->nodes));
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_fc_trils[sim_idx]), sizeof(u_real) * m->n_windows * m->n_pairs));
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_mean_fc[sim_idx]), sizeof(u_real) * m->n_windows));
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->windows_ssd_fc[sim_idx]), sizeof(u_real) * m->n_windows));
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->fcd_trils[sim_idx]), sizeof(u_real) * m->n_window_pairs));
+                #ifdef USE_FLOATS
+                CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_fcd_trils[sim_idx]), sizeof(double) * m->n_window_pairs));
+                #endif
+            }
+        }
     }
 
-    // check if noise needs to be calculated
+    // check if noise needs to be (re)calculated
     if (
         (m->rand_seed != m->last_rand_seed) ||
         (m->time_steps != m->last_time_steps) ||
@@ -1523,40 +1544,52 @@ void BaseModel::free_gpu() {
     #endif
     CUDA_CHECK_RETURN(cudaFree(this->noise));
     for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
-        #ifdef USE_FLOATS
-        CUDA_CHECK_RETURN(cudaFree(this->d_fcd_trils[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->d_fc_trils[sim_idx]));
-        #endif
-        CUDA_CHECK_RETURN(cudaFree(this->fcd_trils[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_fc[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->windows_mean_fc[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->windows_fc_trils[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_bold[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->windows_mean_bold[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->fc_trils[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->ssd_bold[sim_idx]));
-        CUDA_CHECK_RETURN(cudaFree(this->mean_bold[sim_idx]));
+        if (this->base_conf.do_fc) {
+            if (this->base_conf.do_fcd) {
+                #ifdef USE_FLOATS
+                CUDA_CHECK_RETURN(cudaFree(this->d_fcd_trils[sim_idx]));
+                #endif
+                CUDA_CHECK_RETURN(cudaFree(this->fcd_trils[sim_idx]));
+                CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_fc[sim_idx]));
+                CUDA_CHECK_RETURN(cudaFree(this->windows_mean_fc[sim_idx]));
+                CUDA_CHECK_RETURN(cudaFree(this->windows_fc_trils[sim_idx]));
+                CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_bold[sim_idx]));
+                CUDA_CHECK_RETURN(cudaFree(this->windows_mean_bold[sim_idx]));
+            }
+            #ifdef USE_FLOATS
+            CUDA_CHECK_RETURN(cudaFree(this->d_fc_trils[sim_idx]));
+            #endif
+            CUDA_CHECK_RETURN(cudaFree(this->fc_trils[sim_idx]));
+            CUDA_CHECK_RETURN(cudaFree(this->ssd_bold[sim_idx]));
+            CUDA_CHECK_RETURN(cudaFree(this->mean_bold[sim_idx]));
+        }
         CUDA_CHECK_RETURN(cudaFree(this->BOLD[sim_idx]));
     }
-    #ifdef USE_FLOATS
-    CUDA_CHECK_RETURN(cudaFree(this->d_fcd_trils));
-    CUDA_CHECK_RETURN(cudaFree(this->d_fc_trils));
-    #endif
-    CUDA_CHECK_RETURN(cudaFree(this->fcd_trils));
-    CUDA_CHECK_RETURN(cudaFree(this->window_pairs_j));
-    CUDA_CHECK_RETURN(cudaFree(this->window_pairs_i));
-    CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_fc));
-    CUDA_CHECK_RETURN(cudaFree(this->windows_mean_fc));
-    CUDA_CHECK_RETURN(cudaFree(this->windows_fc_trils));
-    CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_bold));
-    CUDA_CHECK_RETURN(cudaFree(this->windows_mean_bold));
-    CUDA_CHECK_RETURN(cudaFree(this->window_ends));
-    CUDA_CHECK_RETURN(cudaFree(this->window_starts));
-    CUDA_CHECK_RETURN(cudaFree(this->pairs_j));
-    CUDA_CHECK_RETURN(cudaFree(this->pairs_i));
-    CUDA_CHECK_RETURN(cudaFree(this->fc_trils));
-    CUDA_CHECK_RETURN(cudaFree(this->ssd_bold));
-    CUDA_CHECK_RETURN(cudaFree(this->mean_bold));
+    if (this->base_conf.do_fc) {
+        if (this->base_conf.do_fcd) {
+            #ifdef USE_FLOATS
+            CUDA_CHECK_RETURN(cudaFree(this->d_fcd_trils));
+            #endif
+            CUDA_CHECK_RETURN(cudaFree(this->fcd_trils));
+            CUDA_CHECK_RETURN(cudaFree(this->window_pairs_j));
+            CUDA_CHECK_RETURN(cudaFree(this->window_pairs_i));
+            CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_fc));
+            CUDA_CHECK_RETURN(cudaFree(this->windows_mean_fc));
+            CUDA_CHECK_RETURN(cudaFree(this->windows_fc_trils));
+            CUDA_CHECK_RETURN(cudaFree(this->windows_ssd_bold));
+            CUDA_CHECK_RETURN(cudaFree(this->windows_mean_bold));
+            CUDA_CHECK_RETURN(cudaFree(this->window_ends));
+            CUDA_CHECK_RETURN(cudaFree(this->window_starts));
+        }
+        #ifdef USE_FLOATS
+        CUDA_CHECK_RETURN(cudaFree(this->d_fc_trils));
+        #endif
+        CUDA_CHECK_RETURN(cudaFree(this->pairs_j));
+        CUDA_CHECK_RETURN(cudaFree(this->pairs_i));
+        CUDA_CHECK_RETURN(cudaFree(this->fc_trils));
+        CUDA_CHECK_RETURN(cudaFree(this->ssd_bold));
+        CUDA_CHECK_RETURN(cudaFree(this->mean_bold));
+    }
     CUDA_CHECK_RETURN(cudaFree(this->BOLD));
     if (this->base_conf.ext_out) {
         for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {

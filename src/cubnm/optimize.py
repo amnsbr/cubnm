@@ -93,16 +93,16 @@ class GridSearch:
                 self.sim_group.param_lists[param]
             )
 
-    def evaluate(self, emp_fc_tril, emp_fcd_tril):
+    def evaluate(self, emp_fc_tril=None, emp_fcd_tril=None):
         """
         Runs the grid simulations and evaluates their
         goodness of fit to the empirical FC and FCD
 
         Parameters
         ----------
-        emp_fc_tril : :obj:`np.ndarray`
+        emp_fc_tril : :obj:`np.ndarray` or :obj:`None`
             lower triangular part of empirical FC. Shape: (edges,)
-        emp_fcd_tril : :obj:`np.ndarray`
+        emp_fcd_tril : :obj:`np.ndarray` or :obj:`None`
             lower triangular part of empirical FCD. Shape: (window_pairs,)
 
         Returns
@@ -119,8 +119,8 @@ class BNMProblem(Problem):
         self,
         model,
         params,
-        emp_fc_tril,
-        emp_fcd_tril,
+        emp_fc_tril=None,
+        emp_fcd_tril=None,
         het_params=[],
         maps=None,
         maps_coef_range='auto',
@@ -143,9 +143,9 @@ class BNMProblem(Problem):
             a dictionary including parameter names as keys and their
             fixed values (:obj:`float`) or continuous range of
             values (:obj:`tuple` of (min, max)) as values.
-        emp_fc_tril : :obj:`np.ndarray`
+        emp_fc_tril : :obj:`np.ndarray` or :obj:`None`
             lower triangular part of empirical FC. Shape: (edges,)
-        emp_fcd_tril : :obj:`np.ndarray`
+        emp_fcd_tril : :obj:`np.ndarray` or :obj:`None`
             lower triangular part of empirical FCD. Shape: (window_pairs,)
         het_params : :obj:`list` of :obj:`str`, optional
             which regional parameters are heterogeneous across nodes
@@ -189,6 +189,20 @@ class BNMProblem(Problem):
         # initialize sim_group (N not known yet)
         sim_group_cls = getattr(sim, f"{self.model}SimGroup")
         self.sim_group = sim_group_cls(**kwargs)
+        # set do_fc and do_fcd to True if empirical data is provided
+        self.sim_group.do_fc = False
+        self.sim_group.do_fcd = False
+        if (self.emp_fc_tril is not None):
+            self.sim_group.do_fc = True
+            if (self.emp_fcd_tril is not None):
+                self.sim_group.do_fcd = True
+        elif (self.emp_fcd_tril is not None):
+            # note: as separate fc and fcd calculation is not
+            # supported on simulation side, if fcd is provided
+            # set do_fc to true as well (but then simulated fc
+            # will be ignored)
+            self.sim_group.do_fc = True
+            self.sim_group.do_fcd = True
         # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")

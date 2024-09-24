@@ -7,7 +7,7 @@ class BaseModel {
 public:
     BaseModel(
         int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
-        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed,
+        int time_steps, bool do_delay, int rand_seed,
         u_real dt, u_real bw_dt
         ) : nodes{nodes},
             N_SIMS{N_SIMS},
@@ -16,8 +16,6 @@ public:
             states_sampling{states_sampling},
             time_steps{time_steps},
             do_delay{do_delay},
-            window_size{window_size},
-            window_step{window_step},
             rand_seed{rand_seed},
             dt{dt}, // in msec
             bw_dt{bw_dt / 1000.0} // input is in msec, but bw_dt is in seconds in the code
@@ -33,7 +31,7 @@ public:
 
     virtual void update(
         int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
-        int time_steps, bool do_delay, int window_size, int window_step, int rand_seed,
+        int time_steps, bool do_delay, int rand_seed,
         u_real dt, u_real bw_dt
         ) {
             this->nodes = nodes;
@@ -43,8 +41,6 @@ public:
             this->states_sampling = states_sampling;
             this->time_steps = time_steps;
             this->do_delay = do_delay;
-            this->window_size = window_size;
-            this->window_step = window_step;
             this->rand_seed = rand_seed;
             this->dt = dt; // msec
             this->bw_dt = bw_dt / 1000.0; // input is in msec, but bw_dt is in seconds in the code
@@ -73,17 +69,17 @@ public:
 
     virtual void free_cpu();
 
-    int nodes{}, N_SIMS{}, N_SCs{}, BOLD_TR{}, states_sampling{}, time_steps{}, 
-        window_size{}, window_step{}, rand_seed{}, n_pairs{}, n_windows{}, 
-        n_window_pairs{}, bold_len{}, bold_size{}, states_len{}, states_size{},
-        n_vols_remove{}, n_states_samples_remove{}, corr_len{}, 
-        noise_size{}, noise_repeats{}, max_delay{},
+    int nodes{0}, N_SIMS{0}, N_SCs{0}, BOLD_TR{0}, states_sampling{0}, time_steps{0}, 
+        rand_seed{0}, n_pairs{0}, n_windows{0}, 
+        n_window_pairs{0}, bold_len{0}, bold_size{0}, states_len{0}, states_size{0},
+        n_vols_remove{0}, n_states_samples_remove{0}, corr_len{0}, 
+        noise_size{0}, noise_repeats{0}, max_delay{0},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
         last_noise_time_steps{0},
-        bw_it{}, inner_it{}, BOLD_TR_iters{}, states_sampling_iters{};
+        bw_it{0}, inner_it{0}, BOLD_TR_iters{0}, states_sampling_iters{0};
         // TODO: make some short or size_t
-    bool cpu_initialized{false}, modifies_params{false}, do_delay{}, co_launch{};
-    u_real dt{}, bw_dt{};
+    bool cpu_initialized{false}, modifies_params{false}, do_delay{false}, co_launch{false};
+    u_real dt{0.1}, bw_dt{0.001};
     
     #ifdef _GPU_ENABLED
     virtual void free_gpu();
@@ -108,19 +104,21 @@ public:
     #endif
 
     struct Config {
+        bool verbose{false}; // print simulation info + progress
+        bool do_fc{true};
+        bool do_fcd{true};
         int bold_remove_s{30};
         bool exc_interhemispheric{true};
+        int window_size{10};
+        int window_step{2};
         bool drop_edges{true};
-        bool sync_msec{false};
         bool ext_out{true};
         bool states_ts{false};
-        // set a default length of noise segment (msec)
-        int noise_time_steps{30000};
-        bool verbose{false}; // print simulation info + progress
-        int progress_interval{500}; // msec; interval for updating progress
+        int noise_time_steps{30000}; // msec
+        int progress_interval{500}; // msec; real time interval for updating progress
         bool serial{false};
     };
-    
+
     Config base_conf;
 
     void print_config() {
@@ -131,16 +129,18 @@ public:
         std::cout << "states_sampling: " << states_sampling << std::endl;
         std::cout << "time_steps: " << time_steps << std::endl;
         std::cout << "do_delay: " << do_delay << std::endl;
-        std::cout << "window_size: " << window_size << std::endl;
-        std::cout << "window_step: " << window_step << std::endl;
         std::cout << "rand_seed: " << rand_seed << std::endl;
         std::cout << "exc_interhemispheric: " << base_conf.exc_interhemispheric << std::endl;
-        std::cout << "sync_msec: " << base_conf.sync_msec << std::endl;
         std::cout << "verbose: " << base_conf.verbose << std::endl;
         std::cout << "progress_interval: " << base_conf.progress_interval << std::endl;
         std::cout << "bold_remove_s: " << base_conf.bold_remove_s << std::endl;
         std::cout << "drop_edges: " << base_conf.drop_edges << std::endl;
+        std::cout << "ext_out: " << base_conf.ext_out << std::endl;
+        std::cout << "do_fc: " << base_conf.do_fc << std::endl;
+        std::cout << "do_fcd: " << base_conf.do_fcd << std::endl;
+        std::cout << "states_ts: " << base_conf.states_ts << std::endl;
         std::cout << "noise_time_steps: " << base_conf.noise_time_steps << std::endl;
+        std::cout << "serial: " << base_conf.serial << std::endl;
     }
 
     virtual void set_conf(std::map<std::string, std::string> config_map) {
@@ -269,14 +269,20 @@ protected:
         // Note: some of the base_conf members (ext_out, states_ts) 
         // are set directly based on arguments passed from Python
         for (const auto& pair : config_map) {
-            if (pair.first == "exc_interhemispheric") {
-                this->base_conf.exc_interhemispheric = (bool)std::stoi(pair.second);
-            } else if (pair.first == "sync_msec") {
-                this->base_conf.sync_msec = (bool)std::stoi(pair.second);
-            } else if (pair.first == "verbose") {
+            if (pair.first == "verbose") {
                 this->base_conf.verbose = (bool)std::stoi(pair.second);
+            } else if (pair.first == "do_fc") {
+                this->base_conf.do_fc = (bool)std::stoi(pair.second);
+            } else if (pair.first == "do_fcd") {
+                this->base_conf.do_fcd = (bool)std::stoi(pair.second);
             } else if (pair.first == "bold_remove_s") {
                 this->base_conf.bold_remove_s = std::stoi(pair.second);
+            } else if (pair.first == "exc_interhemispheric") {
+                this->base_conf.exc_interhemispheric = (bool)std::stoi(pair.second);
+            } else if (pair.first == "window_size") {
+                this->base_conf.window_size = std::stoi(pair.second);
+            } else if (pair.first == "window_step") {
+                this->base_conf.window_step = std::stoi(pair.second);
             } else if (pair.first == "drop_edges") {
                 this->base_conf.drop_edges = (bool)std::stoi(pair.second);
             } else if (pair.first == "noise_time_steps") {

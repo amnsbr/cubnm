@@ -216,7 +216,10 @@ void bnm(
     }
 
     // allocate memory to BOLD gsl matrix used for FC and FCD calculation
-    gsl_matrix * bold_gsl = gsl_matrix_alloc(model->bold_len, model->nodes);
+    gsl_matrix * bold_gsl;
+    if (model->base_conf.do_fc) {
+        bold_gsl = gsl_matrix_alloc(model->bold_len, model->nodes);
+    }
 
     // define global input function
     HGlobalInputFunc h_global_input_func;
@@ -313,7 +316,9 @@ void bnm(
         if ((bw_i+1) % model->BOLD_TR_iters == 0) {
             for (j = 0; j<model->nodes; j++) {
                 BOLD_ex[(bold_i*model->nodes)+j] = bwc.V_0 * (bwc.k1 * (1 - bw_q[j]) + bwc.k2 * (1 - bw_q[j]/bw_nu[j]) + bwc.k3 * (1 - bw_nu[j]));
-                gsl_matrix_set(bold_gsl, bold_i, j, BOLD_ex[(bold_i*model->nodes)+j]);
+                if (model->base_conf.do_fc) {
+                    gsl_matrix_set(bold_gsl, bold_i, j, BOLD_ex[(bold_i*model->nodes)+j]);
+                }
             }
             bold_i++;
             // update progress
@@ -454,23 +459,30 @@ void bnm(
         }
     }
 
-    // Calculate FC and FCD
-    // for FC discard first n_vols_remove of BOLD
-    // (for FCD this is not needed as window_starts
-    // starts after n_vols_remove, as calcualated in get_dfc_windows)
-    gsl_matrix_view bold_window =  gsl_matrix_submatrix(
-        bold_gsl, 
-        model->n_vols_remove, 0, 
-        model->bold_len-model->n_vols_remove, model->nodes);
-    gsl_vector * fc_tril = model->calculate_fc_tril(&bold_window.matrix);
-    gsl_vector * fcd_tril = model->calculate_fcd_tril(bold_gsl, model->window_starts, model->window_ends);
-
-    // copy FC and FCD to numpy arrays
-    memcpy(fc_tril_out, gsl_vector_ptr(fc_tril, 0), sizeof(double) * model->n_pairs);
-    memcpy(fcd_tril_out, gsl_vector_ptr(fcd_tril, 0), sizeof(double) * model->n_window_pairs);
-
-    // Free memory
-    gsl_vector_free(fcd_tril); gsl_vector_free(fc_tril); gsl_matrix_free(bold_gsl);
+    if (model->base_conf.do_fc) {
+        // Calculate FC and FCD
+        // for FC discard first n_vols_remove of BOLD
+        // (for FCD this is not needed as window_starts
+        // starts after n_vols_remove, as calcualated in get_dfc_windows)
+        gsl_matrix_view bold_window =  gsl_matrix_submatrix(
+            bold_gsl, 
+            model->n_vols_remove, 0, 
+            model->bold_len-model->n_vols_remove, model->nodes);
+        // calculate FC and copy to numpy arrays
+        gsl_vector * fc_tril = model->calculate_fc_tril(&bold_window.matrix);
+        memcpy(fc_tril_out, gsl_vector_ptr(fc_tril, 0), sizeof(double) * model->n_pairs);
+        if (model->base_conf.do_fcd) {
+            // calculate FCD and copy to numpy arrays
+            gsl_vector * fcd_tril = model->calculate_fcd_tril(bold_gsl, model->window_starts, model->window_ends);
+            memcpy(fcd_tril_out, gsl_vector_ptr(fcd_tril, 0), sizeof(double) * model->n_window_pairs);
+            // free memory
+            gsl_vector_free(fcd_tril);
+        }
+        // free memory
+        gsl_vector_free(fc_tril);
+        gsl_matrix_free(bold_gsl);
+    }
+    // free memory
     free(bw_x); free(bw_f); free(bw_nu); free(bw_q); 
     if (has_delay) {
         free(conn_state_var_hist);
@@ -605,28 +617,35 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
             }
         }
     }
-
-    // specify n_vols_remove (for FC(D) calculations)
-    m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR; 
     // specifiy n_states_samples_remove (for states mean calculations)
     m->n_states_samples_remove = m->base_conf.bold_remove_s * 1000 / m->states_sampling;
-    // calculate length of BOLD after removing initial volumes
-    m->corr_len = m->bold_len - m->n_vols_remove;
-    if (m->corr_len < 2) {
-        std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
-        exit(1);
+
+    if (m->base_conf.do_fc) {
+        // specify n_vols_remove (for FC(D) calculations)
+        m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR; 
+        // calculate length of BOLD after removing initial volumes
+        m->corr_len = m->bold_len - m->n_vols_remove;
+        if (m->corr_len < 2) {
+            std::cerr << "Number of BOLD volumes (after removing initial volumes) is too low for FC calculations" << std::endl;
+            exit(1);
+        }
+        // calculate the number of FC pairs
+        m->n_pairs = get_fc_n_pairs(m->nodes, m->base_conf.exc_interhemispheric);
+        if (!m->base_conf.do_fcd) {
+            m->n_windows = 0;
+            m->n_window_pairs = 0;
+        } else {
+            // calculate the number of windows and their start-ends
+            m->n_windows = get_dfc_windows(
+                &(m->window_starts), &(m->window_ends), 
+                m->corr_len, m->bold_len, m->n_vols_remove,
+                m->base_conf.window_step, m->base_conf.window_size,
+                m->base_conf.drop_edges
+                );
+            // calculate the number of window pairs
+            m->n_window_pairs = (m->n_windows * (m->n_windows-1)) / 2;
+        }
     }
-    // calculate the number of FC pairs
-    m->n_pairs = get_fc_n_pairs(m->nodes, m->base_conf.exc_interhemispheric);
-    // calculate the number of windows and their start-ends
-    m->n_windows = get_dfc_windows(
-        &(m->window_starts), &(m->window_ends), 
-        m->corr_len, m->bold_len, m->n_vols_remove,
-        m->window_step, m->window_size,
-        m->base_conf.drop_edges
-        );
-    // calculate the number of window pairs
-    m->n_window_pairs = (m->n_windows * (m->n_windows-1)) / 2;
 
     // check if noise needs to be calculated
     if (
