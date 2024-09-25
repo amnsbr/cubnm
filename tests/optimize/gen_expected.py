@@ -39,7 +39,7 @@ def gen_expected(optimizer_name):
         problem_args['multiobj'] = True
     problem = optimize.BNMProblem(**problem_args)
     # initialize optimizer and register problem
-    optimizer = Optimizer(popsize=10, n_iter=2, seed=0)
+    optimizer = Optimizer(popsize=10, n_iter=2, seed=1)
     optimizer.setup_problem(problem)
     # run optimization
     optimizer.optimize()

@@ -865,6 +865,13 @@ class CMAESOptimizer(PymooOptimizer):
             cmaes.save()
         """
         super().__init__(**kwargs)
+        if self.seed == 0:
+            print(
+                "Warning: Seed value for CMAES is set to 0."
+                " This will result in different random initializations for each run"
+                " due to a bug in `cma`. Setting seed to 100 instead."
+            )
+            self.seed = 100
         self.use_bound_penalty = (
             use_bound_penalty  # this option will be set after problem is set up
         )
