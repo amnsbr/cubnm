@@ -97,6 +97,7 @@ class SimGroup:
             calculate simulated functional connectivity dynamics (FCD)
         window_size: :obj:`int`, optional
             dynamic FC window size (in TR)
+            Must be even. The actual window size is +1 (including center)
         window_step: :obj:`int`, optional
             dynamic FC window step (in TR)
         rand_seed: :obj:`int`, optional
@@ -211,6 +212,7 @@ class SimGroup:
                                  " Set do_fcd to True or remove FCD-related goodness-of-fit"
                                  " terms.")
         self.window_size = window_size
+        assert self.window_size % 2 == 0, "Window size must be even"
         self.window_step = window_step
         self.rand_seed = rand_seed
         self.exc_interhemispheric = exc_interhemispheric
@@ -258,7 +260,7 @@ class SimGroup:
             raise ValueError(
                 "states_sampling cannot be lower than 0.001s "
                 "which is model dt"
-            )                
+            )
         # determine number of nodes based on sc dimensions
         self.nodes = self.sc.shape[0]
         self.use_cpu = (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
@@ -717,7 +719,7 @@ class SimGroup:
         """
         pass
 
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None):
+    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
 
@@ -727,14 +729,38 @@ class SimGroup:
             1D array of empirical FC lower triangle. Shape: (edges,)
         emp_fcd_tril: :obj:`np.ndarray` or None
             1D array of empirical FCD lower triangle. Shape: (window_pairs,)
+        emp_bold: :obj:`np.ndarray` or None
+            cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
+            Motion outliers should either be excluded (not recommended as it disrupts
+            the temporal structure) or replaced with zeros.
+            If provided emp_fc_tril and emp_fcd_tril will be ignored.
 
         Returns
         -------
         scores: :obj:`pd.DataFrame`
             The goodness of fit measures (columns) of each simulation (rows)
         """
+        # calculate empirical FC and FCD if BOLD is provided
+        if emp_bold is not None:
+            if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
+                print(
+                    "Warning: Both empirical BOLD and empirical FC/FCD are"
+                    " provided. Empirical FC/FCD will be calculated based on"
+                    " BOLD and will be overwritten."
+                )
+            if self.do_fc:
+                emp_fc_tril = utils.calculate_fc(emp_bold, self.exc_interhemispheric, return_tril=True)
+            if self.do_fcd:
+                emp_fcd_tril = utils.calculate_fcd(
+                    emp_bold, 
+                    self.window_size, 
+                    self.window_step, 
+                    drop_edges=self.fcd_drop_edges,
+                    exc_interhemispheric=self.exc_interhemispheric,
+                    return_tril=True,
+                    return_dfc = False
+                )
         # + => aim to maximize; - => aim to minimize
-        # TODO: add the option to provide empirical BOLD as input
         # get list of columns to be calculated
         # based on availability of FC and FCD (simulated and empirical)
         # and gof_terms
@@ -781,9 +807,11 @@ class SimGroup:
         """
         out_data = dict(
             sim_bold=self.sim_bold,
-            sim_fc_trils=self.sim_fc_trils,
-            sim_fcd_trils=self.sim_fcd_trils,
         )
+        if self.do_fc:
+            out_data['sim_fc_trils'] = self.sim_fc_trils
+        if self.do_fcd:
+            out_data['sim_fcd_trils'] = self.sim_fcd_trils
         if self.ext_out:
             out_data['sim_states'] = self.sim_states
         out_data.update(self.param_lists)
@@ -1028,7 +1056,7 @@ class rWWSimGroup(SimGroup):
             # write FIC (+ numerical adjusted) wIE to param_lists
             self.param_lists["wIE"] = self._regional_params[2].reshape(self.N, -1)
     
-    def score(self, emp_fc_tril, emp_fcd_tril, fic_penalty_scale=2):
+    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, fic_penalty_scale=2):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
         In FIC models also calculates fic_penalty.
@@ -1039,6 +1067,11 @@ class rWWSimGroup(SimGroup):
             1D array of empirical FC lower triangle. Shape: (edges,)
         emp_fcd_tril: :obj:`np.ndarray`
             1D array of empirical FCD lower triangle. Shape: (window_pairs,)
+        emp_bold: :obj:`np.ndarray` or None
+            cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
+            Motion outliers should either be excluded (not recommended as it disrupts
+            the temporal structure) or replaced with zeros.
+            If provided emp_fc_tril and emp_fcd_tril will be ignored.
         fic_penalty_scale: :obj:`float`, optional
             scale of the FIC penalty term.
             Set to 0 to disable the FIC penalty term.
@@ -1050,7 +1083,7 @@ class rWWSimGroup(SimGroup):
         scores: :obj:`pd.DataFrame`
             The goodness of fit measures (columns) of each simulation (rows)
         """
-        scores = super().score(emp_fc_tril, emp_fcd_tril)
+        scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold)
         # calculate FIC penalty
         if self.do_fic & self.fic_penalty:
             if self.states_ts:

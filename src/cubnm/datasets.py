@@ -45,17 +45,19 @@ def load_sc(what, parc, return_path=False):
 
 def load_functional(what, parc, exc_interhemispheric=False, return_path=False):
     """
-    Load example lower triangle of FC/FCD
+    Load example funcitonal data including lower triangle of FC/FCD
+    or BOLD time series
 
     Parameters
     --------
-    what: {'FC', 'FCD'}
+    what: {'FC', 'FCD', 'bold'}
         - 'FC': functional connectivity
         - 'FCD': functional connectivity dynamics
     parc: 'schaefer-100'
         parcellation
     exc_interhemispheric: :obj:`bool`, optional
         whether to exclude interhemispheric connections
+        valid for 'FC' and 'FCD'
     return_path : :obj:`bool`, optional
         If True, returns path to the file
         Otherwise, returns the matrix
@@ -64,25 +66,30 @@ def load_functional(what, parc, exc_interhemispheric=False, return_path=False):
     Returns
     --------
     :obj:`np.ndarray` or :obj:`str`
-        Lower triangle of FC/FCD matrix or path to its
-        text file. Shape: (n_pairs,)
+        Path to a text file or numpy array including:
+        - 'FC': Shape: (n_node_pairs,)
+        - 'FCD': Shape: (n_window_pairs,)
+        - 'bold': Shape: (nodes, volumes)
     """
     # TODO: Add other parcellations
-    filename = f"ctx_parc-{parc}_hemi-LR"
-    if exc_interhemispheric:
-        filename += "_exc-inter"
-    filename += f"_desc-{what}tril.txt"
+    if what == "bold":
+        filename = f"ctx_parc-{parc}_desc-bold.txt"
+    else:
+        filename = f"ctx_parc-{parc}_hemi-LR"
+        if exc_interhemispheric:
+            filename += "_exc-inter"
+        filename += f"_desc-{what}tril.txt"
     path = files("cubnm.data").joinpath(filename).as_posix()
     if return_path:
         return path
     try:
-        tril = np.loadtxt(path)
+        out = np.loadtxt(path)
     except FileNotFoundError:
         print(
             f"{what} for {parc} parcellation (exc_interhemispheric {exc_interhemispheric}) does not exist"
         )
         return
-    return tril
+    return out
 
 
 def load_maps(names, parc, norm="minmax"):

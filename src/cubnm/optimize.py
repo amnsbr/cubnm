@@ -15,7 +15,7 @@ from pymoo.termination import get_termination
 import cma
 import skopt
 
-from cubnm import sim
+from cubnm import sim, utils
 
 
 class GridSearch:
@@ -93,7 +93,7 @@ class GridSearch:
                 self.sim_group.param_lists[param]
             )
 
-    def evaluate(self, emp_fc_tril=None, emp_fcd_tril=None):
+    def evaluate(self, emp_fc_tril=None, emp_fcd_tril=None, bold=None):
         """
         Runs the grid simulations and evaluates their
         goodness of fit to the empirical FC and FCD
@@ -104,7 +104,12 @@ class GridSearch:
             lower triangular part of empirical FC. Shape: (edges,)
         emp_fcd_tril : :obj:`np.ndarray` or :obj:`None`
             lower triangular part of empirical FCD. Shape: (window_pairs,)
-
+        emp_bold: :obj:`np.ndarray` or None
+            cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
+            Motion outliers should either be excluded (not recommended as it disrupts
+            the temporal structure) or replaced with zeros.
+            If provided emp_fc_tril and emp_fcd_tril will be ignored.
+            
         Returns
         -------
         :obj:`pd.DataFrame`
@@ -121,6 +126,7 @@ class BNMProblem(Problem):
         params,
         emp_fc_tril=None,
         emp_fcd_tril=None,
+        emp_bold=None,
         het_params=[],
         maps=None,
         maps_coef_range='auto',
@@ -147,6 +153,11 @@ class BNMProblem(Problem):
             lower triangular part of empirical FC. Shape: (edges,)
         emp_fcd_tril : :obj:`np.ndarray` or :obj:`None`
             lower triangular part of empirical FCD. Shape: (window_pairs,)
+        emp_bold: :obj:`np.ndarray` or None
+            cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
+            Motion outliers should either be excluded (not recommended as it disrupts
+            the temporal structure) or replaced with zeros.
+            If provided emp_fc_tril and emp_fcd_tril will be ignored.
         het_params : :obj:`list` of :obj:`str`, optional
             which regional parameters are heterogeneous across nodes
         maps : :obj:`str`, optional
@@ -180,6 +191,7 @@ class BNMProblem(Problem):
         self.params = params
         self.emp_fc_tril = emp_fc_tril
         self.emp_fcd_tril = emp_fcd_tril
+        self.emp_bold=emp_bold
         self.het_params = kwargs.pop("het_params", het_params)
         self.input_maps = kwargs.pop("maps", maps)
         self.maps_coef_range = kwargs.pop("maps_coef_range", maps_coef_range)
@@ -189,20 +201,46 @@ class BNMProblem(Problem):
         # initialize sim_group (N not known yet)
         sim_group_cls = getattr(sim, f"{self.model}SimGroup")
         self.sim_group = sim_group_cls(**kwargs)
-        # set do_fc and do_fcd to True if empirical data is provided
-        self.sim_group.do_fc = False
-        self.sim_group.do_fcd = False
-        if (self.emp_fc_tril is not None):
-            self.sim_group.do_fc = True
-            if (self.emp_fcd_tril is not None):
+        # calculate empirical FC and FCD if BOLD is provided
+        # and do_fc/do_fcd are set to True
+        if emp_bold is not None:
+            if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
+                print(
+                    "Warning: Both empirical BOLD and empirical FC/FCD are"
+                    " provided. Empirical FC/FCD will be calculated based on"
+                    " BOLD and will be overwritten."
+                )
+            if self.sim_group.do_fc:
+                self.emp_fc_tril = utils.calculate_fc(
+                    self.emp_bold, 
+                    self.sim_group.exc_interhemispheric, 
+                    return_tril=True)
+            if self.sim_group.do_fcd:
+                self.emp_fcd_tril = utils.calculate_fcd(
+                    self.emp_bold, 
+                    self.sim_group.window_size, 
+                    self.sim_group.window_step, 
+                    drop_edges=self.sim_group.fcd_drop_edges,
+                    exc_interhemispheric=self.sim_group.exc_interhemispheric,
+                    return_tril=True,
+                    return_dfc = False
+                )
+        else:
+            # when BOLD is not provided but empirical FC/FCD are
+            # set do_fc and do_fcd based on the provided data
+            self.sim_group.do_fc = False
+            self.sim_group.do_fcd = False
+            if (self.emp_fc_tril is not None):
+                self.sim_group.do_fc = True
+                if (self.emp_fcd_tril is not None):
+                    self.sim_group.do_fcd = True
+            elif (self.emp_fcd_tril is not None):
+                # note: as separate fc and fcd calculation is not
+                # supported on simulation side, if fcd is provided
+                # set do_fc to true as well (but then simulated fc
+                # will be ignored)
+                self.sim_group.do_fc = True
                 self.sim_group.do_fcd = True
-        elif (self.emp_fcd_tril is not None):
-            # note: as separate fc and fcd calculation is not
-            # supported on simulation side, if fcd is provided
-            # set do_fc to true as well (but then simulated fc
-            # will be ignored)
-            self.sim_group.do_fc = True
-            self.sim_group.do_fcd = True
         # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")

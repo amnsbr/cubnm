@@ -13,7 +13,11 @@ def main():
     if args.cmd not in ['grid', 'optimize']:
         parser.print_help()
         return
-
+    
+    # additional validations
+    # make sure either bold, fc or fcd are provided
+    if (args.emp_fc_tril is None) and (args.emp_fcd_tril is None) and (args.emp_bold is None):
+        parser.error("At least one of the following must be provided: --emp_fc_tril, --emp_fcd_tril, --emp_bold")
 
     if not args.no_print_args:
         # pretty print the command and its arguments
@@ -32,9 +36,18 @@ def main():
     del args.no_print_args
     
     # additional refinement of arguments
+    args.do_fc = not args.no_fc
+    args.do_fcd = not args.no_fcd
     args.fcd_drop_edges = not args.fcd_keep_edges
     args.ext_out = not args.no_ext_out
-    del args.fcd_keep_edges, args.no_ext_out
+    del args.no_fc, args.no_fcd, args.fcd_keep_edges, args.no_ext_out
+
+    # add +/- to gof terms
+    for i, term in enumerate(args.gof_terms):
+        if term == 'fc_corr':
+            args.gof_terms[i] = '+' + term
+        else:
+            args.gof_terms[i] = '-' + term
 
     # use example input data if requested
     if args.sc == 'example':
@@ -50,6 +63,10 @@ def main():
         args.emp_fcd_tril = datasets.load_functional(
             'FCD', 'schaefer-100', 
              exc_interhemispheric=args.exc_interhemispheric
+        )
+    if args.emp_bold == 'example':
+        args.emp_bold = datasets.load_functional(
+            'bold', 'schaefer-100'
         )
     if (args.cmd == 'optimize') and (args.maps == 'example'):
         args.maps = datasets.load_maps(
@@ -79,12 +96,13 @@ def run_grid(args):
     # Remove extra arguments
     emp_fc_tril = args.emp_fc_tril
     emp_fcd_tril = args.emp_fcd_tril
-    del args.cmd, args.emp_fc_tril, args.emp_fcd_tril
+    emp_bold = args.emp_bold
+    del args.cmd, args.emp_fc_tril, args.emp_fcd_tril, args.emp_bold
     # initialize GridSearch and run it
     gs = optimize.GridSearch(
         **vars(args)
     )
-    scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
+    scores = gs.evaluate(emp_fc_tril, emp_fcd_tril, emp_bold)
     # save the grid and scores
     gs.sim_group.save()
     params_scores = pd.concat([gs.param_combs, scores], axis=1)
@@ -104,6 +122,9 @@ def run_optimize(args):
         params=args.params,
         emp_fc_tril=args.emp_fc_tril,
         emp_fcd_tril=args.emp_fcd_tril,
+        emp_bold=args.emp_bold,
+        do_fc=args.do_fc,
+        do_fcd=args.do_fcd,
         het_params=args.het_params,
         maps=args.maps,
         maps_coef_range=args.maps_coef_range,

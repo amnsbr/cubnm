@@ -85,12 +85,20 @@ def add_shared_arguments(parser):
                         help='Balloon-Windkessel model integration step (msec)')
     parser.add_argument('-d', '--out_dir', type=str, default="same", 
                         help='Output directory')
-    # TODO: emp FC and FCD do not have to be required for grid search
-    # TODO: FCD does not have to be required when fcd_ks is not in GOF terms
-    parser.add_argument('--emp_fc_tril', type=str, required=True,
-                        help='Functional connectivity lower triangle .txt file or "example"')
-    parser.add_argument('--emp_fcd_tril', type=str, required=True,
-                        help='Functional connectivity dynamics lower triangle .txt file or "example"')
+    parser.add_argument('--emp_fc_tril', type=str,
+                    help='Functional connectivity lower triangle as space-separated .txt file or "example"')
+    parser.add_argument('--emp_fcd_tril', type=str,
+                    help='Functional connectivity dynamics lower triangle as space-separated .txt file or "example"')
+    parser.add_argument('--emp_bold', type=str,
+                    help='Cleaned and parcellated BOLD signal as space-separated .txt file or "example"'
+                        ' BOLD signal should be in the shape (nodes, volumes).'
+                        ' Motion outliers should either be excluded (not recommended as it disrupts'
+                        ' the temporal structure) or replaced with zeros.'
+                        ' If provided emp_fc_tril and emp_fcd_tril will be ignored.')
+    parser.add_argument('--no_fc', action='store_true', 
+                        help='Do not calculate simulated/empirical FC')
+    parser.add_argument('--no_fcd', action='store_true', 
+                        help='Do not calculate simulated/empirical FCD')
     parser.add_argument('--rand_seed', type=int, default=410, 
                         help='Simulation noise seed')
     parser.add_argument('--noise_segment_length', type=int, default=30, 
@@ -105,9 +113,8 @@ def add_shared_arguments(parser):
                         choices=['friston2003', 'heinzle2016-3T'],
                         help='Balloon Windkessel parameters')
     parser.add_argument('--bold_remove_s', type=int, default=30, 
-                        help='Remove initial n seconds of the simulation from BOLD'
-                           ' and average of state variables'
-                       )
+                        help='Remove initial n seconds of the simulation from FC/FCD calculations'
+                           ' and average of state variables')
     parser.add_argument('--window_size', type=int, default=10, 
                         help='FCD window size')
     parser.add_argument('--window_step', type=int, default=2, 
@@ -118,9 +125,9 @@ def add_shared_arguments(parser):
                         help='Keep edge windows from FCD calculations')
     parser.add_argument('--gof_terms',
                         type=lambda s: s.split(','),
-                        default=["+fc_corr","-fcd_ks"],
+                        default=["fc_corr","fcd_ks"],
                         help='Goodness of fit terms (comma separated in quotation marks)'
-                            ' e.g. "+fc_corr,-fcd_ks".'
+                            ' e.g. "fc_corr,fcd_ks".'
                        )
     parser.add_argument('--force_cpu', action='store_true', 
                         help='Force CPU')
