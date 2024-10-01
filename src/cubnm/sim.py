@@ -6,6 +6,7 @@ import scipy.stats
 import pandas as pd
 import os
 import gc
+import copy
 from decimal import Decimal
 
 from cubnm._core import run_simulations, set_const
@@ -512,9 +513,10 @@ class SimGroup:
         else:
             sc = np.ascontiguousarray(self.sc.reshape(self.sc.shape[0], -1))
             sc_indices = np.ascontiguousarray(self.sc_indices.astype(np.intc))
-        # make sure sc indices are correctly in (0, N_SCs-1)
+        # make sure sc indices are correctly in {0, ..., N_SCs-1}
         assert sc.shape[0] == np.unique(sc_indices).size
-        assert np.sort(np.unique(sc_indices)) == np.arange(np.unique(sc_indices).size)
+        assert (np.sort(np.unique(sc_indices)) == np.arange(np.unique(sc_indices).size)).all()
+        assert sc_indices.size == self.N
         out = run_simulations(
             self.model_name,
             sc,
@@ -1383,3 +1385,150 @@ class KuramotoSimGroup(SimGroup):
             if self.states_ts:
                 for k in self.sim_states:
                     self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
+
+class MultiSimGroupMixin:
+    def __init__(self, sim_groups):
+        """
+        Mixin for combining multiple simulation groups into one,
+        which is intended for batch optimization, i.e. running multiple
+        optimizations at the same time on GPU.
+        """
+        self.children = sim_groups
+        # copy all attributes of the first child
+        # it is important to deep copy the attributes as
+        # some (e.g. param_lists) are modifiable
+        # this also assumes that all children have the same attributes
+        # except SC which can be variable
+        # TODO: add a check that this is the case
+        self.__dict__.update(copy.deepcopy(sim_groups[0].__dict__))
+
+    @property
+    def N(self):
+        return sum([child.N for child in self.children])
+    
+    def run(self, **kwargs):
+        """
+        Runs merged simulations of all children
+        by concatenating SCs and parameters
+        and then running all simulations in parallel
+        as a single merged simulation group.
+
+        Parameters
+        ----------
+        **kwargs
+            keyword arguments to be passed to `cubnm.sim.SimGroup.run` method
+        """
+        # concatenate SCs while allowing variable SCs
+        # across children
+        for child_i, child in enumerate(self.children):
+            # make a copy of current child's SCs
+            child_scs = child.sc.copy()
+            # make scs 3D (n_scs, nodes, nodes)
+            if (child_scs.ndim == 2):
+                child_scs = child_scs[None, :, :]
+            # create sc_indices as all zeros if only one SC is used
+            # in current child
+            if (child_scs.shape[0] == 1):
+                child_sc_indices = np.zeros(child.N, dtype=int)
+            else:
+                child_sc_indices = np.array(child.sc_indices).copy()
+            # initialize merged sim group SC as the first child SC(s)
+            if child_i == 0:
+                self.sc = child_scs
+                self.sc_indices = child_sc_indices
+            else:
+                # for subsequent children check if SC is already in self.sc
+                # (and then update the indices to point to correct sc for each
+                # simulation), otherwise add the SC to self.sc (and update the
+                # indices with a new index pointing to the new SC)
+                sc_indices = child_sc_indices
+                for sc_i, sc in enumerate(child_scs):
+                    if ~np.isclose(sc, self.sc).all(axis=(1, 2)).any():
+                        # if SC is not already in self.sc, add it
+                        # as a new SC with a new index
+                        self.sc = np.concatenate([self.sc, sc[None, :, :]], axis=0)
+                        new_sc_idx = self.sc_indices.max()+1
+                        sc_indices[sc_indices == sc_i] = new_sc_idx
+                    else:
+                        # if SC is already in self.sc, find its index
+                        # and just update the sc_indices to reflect the duplicate
+                        # which already exist. In this case there is no need to
+                        # add the SC to self.sc as it already exists there
+                        dupl_sc_idx = np.where(np.isclose(sc, self.sc).all(axis=(1, 2)))[0][0]
+                        sc_indices[sc_indices == sc_i] = dupl_sc_idx
+                    # update self.sc_indices
+                    self.sc_indices = np.concatenate([self.sc_indices, sc_indices], axis=0)
+        # convert sc back to 2D if same SC is used in all simulations
+        self.sc = np.squeeze(self.sc)
+        # concatenate parameters
+        for param in self.param_lists:
+            self.param_lists[param] = np.concatenate(
+                [child.param_lists[param] for child in self.children]
+            )
+        # run the simulations
+        super().run(**kwargs)
+
+    def _process_out(self, out):
+        """
+        Divides simulations outputs across individual
+        children SimGroup objects which will respectively
+        convert the output to attributes with correct shapes,
+        names and types. See `cubnm.sim.SimGroup._process_out`
+        for details.
+
+        Parameters
+        ----------
+        out: :obj:`tuple`
+            output of `run_simulations` function
+        """
+        start_idx = 0
+        for child in self.children:
+            end_idx = start_idx + child.N
+            # break down self._regional_params and self._global_params
+            # (which may be modified in run) into children as they may
+            # be used in _process_out of children (e.g. in rWW)
+            child._regional_params = self._regional_params[:, start_idx:end_idx]
+            child._global_params = self._global_params[:, start_idx:end_idx]
+            # break down simulation output elements
+            out_child = []
+            out_child.append(out[0]) # init time
+            out_child.append(out[1]) # run time
+            for var_idx in range(2, len(out)): # other outputs
+                # determine which index has N elements
+                # TODO: this is very "hacky". Ideally sim_idx should always be at
+                # the first axis. It can easily break if e.g. BOLD TRs is equal to N!
+                sim_axis = np.where(np.array(out[var_idx].shape) == self.N)[0][0]
+                # break down the output into children based on the axis
+                if sim_axis == 0:
+                    out_child.append(out[var_idx][start_idx:end_idx])
+                elif sim_axis == 1:
+                    out_child.append(out[var_idx][:, start_idx:end_idx])
+                elif sim_axis == 2:
+                    out_child.append(out[var_idx][:, :, start_idx:end_idx])
+            # update start_idx for the next child
+            start_idx += child.N
+            # process the output of the child
+            child._process_out(out_child)
+
+def create_multi_sim_group(sim_group_cls):
+    """
+    Dynamically creates a MultiSimGroup class by combining
+    a model's specific <Model>SimGroup class with MultiSimGroupMixin,
+    which can be used in batch optimization.
+
+    Parameters
+    ----------
+    sim_group_cls: :obj:`type`
+        e.g. rWWSimGroup, rWWExSimGroup, KuramotoSimGroup
+    
+    Returns
+    -------
+    MultiSimGroup: :obj:`type`
+        MultiSimGroup class that can be used in batch optimization
+    """
+    MultiSimGroup = type(
+        'MultiSimGroup',
+        (MultiSimGroupMixin, sim_group_cls),
+        {}
+    )
+    return MultiSimGroup

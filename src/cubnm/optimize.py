@@ -3,9 +3,11 @@ Optimizers of the model free parameters
 """
 import os
 import itertools
+import copy
 from abc import ABC, abstractmethod
 import json
 import pickle
+import random
 import numpy as np
 import pandas as pd
 from pymoo.core.problem import Problem
@@ -530,8 +532,17 @@ class BNMProblem(Problem):
             the output dictionary to store the results with keys 'F' and 'G'.
             Currently only 'F' (cost) is used.
         *args, **kwargs
+            additional arguments passed to the evaluation function
+            kwargs may include:
+            - scores : :obj:`list`
+                an empty list passed on to evaluation function to store
+                the individual goodness of fit measures
+            - skip_run: :obj:`bool`, optional
+                will only be true in batch optimization where the simulations
+                are already run and only the GOF calculation is needed
         """
-        scores = self.eval(X)
+        skip_run = kwargs.pop("skip_run", False)
+        scores = self.eval(X, skip_run=skip_run)
         kwargs["scores"].append(scores)
         if self.multiobj:
             out["F"] = -scores.loc[:, self.sim_group.gof_terms].values
@@ -540,7 +551,7 @@ class BNMProblem(Problem):
         # extend cost function by model-specific costs (e.g. FIC penalty in rWW)
         self.sim_group._problem_evaluate(self, X, out, *args, **kwargs)
 
-    def eval(self, X):
+    def eval(self, X, skip_run=False):
         """
         Runs the simulations based on normalized candidate free
         parameters `X` and evaluates their goodness of fit to
@@ -551,6 +562,10 @@ class BNMProblem(Problem):
         X : :obj:`np.ndarray`
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
+        skip_run: :obj:`bool`, optional
+            will only be true in batch optimization where the simulations
+            are already run and only the GOF calculation is needed
+
         
         Returns
         -------
@@ -562,7 +577,8 @@ class BNMProblem(Problem):
         # CMAES initial guess to its next iterations
         self.sim_group.N = X.shape[0]
         self._set_sim_params(X)
-        self.sim_group.run()
+        if not skip_run:
+            self.sim_group.run()
         return self.sim_group.score(self.emp_fc_tril, self.emp_fcd_tril)
 
 
@@ -780,16 +796,12 @@ class PymooOptimizer(Optimizer):
             # returned the evaluated individuals which have been evaluated or even modified
             self.algorithm.tell(infills=pop)
             # TODO: do same more things, printing, logging, storing or even modifying the algorithm object
-            X = np.array([p.x for p in self.algorithm.pop])
+            X = np.array([p.x for p in pop])
             Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
             Xt.index.name = "sim_idx"
-            F = np.array([p.F for p in self.algorithm.pop])
+            F = np.array([p.F for p in pop])
             F = pd.DataFrame(F, columns=self.problem.obj_names)
             if self.problem.multiobj:
-                # in multiobj optimizers simulations are reordered after scores are calculated
-                # therefore don't concatenate scores to them
-                # TODO: make sure this doesn't happen with the other single-objective optimizers
-                # (other than CMAES)
                 res = pd.concat([Xt, F], axis=1)
             else:
                 res = pd.concat([Xt, F, scores[0]], axis=1)
@@ -1008,3 +1020,193 @@ class BayesOptimizer(Optimizer):
         self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
         self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
         self.opt = self.opt_history.loc[self.opt_history["F"].argmin()]
+
+
+def batch_optimize(optimizers, problems, setup_kwargs={}):
+    """
+    Optimize a batch of optimizers in parallel (without requiring
+    multiple CPU cores when using GPUs).
+
+    Parameters
+    ----------
+    optimizers : :obj:`list` of :obj:`cubnm.optimize.PymooOptimizer` 
+            or :obj:`cubnm.optimize.PymooOptimizer`
+        A (list of) optimizer instance(s) to be run in parallel.
+        If not a list, the same optimizer will be used for all problems
+        and problems must be a list.
+    problems : :obj:`list` of :obj:`cubnm.optimize.BNMProblem`
+            or :obj:`cubnm.optimize.BNMProblem`
+        A (list of) problem instance(s) to be set up with the optimizers.
+        Will be mapped one-to-one with the optimizers.
+        If not a list, the same problem will be used in all optimizers
+        and optimizers must be a list.
+    setup_kwargs : :obj:`dict`, optional
+        kwargs passed on to `cubnm.optimize.PymooOptimizer.setup_problem` method
+        
+    Returns
+    -------
+    optimizers : :obj:`list` of :obj:`cubnm.optimize.PymooOptimizer`
+        A list of optimizer instances which have been run in parallel
+
+
+    Example
+    -------
+    Run CMAES for two subjects (with different SC and functional data) in a batch: ::
+
+        from cubnm import datasets, optimize
+
+        # assuming sub1 and sub2 SC and BOLD are available as
+        # numpy arrays `sc_sub1`, `sc_sub2`, `bold_sub1`, `bold_sub2`
+
+        # shared problem configuration
+        problem_kwargs = dict(
+            model = 'rWW',
+            params = {
+                'G': (1.0, 3.0),
+                'wEE': (0.05, 0.5),
+                'wEI': 0.15,
+            },
+            duration = 60,
+            TR = 1,
+        )
+        # problem for subject 1
+        p_sub1 = optimize.BNMProblem(
+            sc = sc_sub1,
+            emp_bold = bold_sub1,
+            **problem_kwargs
+        )
+        # problem for subject 2
+        p_sub2 = optimize.BNMProblem(
+            sc = sc_sub2,
+            emp_bold = bold_sub2,
+            **problem_kwargs
+        )
+        # optimizer
+        cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=10, seed=1)
+        # batch optimization
+        optimizers = optimize.batch_optimize(cmaes, [p_sub1, p_sub2])
+        # print optima
+        print(optimizers[0].opt)
+        print(optimizers[1].opt)
+    """
+    assert any([isinstance(optimizers, list), isinstance(problems, list)]), (
+        "At least one of optimizers or problems must be a list"
+    )
+    # repeat optimizers/problems across problems/optimizers
+    # if a single one rather than a list is provided
+    if not isinstance(optimizers, list):
+        optimizers = [optimizers] * len(problems)
+    if not isinstance(problems, list):
+        problems = [problems] * len(optimizers)
+    assert len(optimizers) == len(problems), (
+        "Same number of optimizers and problems must be provided."
+    )
+    assert all(isinstance(o, PymooOptimizer) for o in optimizers), (
+        "Batch optimization is only supported for PymooOptimizer derived classes"
+    )
+    assert len(set([type(p.sim_group) for p in problems])) == 1, (
+        "All optimizations must be done on the same type of model."
+    )
+    # create deep copies of the optimizer to ensure that 
+    # (in case the same optimizer object is used) they
+    # do not conflict with each other
+    optimizers = [copy.deepcopy(o) for o in optimizers]
+    # do the same for problems to ensure that
+    # (if same problem object is used, e.g. when running
+    # multiple optimizer runs of the same problem with
+    # different seeds) the problem sim groups do not conflict
+    problems = [copy.deepcopy(p) for p in problems]
+    # dynamically define a MultiSimGroup of the type
+    # matching the SimGroup of the first optimizer in the list
+    # this will be used to create instances of MultiSimGroup
+    # containing ongoing optimizers sim_groups in each iteration
+    MultiSimGroup = sim.create_multi_sim_group(type(problems[0].sim_group))
+    # to avoid conflict between random states of optimizers we must manually
+    # keep track of the random states of each optimizer
+    # just to be sure we also keep track of the base random states
+    # and switch to it before setting up each optimizer to its problem
+    base_np_rand_state = np.random.get_state()
+    base_py_rand_state = random.getstate()
+    # initialization: set-up problem, keep track of random states and
+    # initialize history
+    for i, optimizer in enumerate(optimizers):
+        # recall base random state
+        np.random.set_state(base_np_rand_state)
+        random.setstate(base_py_rand_state)
+        # set up the problem
+        optimizer.setup_problem(problems[i], **setup_kwargs)
+        # store optimizer's np and python random states
+        optimizer.np_rand_state = np.random.get_state()
+        optimizer.py_rand_state = random.getstate()
+        # initialize history
+        optimizer.history = []
+        optimizer.opt_history = []
+    # optimization loop continues until all optimizers have finished
+    while any([optimizer.algorithm.has_next() for optimizer in optimizers]):
+        # get the ongoing optimizers
+        ongoing_optimizers = [o for o in optimizers if o.algorithm.has_next()]
+        # create a multi-sim group by concatenating the sim groups of the optimizers
+        msg = MultiSimGroup([o.problem.sim_group for o in ongoing_optimizers])
+        # get the next populations for each optimizer
+        pops = []
+        for optimizer in ongoing_optimizers:
+            # recall optimizer's latest random state
+            np.random.set_state(optimizer.np_rand_state)
+            random.setstate(optimizer.py_rand_state)
+            # ask the algorithm for the next solution to be evaluated
+            pop = optimizer.algorithm.ask()
+            # set the optimizer's own sim_group parameters based on pop
+            X = np.array([p.x for p in pop])
+            optimizer.problem.sim_group.N = X.shape[0]
+            optimizer.problem._set_sim_params(X)
+            pops.append(pop)
+            # store the random state for the next iteration
+            optimizer.np_rand_state = np.random.get_state()
+            optimizer.py_rand_state = random.getstate()
+        # run the simulations of all ongoing optimizers
+        # in parallel
+        msg.run()
+        # evaluate gof (without running simulations) and tell the algorithm
+        for i, optimizer in enumerate(ongoing_optimizers):
+            # recall optimizer's latest random state
+            np.random.set_state(optimizer.np_rand_state)
+            random.setstate(optimizer.py_rand_state)
+            scores = []  # pass on an empty scores list to the evaluator to store the individual GOF measures
+            # evalulate pop without running the simulation (as it is already run)
+            optimizer.algorithm.evaluator.eval(optimizer.problem, pops[i], scores=scores, skip_run=True)
+            if not optimizer.save_history_sim:
+                # clear current simulation data
+                optimizer.problem.sim_group.clear()
+            # returned the evaluated individuals which have been evaluated or even modified
+            optimizer.algorithm.tell(infills=pops[i])
+            # store the history
+            X = np.array([p.x for p in pops[i]])
+            Xt = pd.DataFrame(optimizer.problem._get_Xt(X), columns=optimizer.problem.free_params)
+            Xt.index.name = "sim_idx"
+            F = np.array([p.F for p in pops[i]])
+            F = pd.DataFrame(F, columns=optimizer.problem.obj_names)
+            if optimizer.problem.multiobj:
+                res = pd.concat([Xt, F], axis=1)
+            else:
+                res = pd.concat([Xt, F, scores[0]], axis=1)
+            res["gen"] = optimizer.algorithm.n_gen - 1
+            if optimizer.print_history:
+                print(res.to_string())
+            optimizer.history.append(res)
+            if optimizer.problem.n_obj == 1:
+                # a single optimum can be defined from each population
+                optimizer.opt_history.append(res.loc[res["cost"].argmin()])
+            # store the random state for the next iteration
+            optimizer.np_rand_state = np.random.get_state()
+            optimizer.py_rand_state = random.getstate()
+        # clear and delete MultiSimGroup instance created for this iteration
+        msg.clear()
+        del msg
+    # organize history and assign optima
+    for optimizer in optimizers:
+        optimizer.history = pd.concat(optimizer.history, axis=0).reset_index(drop=False)
+        if optimizer.problem.n_obj == 1:
+            # a single optimum can be defined
+            optimizer.opt_history = pd.DataFrame(optimizer.opt_history).reset_index(drop=True)
+            optimizer.opt = optimizer.history.loc[optimizer.history["cost"].argmin()]
+    return optimizers

@@ -1,5 +1,6 @@
 import numpy as np
 from cubnm import optimize, sim, datasets
+import copy
 
 def run_sim_group(N_SIMS=2, force_cpu=False):
     nodes = 100
@@ -329,3 +330,74 @@ def run_nsga2_optimizer_het(force_cpu=False):
     optimizer.setup_problem(problem)
     optimizer.optimize()
     return optimizer
+
+def run_batch_optimize_diff_sub():
+    sc_sub1 = datasets.load_sc('strength', 'schaefer-100')
+    sc_sub2 = sc_sub1[::-1, ::-1].copy()
+    bold_sub1 = datasets.load_functional('bold', 'schaefer-100')
+    bold_sub2 = bold_sub1[::-1, ::-1].copy()
+    # shared problem configuration
+    problem_kwargs = dict(
+        model = 'rWW',
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+        },
+        duration = 60,
+        TR = 1,
+    )
+    # problem for subject 1
+    p_sub1 = optimize.BNMProblem(
+        sc = sc_sub1,
+        emp_bold = bold_sub1,
+        **problem_kwargs
+    )
+    # problem for subject 2
+    p_sub2 = optimize.BNMProblem(
+        sc = sc_sub2,
+        emp_bold = bold_sub2,
+        **problem_kwargs
+    )
+    # optimizers
+    cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
+    # batch optimization
+    optimizers = optimize.batch_optimize(cmaes, [p_sub1, p_sub2])
+    # print optima
+    print(optimizers[0].opt)
+    print(optimizers[1].opt)
+    return optimizers
+
+def run_batch_optimize_identical():
+    sc = datasets.load_sc('strength', 'schaefer-100')
+    bold = datasets.load_functional('bold', 'schaefer-100')
+    # shared problem configuration
+    problem_kwargs = dict(
+        model = 'rWW',
+        params = {
+            'G': (1.0, 3.0),
+            'wEE': (0.05, 0.5),
+            'wEI': 0.15,
+        },
+        duration = 60,
+        TR = 1,
+        sc = sc,
+        emp_bold = bold
+    )
+    problem = optimize.BNMProblem(
+        **problem_kwargs
+    )
+    # optimizer
+    cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
+    # batch optimization
+    optimizers = optimize.batch_optimize([cmaes, cmaes], [problem, problem])
+    # print optima
+    print(optimizers[0].opt)
+    print(optimizers[1].opt)
+    
+    # serial optimizer
+    cmaes_ind = optimize.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
+    cmaes_ind.setup_problem(problem)
+    cmaes_ind.optimize()
+    print(cmaes_ind.opt)
+    return optimizers[0], optimizers[1], cmaes_ind

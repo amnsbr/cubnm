@@ -79,66 +79,64 @@ void rWWModel::prep_params(
         ) {
     // Set wIE to output of analytical FIC
     // if FIC is enabled
-    // copy SC to SC_gsl if FIC is needed
-    static std::vector<gsl_matrix*> SCs_gsl;
-    if (this->conf.do_fic) {
-        // copy SC to SC_gsl (only once)
-        #ifdef OMP_ENABLED
-        #pragma omp critical
-        #endif
-        {
-            bool copy_sc = false;
-            if (SCs_gsl.size() == 0) {
-                copy_sc = true;
-            } else {
-                if (SCs_gsl[0]->size1 != this->nodes) {
-                  for (auto &SC_gsl : SCs_gsl)
-                    gsl_matrix_free(SC_gsl);
-                    copy_sc = true;
+    if (!(this->conf.do_fic)) {
+        return;
+    }
+    // copy SC to SCs_gsl
+    std::vector<gsl_matrix*> SCs_gsl;
+    #ifdef OMP_ENABLED
+    #pragma omp critical
+    #endif
+    {
+        for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
+            gsl_matrix* SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
+            for (int j = 0; j < this->nodes; j++) {
+                for (int k = 0; k < this->nodes; k++) {
+                    // while copying transpose it from the shape (source, target) to (target, source)
+                    // as this is the format expected by the FIC function
+                    gsl_matrix_set(SC_gsl, j, k, SC[SC_idx][k*nodes + j]);
                 }
             }
-            if (copy_sc) {
-                for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
-                    gsl_matrix* SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
-                    for (int j = 0; j < this->nodes; j++) {
-                        for (int k = 0; k < this->nodes; k++) {
-                            // while copying transpose it from the shape (source, target) to (target, source)
-                            // as this is the format expected by the FIC function
-                            gsl_matrix_set(SC_gsl, j, k, SC[SC_idx][k*nodes + j]);
-                        }
-                    }
-                    SCs_gsl.push_back(SC_gsl);
-                }
-           }
+            SCs_gsl.push_back(SC_gsl);
         }
-        gsl_vector * curr_w_IE = gsl_vector_alloc(this->nodes);
-        double *curr_w_EE = (double *)malloc(this->nodes * sizeof(double));
-        double *curr_w_EI = (double *)malloc(this->nodes * sizeof(double));
-        for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
-            // make a copy of regional wEE and wEI
+    }
+    gsl_vector * curr_w_IE = gsl_vector_alloc(this->nodes);
+    double *curr_w_EE = (double *)malloc(this->nodes * sizeof(double));
+    double *curr_w_EI = (double *)malloc(this->nodes * sizeof(double));
+    for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
+        // make a copy of regional wEE and wEI
+        for (int j=0; j<this->nodes; j++) {
+            curr_w_EE[j] = (double)(regional_params[0][sim_idx*this->nodes+j]);
+            curr_w_EI[j] = (double)(regional_params[1][sim_idx*this->nodes+j]);
+        }
+        // do FIC for the current particle
+        global_out_bool[0][sim_idx] = false;
+        analytical_fic_het(
+            SCs_gsl[SC_indices[sim_idx]], global_params[0][sim_idx], 
+            curr_w_EE, curr_w_EI,
+            curr_w_IE, global_out_bool[0]+sim_idx);
+        if (global_out_bool[0][sim_idx]) {
+            std::cout << "In simulation #" << sim_idx << 
+                " FIC solution is unstable. Setting wIE to 1 in all nodes" << std::endl;
             for (int j=0; j<this->nodes; j++) {
-                curr_w_EE[j] = (double)(regional_params[0][sim_idx*this->nodes+j]);
-                curr_w_EI[j] = (double)(regional_params[1][sim_idx*this->nodes+j]);
+                regional_params[2][sim_idx*this->nodes+j] = 1.0;
             }
-            // do FIC for the current particle
-            global_out_bool[0][sim_idx] = false;
-            analytical_fic_het(
-                SCs_gsl[SC_indices[sim_idx]], global_params[0][sim_idx], 
-                curr_w_EE, curr_w_EI,
-                curr_w_IE, global_out_bool[0]+sim_idx);
-            if (global_out_bool[0][sim_idx]) {
-                std::cout << "In simulation #" << sim_idx << 
-                    " FIC solution is unstable. Setting wIE to 1 in all nodes" << std::endl;
-                for (int j=0; j<this->nodes; j++) {
-                    regional_params[2][sim_idx*this->nodes+j] = 1.0;
-                }
-            } else {
-                // copy to w_IE_fic which will be passed on to the device
-                for (int j=0; j<this->nodes; j++) {
-                    regional_params[2][sim_idx*this->nodes+j] = (u_real)gsl_vector_get(curr_w_IE, j);
-                }
+        } else {
+            // copy to w_IE_fic which will be passed on to the device
+            for (int j=0; j<this->nodes; j++) {
+                regional_params[2][sim_idx*this->nodes+j] = (u_real)gsl_vector_get(curr_w_IE, j);
             }
         }
+    }
+    #ifdef OMP_ENABLED
+    #pragma omp critical
+    #endif
+    {
+        // free SCs_gsl and empty the vector
+        for (auto &SC_gsl : SCs_gsl) {
+            gsl_matrix_free(SC_gsl);
+        }
+        SCs_gsl.clear();
     }
 }
 

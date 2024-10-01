@@ -35,7 +35,7 @@ def get_test_params(cpu_gpu_identity=False):
     """
     test_params = []
     # get all model names
-    model_names = [m.replace('SimGroup', '') for m in dir(sim) if 'SimGroup' in m]
+    model_names = [m.replace('SimGroup', '') for m in dir(sim) if m.endswith('SimGroup')]
     model_names.remove('')
     # get all possible combinations
     for model in model_names:
