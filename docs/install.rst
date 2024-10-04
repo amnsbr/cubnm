@@ -11,7 +11,7 @@ Requirements:
 Additional requirements for GPU functionality:
 
 * NVIDIA GPU: In theory GPU devices with Compute Capability >= 2.x should be supported, but the code is not tested using devices with Compute Capability < 6.0.
-* NVIDIA Driver >= 450.80.02
+* NVIDIA Driver >= 520.61.05
 
 Install via:
 

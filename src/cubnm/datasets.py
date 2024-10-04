@@ -112,9 +112,6 @@ def load_maps(names, parc, norm="minmax"):
     norm: {'zscore', 'minmax', None}
         - 'zscore': maps are z-score normalized
         - 'minmax': maps are min-max normalized to [0, 1]
-    return_path : :obj:`bool`, optional
-        If True, returns path to the file
-        Otherwise, returns the matrix
 
     Returns
     --------

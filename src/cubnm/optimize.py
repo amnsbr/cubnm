@@ -1041,7 +1041,7 @@ def batch_optimize(optimizers, problems, setup_kwargs={}):
         If not a list, the same problem will be used in all optimizers
         and optimizers must be a list.
     setup_kwargs : :obj:`dict`, optional
-        kwargs passed on to `cubnm.optimize.PymooOptimizer.setup_problem` method
+        kwargs passed on to :meth:`cubnm.optimize.PymooOptimizer.setup_problem`
         
     Returns
     -------
