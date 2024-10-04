@@ -30,7 +30,7 @@ Requirements:
 * Linux operating system
 * Python >= 3.7
 * GCC: Pre-built wheels were compiled using version 10.2.1 but alternative versions can be used.
-* `GSL 2.7 <https://www.gnu.org/software/gsl/>`_: If GSL is not found (in ``"/usr/lib"``, ``"/lib"``, ``"/usr/local/lib"``, ``"~/miniconda/lib"``, ``$LIBRARY_PATH``, ``$LD_LIBRARY_PATH``) it will be installed and built by the package in ``~/.cubnm/gsl``, but this takes a rather long time (5+ minutes). If you have GSL 2.7 installed find the location of its libraries ``libgsl.a`` and ``libgslcblas.a`` and add the directory to ``$LIBRARY_PATH``. In this case note that GSL must have been built with ``--enable-shared`` option.
+* `GSL 2.7 <https://www.gnu.org/software/gsl/>`_: If GSL is not found (in ``"/usr/lib"``, ``"/lib"``, ``"/usr/local/lib"``, ``"~/miniconda/lib"``, ``$LIBRARY_PATH``, ``$LD_LIBRARY_PATH``) it will be installed and built by the package in ``~/.cubnm/gsl``, but this takes a rather long time (5+ minutes). A faster and recommended alternative would be to use a conda environment and do ``conda install -y --no-deps -c conda-forge gsl=2.7``, then add conda environment's ``lib`` directory to ``$LIBRARY_PATH``, and then install the package from source. If you have GSL 2.7 installed elsewhere find the location of its libraries ``libgsl.a`` and ``libgslcblas.a`` and add the directory to ``$LIBRARY_PATH``. In this case note that GSL must have been built with ``--enable-shared`` option.
 
 Additional requirements for GPU functionality:
 
