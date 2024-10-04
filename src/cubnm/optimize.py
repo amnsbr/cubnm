@@ -55,8 +55,8 @@ class GridSearch:
                 sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
                 states_ts = True
             )
-            emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
-            emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+            emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
+            emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
             scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
         """
         self.model = model
@@ -864,8 +864,8 @@ class CMAESOptimizer(PymooOptimizer):
                     'wEE': (0.05, 0.75),
                     'wEI': 0.15,
                 },
-                emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True),
-                emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True),
+                emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
+                emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
                 duration = 60,
                 TR = 1,
                 sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),

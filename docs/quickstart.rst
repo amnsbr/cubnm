@@ -18,8 +18,8 @@ Run a CMAES optimization of reduced Wong Wang model with G and wEE as free param
             'wEE': (0.05, 0.75),
             'wEI': 0.15,
         },
-        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True),
-        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True),
+        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
+        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
         duration = 60,
         TR = 1,
         sc = datasets.load_sc('strength', 'schaefer-100'),
@@ -62,8 +62,8 @@ maps (HCP T1w/T2w, HCP FC G1):
         },
         het_params = ['wEE', 'wEI'],
         maps = datasets.load_maps(['myelinmap', 'fcgradient01'], 'schaefer-100', norm='zscore'),
-        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True),
-        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True),
+        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
+        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
         duration = 60,
         TR = 1,
         sc = datasets.load_sc('strength', 'schaefer-100'),
@@ -113,8 +113,8 @@ Run a 10x10 grid search of reduced Wong Wang model with G and wEE as free parame
         sim_verbose = True,
         out_dir = './grid',
     )
-    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100', exc_interhemispheric=True)
-    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100', exc_interhemispheric=True)
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
     scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
 
 Using command line interface:
