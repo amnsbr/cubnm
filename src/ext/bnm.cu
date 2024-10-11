@@ -1235,6 +1235,10 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
     // check CUDA device avaliability and properties
     prop = get_device_prop(m->base_conf.verbose);
 
+    // free memory allocated in previous runs
+    // (in first run it will do nothing)
+    m->free_gpu();
+
     // set up constants (based on dt and bw dt)
     Model::init_constants(m->dt);
     init_bw_constants(&bwc, m->bw_dt);
@@ -1258,6 +1262,13 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC[SC_idx]), sizeof(u_real) * m->nodes*m->nodes));
     }
     CUDA_CHECK_RETURN(cudaMallocManaged(&(m->d_SC_indices), sizeof(int) * m->N_SIMS));
+    
+    // keep track of number of SCs and simulations for which
+    // memory was allocated to later free them accordingly
+    // (otherwise if changed in the next call, freeing memory
+    // will be done incorrectly and may access invalid memory)
+    m->alloc_N_SCs = m->N_SCs; // keep track of allocated SCs for freeing later
+    m->alloc_N_SIMS = m->N_SIMS; // keep track of allocated number of simulations for freeing later
  
     // allocate device memory for simulation parameters
     // size of global_params is (n_global_params, N_SIMS)
@@ -1302,6 +1313,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
                 CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->states_out[var_idx][sim_idx]), sizeof(u_real) * ext_out_size));
             }
         }
+        m->alloc_states_out = true;
     }
 
     // specifiy n_states_samples_remove (for states mean calculations)
@@ -1359,7 +1371,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         // use d_fc_trils as an alias for fc_trils
         m->d_fc_trils = m->fc_trils;
         #endif
-
+        m->alloc_fc = true;
         // FCD preparation
         if (!m->base_conf.do_fcd) {
             // Note: since FC and FCD calculations are entangled in some
@@ -1422,6 +1434,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
             // use d_fc_trils as an alias for fcd_trils
             m->d_fcd_trils = m->fcd_trils;
             #endif
+            m->alloc_fcd = true;
         }
     }
 
@@ -1463,6 +1476,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         (!m->gpu_initialized) ||
         force_reinit
         ) {
+        // free memory of noise (in first run will do nothing)
+        m->free_gpu_noise();
         // pre-calculate normally-distributed noise on CPU
         // this is necessary to ensure consistency of noise given the same seed
         // doing the same thing directly on the device is more challenging
@@ -1480,14 +1495,6 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         #endif
         if (m->base_conf.verbose) {
             std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;
-        }
-        if (m->last_nodes != 0) {
-            // noise is being recalculated, free the previous one
-            CUDA_CHECK_RETURN(cudaFree(m->noise));
-            #ifdef NOISE_SEGMENT
-            CUDA_CHECK_RETURN(cudaFree(m->shuffled_nodes));
-            CUDA_CHECK_RETURN(cudaFree(m->shuffled_ts));
-            #endif
         }
         m->last_time_steps = m->time_steps;
         m->last_nodes = m->nodes;
@@ -1515,19 +1522,19 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         get_shuffled_nodes_ts(&(m->shuffled_nodes), &(m->shuffled_ts),
             m->nodes, m->noise_bw_it, m->noise_repeats, &rand_gen);
         #endif
+        m->gpu_noise_initialized = true;
     } else {
         if (m->base_conf.verbose) {
             std::cout << "Noise already precalculated" << std::endl;
         }
     }
-
     m->gpu_initialized = true;
 }
 
 void BaseModel::free_gpu() {
     if (strcmp(this->get_name(), "Base")==0) {
         // skip freeing memory for BaseModel
-        // though free_gpu normally is not called for BaseModel
+        // though it is normally not called for BaseModel
         // but keeping it here for safety
         return;
     }
@@ -1538,14 +1545,9 @@ void BaseModel::free_gpu() {
     if (this->base_conf.verbose) {
         std::cout << "Freeing GPU memory (" << this->get_name() << ")" << std::endl;
     }
-    #ifdef NOISE_SEGMENT
-    CUDA_CHECK_RETURN(cudaFree(this->shuffled_nodes));
-    CUDA_CHECK_RETURN(cudaFree(this->shuffled_ts));
-    #endif
-    CUDA_CHECK_RETURN(cudaFree(this->noise));
-    for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
-        if (this->base_conf.do_fc) {
-            if (this->base_conf.do_fcd) {
+    for (int sim_idx=0; sim_idx<this->alloc_N_SIMS; sim_idx++) {
+        if (this->alloc_fc) {
+            if (this->alloc_fcd) {
                 #ifdef USE_FLOATS
                 CUDA_CHECK_RETURN(cudaFree(this->d_fcd_trils[sim_idx]));
                 #endif
@@ -1565,8 +1567,8 @@ void BaseModel::free_gpu() {
         }
         CUDA_CHECK_RETURN(cudaFree(this->BOLD[sim_idx]));
     }
-    if (this->base_conf.do_fc) {
-        if (this->base_conf.do_fcd) {
+    if (this->alloc_fc) {
+        if (this->alloc_fcd) {
             #ifdef USE_FLOATS
             CUDA_CHECK_RETURN(cudaFree(this->d_fcd_trils));
             #endif
@@ -1580,6 +1582,7 @@ void BaseModel::free_gpu() {
             CUDA_CHECK_RETURN(cudaFree(this->windows_mean_bold));
             CUDA_CHECK_RETURN(cudaFree(this->window_ends));
             CUDA_CHECK_RETURN(cudaFree(this->window_starts));
+            this->alloc_fcd = false;
         }
         #ifdef USE_FLOATS
         CUDA_CHECK_RETURN(cudaFree(this->d_fc_trils));
@@ -1589,16 +1592,18 @@ void BaseModel::free_gpu() {
         CUDA_CHECK_RETURN(cudaFree(this->fc_trils));
         CUDA_CHECK_RETURN(cudaFree(this->ssd_bold));
         CUDA_CHECK_RETURN(cudaFree(this->mean_bold));
+        this->alloc_fc = false;
     }
     CUDA_CHECK_RETURN(cudaFree(this->BOLD));
-    if (this->base_conf.ext_out) {
+    if (this->alloc_states_out) {
         for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {
-            for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
+            for (int sim_idx=0; sim_idx<this->alloc_N_SIMS; sim_idx++) {
                 CUDA_CHECK_RETURN(cudaFree(this->states_out[var_idx][sim_idx]));
             }
             CUDA_CHECK_RETURN(cudaFree(this->states_out[var_idx]));
         }
         CUDA_CHECK_RETURN(cudaFree(this->states_out));
+        this->alloc_states_out = false;
     }
     if (this->get_n_global_out_bool() > 0) {
         for (int i=0; i<this->get_n_global_out_bool(); i++) {
@@ -1625,8 +1630,27 @@ void BaseModel::free_gpu() {
         CUDA_CHECK_RETURN(cudaFree(this->d_global_params));
     }
     CUDA_CHECK_RETURN(cudaFree(this->d_SC_indices));
-    for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
+    for (int SC_idx=0; SC_idx<this->alloc_N_SCs; SC_idx++) {
         CUDA_CHECK_RETURN(cudaFree(this->d_SC[SC_idx]));
     }
     CUDA_CHECK_RETURN(cudaFree(this->d_SC));
+}
+
+void BaseModel::free_gpu_noise() {
+    if (strcmp(this->get_name(), "Base")==0) {
+        // skip freeing memory for BaseModel
+        // though it is normally not called for BaseModel
+        // but keeping it here for safety
+        return;
+    }
+    if (!this->gpu_noise_initialized) {
+        // if noise is not initialized, skip freeing memory
+        return;
+    }
+    #ifdef NOISE_SEGMENT
+    CUDA_CHECK_RETURN(cudaFree(this->shuffled_nodes));
+    CUDA_CHECK_RETURN(cudaFree(this->shuffled_ts));
+    #endif
+    CUDA_CHECK_RETURN(cudaFree(this->noise));
+    this->gpu_noise_initialized = false;
 }

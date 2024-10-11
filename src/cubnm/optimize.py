@@ -1142,11 +1142,21 @@ def batch_optimize(optimizers, problems, setup_kwargs={}):
         optimizer.history = []
         optimizer.opt_history = []
     # optimization loop continues until all optimizers have finished
+    it = 0
+    last_N = 0
+    last_config = None
     while any([optimizer.algorithm.has_next() for optimizer in optimizers]):
         # get the ongoing optimizers
         ongoing_optimizers = [o for o in optimizers if o.algorithm.has_next()]
         # create a multi-sim group by concatenating the sim groups of the optimizers
         msg = MultiSimGroup([o.problem.sim_group for o in ongoing_optimizers])
+        if it > 0:
+            # this is to avoid reinitialization of MultiSimGroup
+            # as it is created and destroyed in each iteration
+            # TODO: avoid destroying and recreating MultiSimGroup 
+            # in each iteration
+            msg.last_N = last_N
+            msg.last_config = last_config
         # get the next populations for each optimizer
         pops = []
         for optimizer in ongoing_optimizers:
@@ -1199,6 +1209,12 @@ def batch_optimize(optimizers, problems, setup_kwargs={}):
             # store the random state for the next iteration
             optimizer.np_rand_state = np.random.get_state()
             optimizer.py_rand_state = random.getstate()
+        # since MultiSimGroup is created and destroyed in each
+        # iteration, keep track of its last_N and last_config
+        # to avoid reinitialization (except when N is different)
+        last_N = copy.deepcopy(msg.last_N)
+        last_config = copy.deepcopy(msg.last_config)
+        it+=1
         # clear and delete MultiSimGroup instance created for this iteration
         msg.clear()
         del msg

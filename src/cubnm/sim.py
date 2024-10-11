@@ -415,8 +415,7 @@ class SimGroup:
         config = {
             "duration": self.duration,
             "TR": self.TR,
-            "sc": self.input_sc,
-            "sc_dist": self.input_sc_dist,
+            "nodes": self.nodes,
             "ext_out": self.ext_out,
             "states_ts": self.states_ts,
             "states_sampling": self.states_sampling,
@@ -428,14 +427,20 @@ class SimGroup:
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
             "force_gpu": self.force_gpu,
-            "bw_params": self.bw_params,
             "bold_remove_s": self.bold_remove_s,
             "fcd_drop_edges": self.fcd_drop_edges,
             "noise_segment_length": self.noise_segment_length,
         }
         if not for_reinit:
+            # these are features that if changed
+            # will not require reinitialization in core
+            # (reallocation of memory and/or recalculation
+            # of noise)
             config["out_dir"] = self.input_out_dir
             config["gof_terms"] = self.gof_terms
+            config["sc"] = self.input_sc
+            config["sc_dist"] = self.input_sc_dist
+            config["bw_params"] = self.bw_params
             if include_N:
                 config["N"] = self.N
         return config

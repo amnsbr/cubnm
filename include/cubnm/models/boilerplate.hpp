@@ -63,9 +63,15 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     ~CLASS_NAME() { \
         if (cpu_initialized) { \
             this->free_cpu(); \
+            if (cpu_noise_initialized) { \
+                this->free_cpu_noise(); \
+            } \
         } \
         if (gpu_initialized) { \
             this->free_gpu(); \
+            if (gpu_noise_initialized) { \
+                this->free_gpu_noise(); \
+            } \
         } \
     } \
     static constexpr char* name = NAME; \
@@ -191,6 +197,9 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     ~CLASS_NAME() { \
         if (cpu_initialized) { \
             this->free_cpu(); \
+            if (cpu_noise_initialized) { \
+                this->free_cpu_noise(); \
+            } \
         } \
     } \
     static constexpr char* name = NAME; \

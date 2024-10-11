@@ -68,6 +68,7 @@ public:
     }
 
     virtual void free_cpu();
+    virtual void free_cpu_noise();
 
     int nodes{0}, N_SIMS{0}, N_SCs{0}, BOLD_TR{0}, states_sampling{0}, time_steps{0}, 
         rand_seed{0}, n_pairs{0}, n_windows{0}, 
@@ -76,14 +77,18 @@ public:
         noise_size{0}, noise_repeats{0}, max_delay{0},
         last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
         last_noise_time_steps{0},
-        bw_it{0}, inner_it{0}, BOLD_TR_iters{0}, states_sampling_iters{0};
+        bw_it{0}, inner_it{0}, BOLD_TR_iters{0}, states_sampling_iters{0},
+        alloc_N_SCs{0}, alloc_N_SIMS{0};
         // TODO: make some short or size_t
-    bool cpu_initialized{false}, modifies_params{false}, do_delay{false}, co_launch{false};
+    bool cpu_initialized{false}, cpu_noise_initialized{false}, modifies_params{false}, 
+        do_delay{false}, co_launch{false}, alloc_states_out{false}, alloc_fc{false},
+        alloc_fcd{false};
     u_real dt{0.1}, bw_dt{0.001};
     
     #ifdef _GPU_ENABLED
     virtual void free_gpu();
-    bool gpu_initialized{false};
+    virtual void free_gpu_noise();
+    bool gpu_initialized{false}, gpu_noise_initialized{false};
     #endif
 
     u_real ***states_out;

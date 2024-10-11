@@ -584,6 +584,10 @@ void _run_simulations_cpu(
 
 template <typename Model>
 void _init_cpu(BaseModel *m, bool force_reinit) {
+    // free memory allocated in previous runs
+    // (in first run it will do nothing)
+    m->free_cpu();
+
     // set up constants (based on dt and bw dt)
     Model::init_constants(m->dt);
     init_bw_constants(&bwc, m->bw_dt);
@@ -616,6 +620,7 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
                 m->states_out[i][sim_idx] = (u_real*)(malloc(ext_out_size * sizeof(u_real)));
             }
         }
+        m->alloc_states_out = true;
     }
     // specifiy n_states_samples_remove (for states mean calculations)
     m->n_states_samples_remove = m->base_conf.bold_remove_s * 1000 / m->states_sampling;
@@ -656,6 +661,8 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         (!m->cpu_initialized) ||
         force_reinit
         ) {
+        // free memory of noise (in first run will do nothing)
+        m->free_cpu_noise();
         // precalculate noise (segments) similar to GPU
         #ifndef NOISE_SEGMENT
         // precalculate the entire noise needed; can use up a lot of memory
@@ -671,14 +678,6 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         #endif
         if (m->base_conf.verbose) {
             std::cout << "Precalculating " << m->noise_size << " noise elements..." << std::endl;
-        }
-        if (m->last_nodes != 0) {
-            // noise is being recalculated, free the previous one
-            free(m->noise);
-            #ifdef NOISE_SEGMENT
-            free(m->shuffled_nodes);
-            free(m->shuffled_ts);
-            #endif
         }
         m->last_time_steps = m->time_steps;
         m->last_nodes = m->nodes;
@@ -706,12 +705,12 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         get_shuffled_nodes_ts(&(m->shuffled_nodes), &(m->shuffled_ts),
             m->nodes, m->noise_bw_it, m->noise_repeats, &rand_gen);
         #endif
+        m->cpu_noise_initialized = true;
     } else {
         if (m->base_conf.verbose) {
             std::cout << "Noise already precalculated" << std::endl;
         }
     }
-    
     m->cpu_initialized = true;
 }
 
@@ -719,7 +718,7 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
 void BaseModel::free_cpu() {
     if (strcmp(this->get_name(), "Base")==0) {
         // skip freeing memory for BaseModel
-        // though free_gpu normally is not called for BaseModel
+        // though it is normally not called for BaseModel
         // but keeping it here for safety
         return;
     }
@@ -730,14 +729,9 @@ void BaseModel::free_cpu() {
     if (this->base_conf.verbose) {
         std::cout << "Freeing CPU memory (" << this->get_name() << ")" << std::endl;
     }
-    #ifdef NOISE_SEGMENT
-    free(this->shuffled_nodes);
-    free(this->shuffled_ts);
-    #endif
-    free(this->noise);
     free(this->window_ends);
     free(this->window_starts);
-    if (this->base_conf.ext_out) {
+    if (this->alloc_states_out) {
         for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {
             for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
                 free(this->states_out[var_idx][sim_idx]);
@@ -745,6 +739,7 @@ void BaseModel::free_cpu() {
             free(this->states_out[var_idx]);
         }
         free(this->states_out);
+        this->alloc_states_out = false;
     }
     if (this->get_n_global_out_bool() > 0) {
         for (int i=0; i<this->get_n_global_out_bool(); i++) {
@@ -758,4 +753,24 @@ void BaseModel::free_cpu() {
         }
         free(this->global_out_int);
     }
+}
+
+
+void BaseModel::free_cpu_noise() {
+    if (strcmp(this->get_name(), "Base")==0) {
+        // skip freeing memory for BaseModel
+        // though it is normally not called for BaseModel
+        // but keeping it here for safety
+        return;
+    }
+    if (!this->cpu_noise_initialized) {
+        // if cpu noise is not initialized, skip freeing memory
+        return;
+    }
+    #ifdef NOISE_SEGMENT
+    free(this->shuffled_nodes);
+    free(this->shuffled_ts);
+    #endif
+    free(this->noise);
+    this->cpu_noise_initialized = false;
 }
