@@ -1201,7 +1201,10 @@ class rWWSimGroup(SimGroup):
         """
         configs = super()._get_test_configs(cpu_gpu_identity)
         configs.update({
-            'do_fic': [0, 1]
+            # 0: no FIC
+            # 1: analytical FIC
+            # 2: analytical + numerical FIC
+            'do_fic': [0, 1, 2]
         })
         return configs
 
@@ -1224,7 +1227,9 @@ class rWWSimGroup(SimGroup):
         # initialze sim group
         sim_group = super()._get_test_instance(opts)
         # set do_fic
-        sim_group.do_fic = bool(opts['do_fic'])
+        sim_group.do_fic = opts['do_fic'] > 0
+        if opts['do_fic'] == 2:
+            sim_group.max_fic_trials = 5
         return sim_group
 
 class rWWExSimGroup(SimGroup):

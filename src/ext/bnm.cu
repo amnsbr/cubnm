@@ -407,6 +407,12 @@ __global__ void bnm(
         // if restart is indicated (e.g. FIC failed in rWW)
         // reset the simulation and start from the beginning
         if (restart) {
+            // make sure all threads (warps) are in sync before
+            // restarting, otherwise as this block will set
+            // shared variable restart to false, this might
+            // happen before some warps enter this block of code, 
+            // and restart will not happen for them (issue #30)
+            sync_threads<co_launch>(grid, block);
             // model-specific restart
             model->restart(
                 _state_vars, _intermediate_vars, 
@@ -444,7 +450,10 @@ __global__ void bnm(
             curr_noise_repeat = 0;
             #endif
             restart = false; // restart is done
-            sync_threads<co_launch>(grid, block); // make sure all threads are in sync after restart
+            // again sync threads after restart is done
+            // so that they start next iteration in sync
+            // (although this may not be entirely necessary)
+            sync_threads<co_launch>(grid, block);
         }
     }
 
