@@ -351,12 +351,14 @@ def run_batch_optimize_diff_sub():
     p_sub1 = optimize.BNMProblem(
         sc = sc_sub1,
         emp_bold = bold_sub1,
+        out_dir = tempfile.mkdtemp(),
         **problem_kwargs
     )
     # problem for subject 2
     p_sub2 = optimize.BNMProblem(
         sc = sc_sub2,
         emp_bold = bold_sub2,
+        out_dir = tempfile.mkdtemp(),
         **problem_kwargs
     )
     # optimizers
@@ -382,7 +384,8 @@ def run_batch_optimize_identical():
         duration = 60,
         TR = 1,
         sc = sc,
-        emp_bold = bold
+        emp_bold = bold,
+        out_dir = tempfile.mkdtemp(),
     )
     problem = optimize.BNMProblem(
         **problem_kwargs

@@ -600,7 +600,7 @@ class Optimizer(ABC):
     def optimize(self):
         pass
 
-    def save(self, save_obj=False):
+    def save(self, save_opt=True, save_obj=False):
         """
         Saves the output of the optimizer, including history
         of particles, history of optima, the optimal point,
@@ -611,6 +611,8 @@ class Optimizer(ABC):
 
         Parameters
         ---------
+        save_opt : :obj:`bool`, optional
+            reruns and saves the optimal simulation(s) data
         save_obj : :obj:`bool`, optional
             saves the optimizer object which also includes the simulation
             data of all simulations and therefore can be large file.
@@ -663,30 +665,30 @@ class Optimizer(ABC):
             )
         with open(os.path.join(optimizer_dir, "optimizer.json"), "w") as f:
             json.dump(self.get_config(), f, indent=4)
-        # rerun optimum simulation(s) and save it
-        print("Rerunning and saving the optimal simulation(s)")
-        ## reuse the original problem used throughout the optimization
-        ## but change its out_dir, N and parameters to the optimum
-        self.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
-        os.makedirs(self.problem.sim_group.out_dir, exist_ok=True)
-        if type(self).__name__ == "BayesOptimizer":
-            # TODO: ideally implement this part as a separate method
-            # and handle differences of PymooOptimizer and BayesOptimizer
-            # more properly
-            res = self.algorithm.get_result()
-            X = np.atleast_2d(res.x)
-        else:
-            res = self.algorithm.result()
-            X = np.atleast_2d(res.X)
-        Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
-        opt_scores = self.problem.eval(X)
-        pd.concat([Xt, opt_scores], axis=1).to_csv(
-            os.path.join(self.problem.sim_group.out_dir, "res.csv")
-        )
-        ## save simulations data (including BOLD, FC and FCD, extended output, and param maps)
-        self.problem.sim_group.save()
-        # TODO: add option to save everything, including all the
-        # SimGroup's of the different iterations
+        if save_opt:
+            # rerun optimum simulation(s) and save it
+            print("Rerunning and saving the optimal simulation(s)")
+            ## reuse the original problem used throughout the optimization
+            ## but change its out_dir, N and parameters to the optimum
+            self.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
+            os.makedirs(self.problem.sim_group.out_dir, exist_ok=True)
+            if type(self).__name__ == "BayesOptimizer":
+                # TODO: ideally implement this part as a separate method
+                # and handle differences of PymooOptimizer and BayesOptimizer
+                # more properly
+                res = self.algorithm.get_result()
+                X = np.atleast_2d(res.x)
+            else:
+                res = self.algorithm.result()
+                X = np.atleast_2d(res.X)
+            Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+            opt_scores = self.problem.eval(X)
+            pd.concat([Xt, opt_scores], axis=1).to_csv(
+                os.path.join(self.problem.sim_group.out_dir, "res.csv")
+            )
+            ## save simulations data (including BOLD, FC and FCD, extended output, and param maps)
+            self.problem.sim_group.save()
+        return optimizer_dir
 
     def get_config(self):
         """
@@ -1022,7 +1024,7 @@ class BayesOptimizer(Optimizer):
         self.opt = self.opt_history.loc[self.opt_history["F"].argmin()]
 
 
-def batch_optimize(optimizers, problems, setup_kwargs={}):
+def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
     """
     Optimize a batch of optimizers in parallel (without requiring
     multiple CPU cores when using GPUs).
@@ -1040,6 +1042,11 @@ def batch_optimize(optimizers, problems, setup_kwargs={}):
         Will be mapped one-to-one with the optimizers.
         If not a list, the same problem will be used in all optimizers
         and optimizers must be a list.
+    save: :obj:`bool`, optional
+        save the optimizers and their results. This is more efficient
+        than saving each optimizer separately as saving involves
+        rerunning the optimal simulations, which is done in a batch in
+        this function.
     setup_kwargs : :obj:`dict`, optional
         kwargs passed on to :meth:`cubnm.optimize.PymooOptimizer.setup_problem`
         
@@ -1225,4 +1232,47 @@ def batch_optimize(optimizers, problems, setup_kwargs={}):
             # a single optimum can be defined
             optimizer.opt_history = pd.DataFrame(optimizer.opt_history).reset_index(drop=True)
             optimizer.opt = optimizer.history.loc[optimizer.history["cost"].argmin()]
+    if save:
+        print("Rerunning and saving the optimal simulation(s)")
+        # create a multi-sim group by concatenating the sim groups of the optimizers
+        msg = MultiSimGroup([o.problem.sim_group for o in optimizers])
+        optimizer_dirs = []
+        Xs = []
+        # save metadata and set up optimal simulations
+        for optimizer in optimizers:
+            ## save history and metadata by calling save method of each
+            ## optimizer independently
+            optimizer_dir = optimizer.save(save_opt=False, save_obj=False)
+            optimizer_dirs.append(optimizer_dir)
+            # TODO: integrate code repetition here and in `Optimizer.save`
+            ## reuse the original problem used throughout the optimization
+            ## but change its out_dir, N and parameters to the optimum
+            optimizer.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
+            os.makedirs(optimizer.problem.sim_group.out_dir, exist_ok=True)
+            if type(optimizer).__name__ == "BayesOptimizer":
+                # TODO: ideally implement this part as a separate method
+                # and handle differences of PymooOptimizer and BayesOptimizer
+                # more properly
+                res = optimizer.algorithm.get_result()
+                X = np.atleast_2d(res.x)
+            else:
+                res = optimizer.algorithm.result()
+                X = np.atleast_2d(res.X)
+            optimizer.problem.sim_group.N = X.shape[0]
+            optimizer.problem._set_sim_params(X)
+            Xs.append(X)
+        # batch run optimal simulations
+        msg.run()
+        # evaluate gof and save the optimal simulations
+        for i, optimizer in enumerate(optimizers):
+            opt_scores = optimizer.problem.eval(Xs[i], skip_run=True)
+            Xt = pd.DataFrame(optimizer.problem._get_Xt(Xs[i]), columns=optimizer.problem.free_params)
+            pd.concat([Xt, opt_scores], axis=1).to_csv(
+                os.path.join(optimizer.problem.sim_group.out_dir, "res.csv")
+            )
+            ## save simulations data (including BOLD, FC and FCD, extended output, and param maps)
+            optimizer.problem.sim_group.save()
+        # clear msg
+        msg.clear()
+        del msg
     return optimizers

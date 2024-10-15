@@ -453,32 +453,31 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     // convert inti_seconds and run_seconds to Python floats
     PyObject* py_init_seconds = PyFloat_FromDouble(init_seconds.count());
     PyObject* py_run_seconds = PyFloat_FromDouble(run_seconds.count());
-    
-    // Return output as a list with varying number of elements
-    // depending on ext_out and noise_out
-    PyObject* out_list = PyList_New(3);
-    PyList_SetItem(out_list, 0, py_init_seconds);
-    PyList_SetItem(out_list, 1, py_run_seconds);
-    PyList_SetItem(out_list, 2, py_BOLD_ex_out);
+
+    // Return output as a dictionary
+    PyObject* out_dict = PyDict_New();
+    PyDict_SetItemString(out_dict, "init_time", py_init_seconds);
+    PyDict_SetItemString(out_dict, "run_time", py_run_seconds);
+    PyDict_SetItemString(out_dict, "sim_bold", py_BOLD_ex_out);
     if (model->base_conf.do_fc) {
-        PyList_Append(out_list, py_fc_trils_out);
+        PyDict_SetItemString(out_dict, "sim_fc_trils", py_fc_trils_out);
         if (model->base_conf.do_fcd) {
-            PyList_Append(out_list, py_fcd_trils_out);
+            PyDict_SetItemString(out_dict, "sim_fcd_trils", py_fcd_trils_out);
         }
     }
     if (ext_out) {
-        PyList_Append(out_list, py_states_out);
-        PyList_Append(out_list, py_global_bools_out);
-        PyList_Append(out_list, py_global_ints_out);
+        PyDict_SetItemString(out_dict, "_sim_states", py_states_out);
+        PyDict_SetItemString(out_dict, "_global_bools", py_global_bools_out);
+        PyDict_SetItemString(out_dict, "_global_ints", py_global_ints_out);
     }
     if (noise_out) {
-        PyList_Append(out_list, py_noise_out);
+        PyDict_SetItemString(out_dict, "_noise", py_noise_out);
         #ifdef NOISE_SEGMENT
-        PyList_Append(out_list, py_shuffled_nodes_out);
-        PyList_Append(out_list, py_shuffled_ts_out);
+        PyDict_SetItemString(out_dict, "_shuffled_nodes", py_shuffled_nodes_out);
+        PyDict_SetItemString(out_dict, "_shuffled_ts", py_shuffled_ts_out);
         #endif
     }
-    return out_list;
+    return out_dict;
 }
 
 

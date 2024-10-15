@@ -172,6 +172,8 @@ class SimGroup:
                 names of global parameters
             regional_param_names: :obj:`list` of :obj:`str`
                 names of regional parameters
+            state_names: :obj:`list` of :obj:`str`
+                names of the state variables
             sel_state_var: :obj:`str`
                 name of the state variable used in the tests
             n_noise: :obj:`int`
@@ -581,7 +583,7 @@ class SimGroup:
                 simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
         If `ext_out` is True, additionally includes:
             - _sim_states: :obj:`np.ndarray`
-                Model state variables. Shape: (n_vars, N_SIMS*nodes[*duration/TR])
+                Model state variables. Shape: (n_vars, N_SIMS, nodes[*duration/TR])
             - _global_bools: :obj:`np.ndarray`
                 Global boolean variables. Shape: (n_bools, N_SIMS)
             - _global_ints: :obj:`np.ndarray`
@@ -596,44 +598,20 @@ class SimGroup:
                 Time step shufflings in each noise repeate. Shape: (noise_repeats, noise_time_steps)                
         """
         # assign the output to object attributes
-        # and reshape them to (N, ...)
-        # in all cases init time, run time, bold, fc and fcd will be returned
-        (
-            self.init_time, 
-            self.run_time, 
-            sim_bold, 
-         ) = out[:3]
-        self.sim_bold = sim_bold.reshape(self.N, -1, self.nodes)
-        idx = 3
+        self.__dict__.update(out)
+        # reshape the simulated BOLD, FC and FCD to (N, ...)
+        self.sim_bold = self.sim_bold.reshape(self.N, -1, self.nodes)
         if self.do_fc:
-            sim_fc_trils = out[idx]
-            self.sim_fc_trils = sim_fc_trils.reshape(self.N, -1)
-            idx += 1
+            self.sim_fc_trils = self.sim_fc_trils.reshape(self.N, -1)
             if self.do_fcd:
-                sim_fcd_trils = out[idx]
-                self.sim_fcd_trils = sim_fcd_trils.reshape(self.N, -1)
-                idx += 1
-        # assign the additional outputs in indices 5: if
-        # they are returned depending on `ext_out`, `noise_out`
-        # and `noise_segment_flag`
+                self.sim_fcd_trils = self.sim_fcd_trils.reshape(self.N, -1)
         if self.ext_out:
-            (
-                sim_states,
-                global_bools,
-                global_ints,
-            ) = out[idx:idx+3]
-            idx += 3
-            self._sim_states = sim_states
-            self._global_bools = global_bools
-            self._global_ints = global_ints
-        if self.noise_out:
-            self._noise = out[idx]
-            idx += 1
-            if noise_segment_flag:
-                (
-                    self._shuffled_nodes, 
-                    self._shuffled_ts
-                ) = out[idx:]
+            # process sim states into a dictionary
+            self.sim_states = {}
+            for state_i, state_name in enumerate(self.state_names):
+                self.sim_states[state_name] = self._sim_states[state_i, :, :]
+                if self.states_ts:
+                    self.sim_states[state_name] = self.sim_states[state_name].reshape(self.N, -1, self.nodes)
 
     def get_noise(self):
         """
@@ -912,7 +890,8 @@ class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ["G"]
     regional_param_names = ["wEE", "wEI", "wIE"]
-    sel_state_var = 'r_E' # TODO: use all states
+    state_names = ["I_E", "I_I", "r_E", "r_I", "S_E", "S_I"]
+    sel_state_var = "r_E" # TODO: use all states
     n_noise = 2
     def __init__(self, 
                  *args, 
@@ -1042,19 +1021,6 @@ class rWWSimGroup(SimGroup):
 
     def _process_out(self, out):
         super()._process_out(out)
-        if self.ext_out:
-            # name and reshape the states
-            self.sim_states = {
-                'I_E': self._sim_states[0],
-                'I_I': self._sim_states[1],
-                'r_E': self._sim_states[2],
-                'r_I': self._sim_states[3],
-                'S_E': self._sim_states[4],
-                'S_I': self._sim_states[5],
-            }
-            if self.states_ts:
-                for k in self.sim_states:
-                    self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
         if self.do_fic:
             # FIC stats
             self.fic_unstable = self._global_bools[0]
@@ -1236,6 +1202,7 @@ class rWWExSimGroup(SimGroup):
     model_name = "rWWEx"
     global_param_names = ["G"]
     regional_param_names = ["w", "I0", "sigma"]
+    state_names = ["x", "r", "S"]
     sel_state_var = 'r' # TODO: use all states
     n_noise = 1
     def __init__(self, *args, **kwargs):
@@ -1292,25 +1259,13 @@ class rWWExSimGroup(SimGroup):
         self.param_lists["w"] = np.full((self.N, self.nodes), 0.9)
         self.param_lists["I0"] = np.full((self.N, self.nodes), 0.3)
         self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.001)
-    
-    def _process_out(self, out):
-        super()._process_out(out)
-        if self.ext_out:
-            # name and reshape the states
-            self.sim_states = {
-                'x': self._sim_states[0],
-                'r': self._sim_states[1],
-                'S': self._sim_states[2],
-            }
-            if self.states_ts:
-                for k in self.sim_states:
-                    self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
 
 class KuramotoSimGroup(SimGroup):
     model_name = "Kuramoto"
     global_param_names = ["G"]
     regional_param_names = ["init_theta", "omega", "sigma"]
-    sel_state_var = 'theta'
+    state_names = ["theta"]
+    sel_state_var = "theta"
     n_noise = 1
     def __init__(self, 
                  *args, 
@@ -1384,17 +1339,6 @@ class KuramotoSimGroup(SimGroup):
         self.param_lists["G"] = np.repeat(0.5, self.N)
         self.param_lists["omega"] = np.full((self.N, self.nodes), np.pi)
         self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.17)
-    
-    def _process_out(self, out):
-        super()._process_out(out)
-        if self.ext_out:
-            # name and reshape the states
-            self.sim_states = {
-                'theta': self._sim_states[0],
-            }
-            if self.states_ts:
-                for k in self.sim_states:
-                    self.sim_states[k] = self.sim_states[k].reshape(self.N, -1, self.nodes)
 
 class MultiSimGroupMixin:
     def __init__(self, sim_groups):
@@ -1500,21 +1444,34 @@ class MultiSimGroupMixin:
             child._regional_params = self._regional_params[:, start_idx:end_idx]
             child._global_params = self._global_params[:, start_idx:end_idx]
             # break down simulation output elements
-            out_child = []
-            out_child.append(out[0]) # init time
-            out_child.append(out[1]) # run time
-            for var_idx in range(2, len(out)): # other outputs
-                # determine which index has N elements
-                # TODO: this is very "hacky". Ideally sim_idx should always be at
-                # the first axis. It can easily break if e.g. BOLD TRs is equal to N!
-                sim_axis = np.where(np.array(out[var_idx].shape) == self.N)[0][0]
-                # break down the output into children based on the axis
-                if sim_axis == 0:
-                    out_child.append(out[var_idx][start_idx:end_idx])
-                elif sim_axis == 1:
-                    out_child.append(out[var_idx][:, start_idx:end_idx])
-                elif sim_axis == 2:
-                    out_child.append(out[var_idx][:, :, start_idx:end_idx])
+            out_child = {}
+            for k in [
+                "init_time",
+                "run_time",
+                "sim_bold", 
+                "sim_fc_trils", 
+                "sim_fcd_trils", 
+                "_sim_states",
+                "_global_bools",
+                "_global_ints",
+                "_noise",
+                "_shuffled_nodes",
+                "_shuffled_ts",
+            ]:
+                if not (k in out):
+                    continue
+                if k in ["init_time", "run_time", "_noise", "_shuffled_nodes", "_shuffled_ts"]:
+                    # shared between all simulations
+                    out_child[k] = out[k]
+                elif k in ["sim_bold", "sim_fc_trils", "sim_fcd_trils"]:
+                    # simulation-specific outputs with shape (N, ...)
+                    out_child[k] = out[k][start_idx:end_idx]
+                else:
+                    # simulation-specific outputs with shape (..., N, ...)
+                    # TODO: it'll be easier to do this if all
+                    # simulation-specific outputs have N_SIMS as
+                    # the first axis
+                    out_child[k] = out[k][:, start_idx:end_idx]
             # update start_idx for the next child
             start_idx += child.N
             # process the output of the child
