@@ -13,6 +13,7 @@
    Quickstart <quickstart>
    Command Line Interface <cli>
    API References <autoapi/cubnm/index>
+   Contributing new models <contribution>
 
 
 Indices and tables

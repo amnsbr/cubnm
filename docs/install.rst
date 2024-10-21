@@ -20,8 +20,10 @@ Install via:
     pip install cubnm
     
 
+.. _from-source:
+
 From source
-~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~
 
 This might be needed in case prebuilt wheels are not available for your machine (e.g. on arm64 machines).
 

@@ -24,28 +24,28 @@ public:
     // second, use the boilerplate macro to include
     // the repetitive elements of the class definition
     DEFINE_DERIVED_MODEL(
-        rWWExModel, 
-        "rWWEx", 
-        3, 
-        2, 
-        1, 
-        1, 
-        3,
-        2,
-        2,
-        false, 
-        false, 
-        false,
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0
+        rWWExModel, // CLASS_NAME
+        "rWWEx", // NAME
+        3, // STATE_VARS
+        2, // INTER_VARS
+        1, // NOISE
+        1, // GLOBAL_PARAMS
+        3, // REGIONAL_PARAMS
+        2, // CONN_STATE_VAR_IDX
+        2, // BOLD_STATE_VAR_IDX
+        false, // HAS_POST_BW
+        false, // HAS_POST_INT
+        false, // IS_OSC
+        0, // EXT_INT
+        0, // EXT_BOOL
+        0, // EXT_INT_SHARED
+        0, // EXT_BOOL_SHARED
+        0, // GLOBAL_OUT_INT
+        0, // GLOBAL_OUT_BOOL
+        0, // GLOBAL_OUT_UREAL
+        0, // REGIONAL_OUT_INT
+        0, // REGIONAL_OUT_BOOL
+        0 // REGIONAL_OUT_UREAL
     )
 
     // additional functions that need to be overridden

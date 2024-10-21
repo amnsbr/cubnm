@@ -1,11 +1,12 @@
 """
 CLI parser
 
-Note: This is in a separate file so that
-sphinx doesn't require pandas and cubnm
+Note: This is in a separate file so that sphinx doesn't require pandas and cubnm
 for autogenerating the CLI docs
 """
 import argparse
+import os
+import ast
 
 def parse_params(param_str):
     """
@@ -54,17 +55,58 @@ def parse_maps_coef_range(value):
         return value
     try:
         maps_coef_range = [tuple(map(float, item.split(':'))) for item in value.split(',')]
-    except:
+    except ValueError:
         raise argparse.ArgumentTypeError("Value should be 'auto' or a list of tuples")
     if len(maps_coef_range) == 1:
         return maps_coef_range[0]
     else:
         return maps_coef_range
 
+def get_class_names(file_path):
+    """
+    Returns a list of class names in a python file
+    without importing it
+
+    Note: This is important for generating the documentation
+    as in the docs environment we don't have the package
+    installed (and don't want to have it installed as that
+    would require a complicated setup of readthedocs)
+
+    Parameters
+    ----------
+    file_path : :obj:`str`
+        path to the python file
+    
+    Returns
+    -------
+    :obj:`list` of :obj:`str`
+    """
+    with open(file_path, "r", encoding="utf-8") as file:
+        tree = ast.parse(file.read(), filename=file_path)
+    class_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    return class_names
+
+def get_models():
+    """
+    Returns a list of available models
+
+    Returns
+    -------
+    :obj:`list` of :obj:`str`
+    """
+    # get class names of sim.py without importing it
+    class_names = get_class_names("sim.py")
+    # get model names from SimGroup classes
+    model_names = [c.replace("SimGroup", "") for c in class_names if c.endswith("SimGroup")]
+    # remove the empty string corresponding to the base class
+    model_names.remove('')
+    return model_names
+
+
 def add_shared_arguments(parser):
     # simgroup arguments shared between all commands
     parser.add_argument('-m', '--model', type=str, required=True, 
-                        choices=['rWW', 'rWWEx', 'Kuramoto'], #TODO: get this from sim module
+                        choices=get_models(),
                         help='Model (required)')
     parser.add_argument('-p', '--params', type=parse_params, required=True, 
                         help='Parameters in custom format inside'

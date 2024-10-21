@@ -8,7 +8,7 @@ import sys
 import numpy as np
 import versioneer
 
-PROJECT = os.path.abspath(os.path.dirname(__file__))
+ROOT = os.path.abspath(os.path.dirname(__file__))
 
 def find_file(file_name, search_path):
     result = []
@@ -48,7 +48,7 @@ omp_enabled = not ("CUBNM_NO_OMP" in os.environ)
 noise_segment = not ("CUBNM_NOISE_WHOLE" in os.environ)
 
 # Write the flags to a temporary _flags.py file
-with open(os.path.join(PROJECT, "src", "cubnm", "_setup_opts.py"), "w") as flag_file:
+with open(os.path.join(ROOT, "src", "cubnm", "_setup_opts.py"), "w") as flag_file:
     flag_file.write(
         "\n".join(
             [f"many_nodes_flag = {many_nodes}", 
@@ -73,8 +73,8 @@ os.environ["CXX"] = "g++"
 
 # create lists of include directories
 shared_includes = [
-    os.path.join(PROJECT,"include"),
-    os.path.join(PROJECT, "src", "ext"),
+    os.path.join(ROOT,"include"),
+    os.path.join(ROOT, "src", "ext"),
     np.get_include(),
     "/opt/miniconda/include" # added for conda-based cibuildwheel
 ]
@@ -115,7 +115,7 @@ if gpu_enabled:
         library_dirs=[
             "/usr/lib/cuda", 
             "/usr/local/cuda/lib64",
-            os.path.join(PROJECT, "src", "ext"),
+            os.path.join(ROOT, "src", "ext"),
             "/opt/miniconda/lib" # added for conda-based cibuildwheel
         ] + \
         os.environ.get("LIBRARY_PATH","").split(":") + \
@@ -191,7 +191,7 @@ class build_ext_gsl_cuda(build_ext):
             GSL_LIB_DIR = os.path.join(gsl_build, 'lib')
         # Compile CUDA code into libbnm.a
         if gpu_enabled:
-            cuda_dir = os.path.join(PROJECT, 'src', 'ext')
+            cuda_dir = os.path.join(ROOT, 'src', 'ext')
             conf_flags = []
             if noise_segment:
                 conf_flags.append("NOISE_SEGMENT")
@@ -199,12 +199,9 @@ class build_ext_gsl_cuda(build_ext):
                 conf_flags.append("MANY_NODES")
             conf_flags = " ".join([f"-D {f}" for f in conf_flags])
             include_flags = " ".join([f"-I {p}" for p in shared_includes])
-            source_files = ["bnm.cu", "utils.cu", "fc.cu", 
-                            "models/bw.cu", 
-                            "models/rww.cu",
-                            "models/rwwex.cu",
-                            "models/kuramoto.cu",
-                           ] # TODO: search for all .cu files
+            source_files = ["bnm.cu", "utils.cu", "fc.cu"] + [
+                os.path.relpath(f, start=cuda_dir) for f in find_file('*.cu', os.path.join(cuda_dir, 'models'))
+            ]
             # compile_commands = []
             # obj_paths = []
             # for source_file in source_files:

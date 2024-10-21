@@ -16,28 +16,28 @@ public:
     // second, use the boilerplate macro to include
     // the repetitive elements of the class definition
     DEFINE_DERIVED_MODEL(
-        KuramotoModel, 
-        "Kuramoto", 
-        1, 
-        1, 
-        1, 
-        1, 
-        3,
-        0,
-        0,
-        false, 
-        false, 
-        true,
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0, 
-        0
+        KuramotoModel, // CLASS_NAME
+        "Kuramoto", // NAME
+        1, // STATE_VARS
+        1, // INTER_VARS
+        1, // NOISE
+        1, // GLOBAL_PARAMS
+        3, // REGIONAL_PARAMS
+        0, // CONN_STATE_VAR_IDX
+        0, // BOLD_STATE_VAR_IDX
+        false, // HAS_POST_BW
+        false, // HAS_POST_INT
+        true, // IS_OSC
+        0, // EXT_INT
+        0, // EXT_BOOL
+        0, // EXT_INT_SHARED
+        0, // EXT_BOOL_SHARED
+        0, // GLOBAL_OUT_INT
+        0, // GLOBAL_OUT_BOOL
+        0, // GLOBAL_OUT_UREAL
+        0, // REGIONAL_OUT_INT
+        0, // REGIONAL_OUT_BOOL
+        0 // REGIONAL_OUT_UREAL
     )
 
     // additional functions that need to be overridden

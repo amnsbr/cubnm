@@ -69,28 +69,28 @@ public:
     // + some other functions e.g. free_cpu and free_gpu must
     // be redefined so that they operate on derived member variables
     DEFINE_DERIVED_MODEL(
-        rWWModel, 
-        "rWW", 
-        6, 
-        7, 
-        2, 
-        1, 
-        3,
-        4,
-        4,
-        true, 
-        true,
-        false,
-        0, 
-        0, 
-        1, 
-        2, 
-        1, 
-        2, 
-        0, 
-        0, 
-        0, 
-        0
+        rWWModel, // CLASS_NAME
+        "rWW", // NAME
+        6, // STATE_VARS
+        7, // INTER_VARS
+        2, // NOISE
+        1, // GLOBAL_PARAMS
+        3, // REGIONAL_PARAMS
+        4, // CONN_STATE_VAR_IDX
+        4, // BOLD_STATE_VAR_IDX
+        true, // HAS_POST_BW
+        true, // HAS_POST_INT
+        false, // IS_OSC
+        0, // EXT_INT
+        0, // EXT_BOOL
+        1, // EXT_INT_SHARED
+        2, // EXT_BOOL_SHARED
+        1, // GLOBAL_OUT_INT
+        2, // GLOBAL_OUT_BOOL
+        0, // GLOBAL_OUT_UREAL
+        0, // REGIONAL_OUT_INT
+        0, // REGIONAL_OUT_BOOL
+        0 // REGIONAL_OUT_UREAL
     )
 
     // additional functions that need to be overridden

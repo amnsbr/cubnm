@@ -28,8 +28,8 @@ Overview
 cuBNM toolbox simulates neuronal activity of network nodes (neural mass models) 
 which are connected through the structural connectome using GPUs/CPUs. 
 Currently three models (`rWW`, `rWWEx` and `Kuramoto`) are implemented, but the
-modular design of the code makes it possible to include additional models in 
-future. The simulated activity of model neurons is fed into the Balloon-Windkessel
+modular design of the code makes it possible to include additional models. 
+The simulated activity of model neurons is fed into the Balloon-Windkessel
 model to calculate simulated BOLD signal. Functional connectivity (FC) and 
 functional connectivity dynamics (FCD) from the simulated BOLD signal are 
 calculated efficiently on GPUs/CPUs and compared to FC and FCD matrices 
