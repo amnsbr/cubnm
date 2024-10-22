@@ -94,8 +94,16 @@ def get_models():
     -------
     :obj:`list` of :obj:`str`
     """
+    if os.environ.get("READTHEDOCS") == "True":
+        # as I'm not sure what is the cwd when docs are being built
+        # on readthedocs, I'm using the repository path as a more
+        # certain way to get the path to sim.py
+        sim_py_path = os.path.join(os.environ["READTHEDOCS_REPOSITORY_PATH"], "src", "cubnm", "sim.py")
+    else:
+        # when running sphinx locally current directory is docs
+        sim_py_path = os.path.abspath(os.path.join("..", "src", "cubnm", "sim.py"))
     # get class names of sim.py without importing it
-    class_names = get_class_names("sim.py")
+    class_names = get_class_names(sim_py_path)
     # get model names from SimGroup classes
     model_names = [c.replace("SimGroup", "") for c in class_names if c.endswith("SimGroup")]
     # remove the empty string corresponding to the base class
