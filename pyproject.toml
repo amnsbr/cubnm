@@ -18,7 +18,7 @@ dependencies = [
     "tabulate"
 ]
 requires-python = ">=3.7"
-description = "A toolbox for biophysical network modeling on GPUs "
+description = "A toolbox for brain network modeling on GPUs "
 readme = "README.rst"
 authors = [
     {name = "Amin Saberi", email="amnsbr@gmail.com"}

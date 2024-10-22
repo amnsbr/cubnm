@@ -137,7 +137,7 @@ class BNMProblem(Problem):
         **kwargs,
     ):
         """
-        Biophysical network model problem. A :class:`pymoo.core.problem.Problem` 
+        Brain network model problem. A :class:`pymoo.core.problem.Problem` 
         that defines the model, free parameters and their ranges, and target empirical
         data (FC and FCD), and the simulation configurations (through 
         :class:`cubnm.sim.SimGroup`). 

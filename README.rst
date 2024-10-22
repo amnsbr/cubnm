@@ -20,8 +20,7 @@
 .. image:: https://img.shields.io/github/license/amnsbr/cubnm
   :target: ./LICENSE
 
-cuBNM toolbox is designed for efficient biophysical network modeling of 
-the brain on GPUs and CPUs.
+cuBNM toolbox is designed for efficient brain network modeling on GPUs and CPUs.
 
 Overview
 --------
