@@ -1,4 +1,5 @@
 sphinx==7.2.6
 sphinx-autoapi==3.0.0
-sphinx-rtd-theme==2.0.0
+# sphinx-rtd-theme==2.0.0
+furo==2024.8.6
 sphinx-argparse

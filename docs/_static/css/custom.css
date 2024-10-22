@@ -1,3 +1,12 @@
 .logo {
     max-height: 75px;
 }
+
+.class h2,
+.class h3,
+.class h4,
+.function h2,
+.function h3,
+.function h4 {
+    font-size: 1.1rem;
+}

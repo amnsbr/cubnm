@@ -2,6 +2,8 @@
     :align: center
     :width: 350px
 
+.. badges-start
+
 .. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.12097797.svg
   :target: https://zenodo.org/doi/10.5281/zenodo.12097797
 
@@ -20,8 +22,11 @@
 .. image:: https://img.shields.io/github/license/amnsbr/cubnm
   :target: ./LICENSE
 
+.. badges-end
+
 cuBNM toolbox is designed for efficient brain network modeling on GPUs.
 
+.. overview-start
 Overview
 --------
 cuBNM toolbox uses GPUs to efficiently run simulations of brain network models 

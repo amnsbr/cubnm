@@ -16,12 +16,12 @@ def load_sc(what, parc, return_path=False):
 
     Parameters
     ----------
-    what : {'strength', 'length'}
+    what: {'strength', 'length'}
         - 'strength': SC strength (normalized tract counts)
         - 'length': SC tracts length
-    parc : {'schaefer-[100, 200, 400, 600]', 'aparc', 'glasser-360'}
+    parc: {'schaefer-[100, 200, 400, 600]', 'aparc', 'glasser-360'}
         parcellation. For Schaefer, specify number of parcels.
-    return_path : :obj:`bool`, optional
+    return_path: :obj:`bool`, optional
         If True, returns path to the file
         Otherwise, returns the matrix
 
@@ -58,7 +58,7 @@ def load_functional(what, parc, exc_interhemispheric=False, return_path=False):
     exc_interhemispheric: :obj:`bool`, optional
         whether to exclude interhemispheric connections
         valid for 'FC' and 'FCD'
-    return_path : :obj:`bool`, optional
+    return_path: :obj:`bool`, optional
         If True, returns path to the file
         Otherwise, returns the matrix
         
