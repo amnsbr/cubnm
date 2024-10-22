@@ -687,7 +687,7 @@ can optionally be defined depending on the model.
 
 Full code of ``rwwex.cpp``
 =======================
-Putting all the definitions above together, the final ``./src/ext/models/rwwex.cu`` 
+Putting all the definitions above together, the final ``./src/ext/models/rwwex.cpp`` 
 file will be:
 
 .. code-block:: cpp
