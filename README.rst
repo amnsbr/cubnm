@@ -42,14 +42,14 @@ simulations on single or multiple cores of CPU. CPUs will be used if no GPUs are
 detected or if requested by the user.
 
 Currently three models (`rWW`, `rWWEx` and `Kuramoto`) are implemented, but the
-modular design of the code makes it possible to include additional models (see :doc:`how-to <contribution>`). 
-The simulated activity of model neurons is fed into the Balloon-Windkessel
-model to calculate simulated BOLD signal. Functional connectivity (FC) and 
-functional connectivity dynamics (FCD) from the simulated BOLD signal are 
-calculated efficiently on GPUs/CPUs and compared to FC and FCD matrices 
-derived from empirical BOLD signals to assess similarity (goodness-of-fit) 
-of the simulated to empirical BOLD signal.
+modular design of the code makes it possible to add new models, and a guide
+is included on how to contribute new models. 
 
+The simulated activity of model neurons is fed into the Balloon-Windkessel model 
+to calculate simulated BOLD signal. Functional connectivity (FC) and  functional 
+connectivity dynamics (FCD) from the simulated BOLD signal are calculated efficiently 
+on GPUs/CPUs and compared to FC and FCD matrices derived from empirical BOLD signals 
+to assess similarity (goodness-of-fit) of the simulated to empirical BOLD signal.
 The toolbox supports parameter optimization algorithms including grid search and
 evolutionary optimizers (via ``pymoo``), such as the covariance matrix adaptation-evolution 
 strategy (CMA-ES). Parallelization within the grid or the iterations of 
