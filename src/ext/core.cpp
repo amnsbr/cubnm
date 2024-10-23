@@ -300,6 +300,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     model->base_conf.ext_out = ext_out;
     model->base_conf.states_ts = states_ts;
 
+    // set Ballon-Windkessel integration step based on user input
+    bwc.dt = model->bw_dt;
+    bwc.dt_itau = bwc.dt * bwc.itau;
+
     std::chrono::time_point<std::chrono::system_clock> start, end;
     std::chrono::duration<double> init_seconds, run_seconds;
 

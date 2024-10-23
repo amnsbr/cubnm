@@ -588,9 +588,8 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
     // (in first run it will do nothing)
     m->free_cpu();
 
-    // set up constants (based on dt and bw dt)
+    // set up constants (based on dt)
     Model::init_constants(m->dt);
-    init_bw_constants(&bwc, m->bw_dt);
 
     // set up global int and bool outputs
     if (Model::n_global_out_int > 0) {

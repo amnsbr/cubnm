@@ -1248,9 +1248,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
     // (in first run it will do nothing)
     m->free_gpu();
 
-    // set up constants (based on dt and bw dt)
+    // set up constants (based on dt)
     Model::init_constants(m->dt);
-    init_bw_constants(&bwc, m->bw_dt);
 
     // copy constants and configs from CPU
     // TODO: make these members of the model class
