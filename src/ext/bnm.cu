@@ -28,9 +28,10 @@ Author: Amin Saberi, Feb 2023
 // other models go here
 
 __device__ void global_input_cond(
-        u_real& tmp_globalinput, int& k_buff_idx,
+        u_real& globalinput_ff, u_real& globalinput_fb, 
+        int& k_buff_idx,
         const int& nodes, const int& sim_idx, const int& SC_idx,
-        const int& j, int& k, int& buff_idx, u_real** SC, 
+        const int& j, int& k, int& buff_idx, u_real** SC, u_real** pFF,
         int** delay, const bool& has_delay, const int& max_delay,
         u_real** conn_state_var_hist, u_real* conn_state_var_1
         ) {
@@ -43,43 +44,49 @@ __device__ void global_input_cond(
     // k->j connections are adjacent in memory.
     // This is very important for performance especially
     // in higher number of nodes.
-    tmp_globalinput = 0;
+    globalinput_ff = 0;
+    globalinput_fb = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
             k_buff_idx = (buff_idx + delay[sim_idx][k*nodes+j]) % max_delay;
-            tmp_globalinput += SC[SC_idx][k*nodes+j] * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
+            globalinput_ff += SC[SC_idx][k*nodes+j] * pFF[SC_idx][k*nodes+j] * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
+            globalinput_fb += SC[SC_idx][k*nodes+j] * (1 - pFF[SC_idx][k*nodes+j])  * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
         }
     } else {
         for (k=0; k<nodes; k++) {
-            tmp_globalinput += SC[SC_idx][k*nodes+j] * conn_state_var_1[k];
+            globalinput_ff += SC[SC_idx][k*nodes+j] * pFF[SC_idx][k*nodes+j] * conn_state_var_1[k];
+            globalinput_fb += SC[SC_idx][k*nodes+j] * (1 - pFF[SC_idx][k*nodes+j]) * conn_state_var_1[k];
         }            
     }
 }
 
 __device__ void global_input_osc(
-        u_real& tmp_globalinput, int& k_buff_idx,
+        u_real& globalinput_ff, u_real& globalinput_fb,
+        int& k_buff_idx,
         const int& nodes, const int& sim_idx, const int& SC_idx,
-        const int& j, int& k, int& buff_idx, u_real** SC, 
+        const int& j, int& k, int& buff_idx, u_real** SC, u_real** pFF,
         int** delay, const bool& has_delay, const int& max_delay,
         u_real** conn_state_var_hist, u_real* conn_state_var_1
         ) {
     // calculates global input from other nodes `k` to current node `j`
     // See notes in global_input_cond
-    tmp_globalinput = 0;
+    globalinput_ff = 0;
+    globalinput_fb = 0; // undefined for oscillatory models at the moment and will be zero
+                        // it's included for API consistency
     if (has_delay) {
         for (k=0; k<nodes; k++) {
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
             k_buff_idx = (buff_idx + delay[sim_idx][k*nodes+j]) % max_delay;
-            tmp_globalinput += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_hist[sim_idx][k_buff_idx*nodes+k] - conn_state_var_hist[sim_idx][buff_idx*nodes+j]);
+            globalinput_ff += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_hist[sim_idx][k_buff_idx*nodes+k] - conn_state_var_hist[sim_idx][buff_idx*nodes+j]);
         }
     } else {
         for (k=0; k<nodes; k++) {
-            tmp_globalinput += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
+            globalinput_ff += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_1[k] - conn_state_var_1[j]);
         }            
     }
 }
@@ -102,7 +109,7 @@ template<typename Model, bool co_launch>
 __global__ void bnm(
         Model* model, u_real **BOLD, u_real ***states_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real **SC, int *SC_indices, 
+        u_real **SC, u_real **pFF, int *SC_indices, 
         u_real **global_params, u_real **regional_params,
         u_real **conn_state_var_hist, int **delay,
         #ifdef NOISE_SEGMENT
@@ -280,7 +287,8 @@ __global__ void bnm(
     restart = false;
 
     // integration loop
-    u_real tmp_globalinput = 0.0;
+    u_real globalinput_ff = 0.0;
+    u_real globalinput_fb = 0.0;
     int inner_i = 0;
     int bw_i = 0;
     int k = 0;
@@ -300,9 +308,10 @@ __global__ void bnm(
             // calculate global input
             sync_threads<co_launch>(grid, block);
             global_input_kernel(
-                tmp_globalinput, k_buff_idx,
+                globalinput_ff, globalinput_fb,
+                k_buff_idx,
                 nodes, sim_idx, SC_idx,
-                j, k, buff_idx, SC, 
+                j, k, buff_idx, SC, pFF,
                 delay, has_delay, max_delay,
                 conn_state_var_hist, conn_state_var_1
             );
@@ -315,7 +324,7 @@ __global__ void bnm(
             model->step(
                 _state_vars, _intermediate_vars, 
                 _global_params, _regional_params,
-                tmp_globalinput,
+                globalinput_ff, globalinput_fb,
                 noise, noise_idx
             );
             if (has_delay) {
@@ -488,7 +497,7 @@ template<typename Model>
 __global__ void bnm_serial(
         Model* model, u_real **BOLD, u_real ***states_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real **SC, int *SC_indices, u_real **global_params, u_real **regional_params,
+        u_real **SC, u_real **pFF, int *SC_indices, u_real **global_params, u_real **regional_params,
         u_real **conn_state_var_hist, int **delay, int max_delay,
         #ifdef NOISE_SEGMENT
         int *shuffled_nodes, int *shuffled_ts,
@@ -623,7 +632,8 @@ __global__ void bnm_serial(
     }
     
     // allocate memory for global input
-    u_real * tmp_globalinput = (u_real*)malloc(nodes * sizeof(u_real));
+    u_real * globalinput_ff = (u_real*)malloc(nodes * sizeof(u_real));
+    u_real * globalinput_fb = (u_real*)malloc(nodes * sizeof(u_real));
 
     // this will determine if the simulation should be restarted
     // (e.g. if FIC adjustment fails in rWW)
@@ -645,9 +655,10 @@ __global__ void bnm_serial(
             // calculate global input every 0.1 ms
             for (j=0; j<nodes; j++) {
                 global_input_kernel(
-                    tmp_globalinput[j], k_buff_idx,
+                    globalinput_ff[j], globalinput_fb[j],
+                    k_buff_idx,
                     nodes, sim_idx, SC_idx,
-                    j, k, buff_idx, SC, 
+                    j, k, buff_idx, SC, pFF,
                     delay, has_delay, max_delay,
                     conn_state_var_hist, conn_state_var_1
                 );
@@ -663,7 +674,7 @@ __global__ void bnm_serial(
                 model->step(
                     _state_vars[j], _intermediate_vars[j], 
                     _global_params, _regional_params[j],
-                    tmp_globalinput[j],
+                    globalinput_ff[j], globalinput_fb[j],
                     noise, noise_idx
                 );
             }
@@ -762,7 +773,8 @@ __global__ void bnm_serial(
         }
     }
     // free heap
-    free(tmp_globalinput);
+    free(globalinput_ff);
+    free(globalinput_fb);
     free(bw_q);
     free(bw_nu);
     free(bw_f);
@@ -794,7 +806,7 @@ template <typename Model>
 void _run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real **SC, int *SC_indices, u_real * SC_dist, BaseModel* m
+    u_real **SC, u_real **pFF, int *SC_indices, u_real * SC_dist, BaseModel* m
 )
 {
     if (m->base_conf.verbose) {
@@ -807,9 +819,10 @@ void _run_simulations_gpu(
     CUDA_CHECK_RETURN(cudaMallocManaged(&d_model, sizeof(Model)));
     CUDA_CHECK_RETURN(cudaMemcpy(d_model, h_model, sizeof(Model), cudaMemcpyHostToDevice));
 
-    // copy SC to managed memory
+    // copy SC and pFF to managed memory
     for (int SC_idx=0; SC_idx<d_model->N_SCs; SC_idx++) {
       CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC[SC_idx], SC[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+      CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_pFF[SC_idx], pFF[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
     }
     // copy SC_indices to managed memory
     CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC_indices, SC_indices, d_model->N_SIMS * sizeof(int), cudaMemcpyHostToDevice));
@@ -1002,7 +1015,8 @@ void _run_simulations_gpu(
             (void*)&(d_model->states_out), 
             (void*)&(d_model->global_out_int),
             (void*)&(d_model->global_out_bool),
-            (void*)&(d_model->d_SC), 
+            (void*)&(d_model->d_SC),
+            (void*)&(d_model->d_pFF), 
             (void*)&(d_model->d_SC_indices),
             (void*)&(d_model->d_global_params), 
             (void*)&(d_model->d_regional_params),
@@ -1022,7 +1036,7 @@ void _run_simulations_gpu(
                 d_model->BOLD, d_model->states_out, 
                 d_model->global_out_int,
                 d_model->global_out_bool,
-                d_model->d_SC, d_model->d_SC_indices,
+                d_model->d_SC, d_model->d_pFF, d_model->d_SC_indices,
                 d_model->d_global_params, d_model->d_regional_params,
                 conn_state_var_hist, delay, d_model->max_delay,
             #ifdef NOISE_SEGMENT
@@ -1036,7 +1050,7 @@ void _run_simulations_gpu(
                 d_model->BOLD, d_model->states_out, 
                 d_model->global_out_int,
                 d_model->global_out_bool,
-                d_model->d_SC, d_model->d_SC_indices,
+                d_model->d_SC, d_model->d_pFF, d_model->d_SC_indices,
                 d_model->d_global_params, d_model->d_regional_params,
                 conn_state_var_hist, delay,
             #ifdef NOISE_SEGMENT
@@ -1264,10 +1278,12 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_Kuramotoc, &Model::mc, sizeof(typename Model::Constants)));
     }
 
-    // allocate device memory for SC
+    // allocate device memory for SC and pFF
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC), sizeof(u_real*) * m->N_SCs));
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_pFF), sizeof(u_real*) * m->N_SCs));
     for (int SC_idx=0; SC_idx<m->N_SCs; SC_idx++) {
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC[SC_idx]), sizeof(u_real) * m->nodes*m->nodes));
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_pFF[SC_idx]), sizeof(u_real) * m->nodes*m->nodes));
     }
     CUDA_CHECK_RETURN(cudaMallocManaged(&(m->d_SC_indices), sizeof(int) * m->N_SIMS));
     
@@ -1640,8 +1656,10 @@ void BaseModel::free_gpu() {
     CUDA_CHECK_RETURN(cudaFree(this->d_SC_indices));
     for (int SC_idx=0; SC_idx<this->alloc_N_SCs; SC_idx++) {
         CUDA_CHECK_RETURN(cudaFree(this->d_SC[SC_idx]));
+        CUDA_CHECK_RETURN(cudaFree(this->d_pFF[SC_idx]));
     }
     CUDA_CHECK_RETURN(cudaFree(this->d_SC));
+    CUDA_CHECK_RETURN(cudaFree(this->d_pFF));
 }
 
 void BaseModel::free_gpu_noise() {

@@ -106,7 +106,7 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     CUDA_CALLABLE_MEMBER void step( \
         u_real* _state_vars, u_real* _intermediate_vars, \
         u_real* _global_params, u_real* _regional_params, \
-        u_real& tmp_globalinput, \
+        u_real& globalinput_ff, u_real& globalinput_fb, \
         u_real* noise, long& noise_idx); \
     CUDA_CALLABLE_MEMBER void post_bw_step( \
         u_real* _state_vars, u_real* _intermediate_vars, \
@@ -135,11 +135,11 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     void run_simulations_gpu( \
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out, \
         u_real ** global_params, u_real ** regional_params, u_real * v_list, \
-        u_real ** SC, int * SC_indices, u_real * SC_dist) override final { \
+        u_real ** SC, u_real ** pFF, int * SC_indices, u_real * SC_dist) override final { \
         _run_simulations_gpu<CLASS_NAME>( \
             BOLD_ex_out, fc_trils_out, fcd_trils_out,  \
             global_params, regional_params, v_list, \
-            SC, SC_indices, SC_dist, this); \
+            SC, pFF, SC_indices, SC_dist, this); \
     } \
     void h_init( \
         u_real* _state_vars, u_real* _intermediate_vars,  \

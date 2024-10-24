@@ -24,6 +24,7 @@ class SimGroup:
         duration,
         TR,
         sc,
+        pFF=None,
         sc_dist=None,
         out_dir=None,
         dt='0.1',
@@ -63,6 +64,12 @@ class SimGroup:
         sc: :obj:`str` or :obj:`np.ndarray`
             path to structural connectome strengths (as an unlabled .txt)
             or a numpy array
+            Shape: (nodes, nodes)
+            If asymmetric, rows are sources and columns are targets.
+        pFF: :obj:`str` or :obj:`np.ndarray`
+            path to proportion of feedforward matrix (as an unlabled .txt)
+            or a numpy array. Must have values between 0 and 1.
+            If not provided, all connections are considered feedforward.
             Shape: (nodes, nodes)
             If asymmetric, rows are sources and columns are targets.
         sc_dist: :obj:`str` or :obj:`np.ndarray`, optional
@@ -297,6 +304,22 @@ class SimGroup:
             else:
                 self.sc_dist = self.input_sc_dist
             self.do_delay = True
+        # pFF
+        self.input_pFF = pFF
+        if self.input_pFF is None:
+            self.pFF = np.ones_like(self.sc, dtype=float)
+        else:
+            if (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0)):
+                raise NotImplementedError(
+                    "pFF can not be used when running simulations on CPU."
+                )
+            if isinstance(self.input_pFF, (str, os.PathLike)):
+                self.pFF = np.loadtxt(self.input_pFF)
+            else:
+                self.pFF = self.input_pFF
+            assert np.all((self.pFF >= 0) & (self.pFF <= 1)), (
+                "pFF values must be between 0 and 1"
+            )
         # set Ballon-Windkessel parameters
         self.bw_params = bw_params
         # initialze w_IE_list as all 0s if do_fic
@@ -441,6 +464,7 @@ class SimGroup:
             config["out_dir"] = self.input_out_dir
             config["gof_terms"] = self.gof_terms
             config["sc"] = self.input_sc
+            config["pFF"] = self.input_pFF
             config["sc_dist"] = self.input_sc_dist
             config["bw_params"] = self.bw_params
             if include_N:
@@ -513,12 +537,14 @@ class SimGroup:
             regional_params_arrays.append(np.ascontiguousarray(self.param_lists[param].flatten()))
         self._global_params = np.vstack(global_params_arrays)
         self._regional_params = np.vstack(regional_params_arrays)
-        # specify fixed or variable SCs
+        # specify fixed or variable SCs and pFFs
         if ((self.sc.ndim == 2) or (self.sc.shape[0] == 1)):
             sc = np.ascontiguousarray(self.sc.flatten())[None, :]
+            pFF = np.ascontiguousarray(self.pFF.flatten())[None, :]
             sc_indices = np.repeat(0, self.N).astype(np.intc)
         else:
             sc = np.ascontiguousarray(self.sc.reshape(self.sc.shape[0], -1))
+            pFF = np.ascontiguousarray(self.pFF.reshape(self.pFF.shape[0], -1))
             sc_indices = np.ascontiguousarray(self.sc_indices.astype(np.intc))
         # make sure sc indices are correctly in {0, ..., N_SCs-1}
         assert sc.shape[0] == np.unique(sc_indices).size
@@ -527,6 +553,7 @@ class SimGroup:
         out = run_simulations(
             self.model_name,
             sc,
+            pFF,
             sc_indices,
             np.ascontiguousarray(self.sc_dist.flatten()),
             self._global_params,
@@ -973,6 +1000,15 @@ class rWWSimGroup(SimGroup):
                 "Setting max_fic_trials to 0."
             )
             self.max_fic_trials = 0
+        if ((self.input_pFF is not None) and self.do_fic):
+            print(
+                "Warning: In analytical FIC pFF is ignored and all"
+                " long-range connections are assumed to be E->E and FF."
+                " Make sure to additionally use numerical FIC in this"
+                " case by settign max_fic_trials > 0 (higher is better"
+                " but slower)."
+            )
+
 
     @SimGroup.N.setter
     def N(self, N):

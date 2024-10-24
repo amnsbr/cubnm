@@ -192,15 +192,16 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
 
 static PyObject* run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
-    PyArrayObject *py_SC, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
+    PyArrayObject *py_SC, *py_pFF, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
     PyObject* config_dict;
     bool ext_out, states_ts, noise_out, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, rand_seed;
     double dt, bw_dt;
 
-    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiidd", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!O!Oiiiiiiiiiiiidd", 
             &model_name,
             &PyArray_Type, &py_SC,
+            &PyArray_Type, &py_pFF,
             &PyArray_Type, &py_SC_indices,
             &PyArray_Type, &py_SC_dist,
             &PyArray_Type, &py_global_params,
@@ -229,11 +230,13 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     py_global_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_global_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     py_regional_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_regional_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     py_SC = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_SC, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
-    if ((py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL)) return NULL;
+    py_pFF = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_pFF, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    if ((py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL) | (py_pFF == NULL)) return NULL;
 
     u_real ** global_params = np_to_array_2d(py_global_params);
     u_real ** regional_params = np_to_array_2d(py_regional_params);
     u_real ** SC = np_to_array_2d(py_SC);
+    u_real ** pFF = np_to_array_2d(py_pFF);
     // calcualte number of SCs as the max value of py_SC_idx
     int N_SCs = *std::max_element(
         (int*)PyArray_DATA(py_SC_indices), 
@@ -416,7 +419,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             BOLD_ex_out, fc_trils_out, fcd_trils_out,
             global_params, regional_params, 
             (double*)PyArray_DATA(v_list),
-            SC, (int*)PyArray_DATA(py_SC_indices), (double*)PyArray_DATA(py_SC_dist)
+            SC, pFF, (int*)PyArray_DATA(py_SC_indices), (double*)PyArray_DATA(py_SC_dist)
         );
     }
     #endif
@@ -487,7 +490,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
 static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
-        "run_simulations(model_name, SC, SC_indices, SC_dist, global_params, regional_params, \n"
+        "run_simulations(model_name, SC, pFF, SC_indices, SC_dist, global_params, regional_params, \n"
         "v_list, model_config, ext_out, states_ts, noise_out, do_delay, force_reinit, \n"
         "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, rand_seed, dt, bw_dt)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
@@ -498,6 +501,9 @@ static PyMethodDef methods[] = {
             "\tcurrently only supports 'rWW'\n"
         "SC (np.ndarray) (n_SC, nodes*nodes)\n"
             "\tn_sc flattened strucutral connectivity matrices\n"
+            "\if asymmetric, rows are sources and columns are targets\n"
+        "pFF (np.ndarray) (n_SC, nodes*nodes)\n"
+            "\tn_sc flattened pFF (proportion of feed-forward) matrices\n"
             "\if asymmetric, rows are sources and columns are targets\n"
         "SC_idx (np.ndarray) (N_SIMS,)\n"
             "\tindex of SC to use for each simulation"

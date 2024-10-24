@@ -23,6 +23,61 @@ def run_sim_group(N_SIMS=2, force_cpu=False):
     sim_group.score(emp_fc_tril, emp_fcd_tril)
     return sim_group
 
+def run_sim_group_pFF(N_SIMS=2, force_cpu=False):
+    nodes = 100
+    # create a random proportion of FF matrix
+    np.random.seed(0)
+    pFF_tril = np.random.rand((nodes*(nodes-1))//2)
+    pFF = np.zeros((nodes, nodes))
+    pFF[np.tril_indices(nodes, -1)] = pFF_tril
+    pFF[np.triu_indices(nodes, 1)] = (1 - pFF.T)[np.triu_indices(100, 1)]
+    sim_group = sim.rWWSimGroup(
+        duration=60,
+        TR=1,
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        pFF=pFF,
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        states_ts=False,
+        states_sampling=1,
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.run()
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
+    sim_group.score(emp_fc_tril, emp_fcd_tril)
+    return sim_group
+
+def run_sim_group_pFF_two_nodes(N_SIMS=2, force_cpu=False):
+    nodes = 2
+    sc = np.ones((nodes, nodes), dtype=float) * 0.01
+    sc[np.diag_indices(nodes)] = 0
+    # create a pFF matrix with all FF from 0->1 and 
+    # all FB from 1->0
+    pFF = np.array([
+        [0, 1],
+        [0, 0]
+    ])
+    sim_group = sim.rWWSimGroup(
+        duration=60,
+        TR=1,
+        sc=sc,
+        pFF=pFF,
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        states_ts=False,
+        states_sampling=1,
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(1000.0, N_SIMS) # exaggerated G
+    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.run()
+    return sim_group
+
 def run_sim_group_co(nodes, N_SIMS=1):
     sc = np.ones((nodes, nodes), dtype=float)
     sc[np.diag_indices(nodes)] = 0

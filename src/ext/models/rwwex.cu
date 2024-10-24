@@ -22,11 +22,11 @@ __device__ __NOINLINE__ void rWWExModel::restart(
 __device__ void rWWExModel::step(
         u_real* _state_vars, u_real* _intermediate_vars,
         u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
+        u_real& globalinput_ff, u_real& globalinput_fb,
         u_real* noise, long& noise_idx
         ) {
-    // x = w * J_N * S + G * J_N * tmp_globalinput + I0
-    _state_vars[0] = _regional_params[0] * d_rWWExc.J_N * _state_vars[2] + _global_params[0] * d_rWWExc.J_N * tmp_globalinput + _regional_params[1] ; 
+    // x = w * J_N * S + G * J_N * globalinput_ff + I0
+    _state_vars[0] = _regional_params[0] * d_rWWExc.J_N * _state_vars[2] + _global_params[0] * d_rWWExc.J_N * globalinput_ff + _regional_params[1] ; 
     // axb = a * x - b
     _intermediate_vars[0] = d_rWWExc.a * _state_vars[0] - d_rWWExc.b;
     #ifdef USE_FLOATS

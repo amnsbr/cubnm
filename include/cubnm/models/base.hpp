@@ -103,7 +103,7 @@ public:
     #ifdef _GPU_ENABLED
     u_real **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
         **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils,
-        **d_SC, **d_global_params, **d_regional_params;
+        **d_SC, **d_pFF, **d_global_params, **d_regional_params;
     double **d_fc_trils, **d_fcd_trils;
     int *pairs_i, *pairs_j, *window_pairs_i, *window_pairs_j, *d_SC_indices;
     #endif
@@ -156,7 +156,7 @@ public:
     virtual void run_simulations_gpu(
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out,
         u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real ** SC, int * SC_indices, u_real * SC_dist) = 0;
+        u_real ** SC, u_real ** pFF, int * SC_indices, u_real * SC_dist) = 0;
     #endif
     virtual void init_cpu(bool force_reinit) = 0;
     virtual void run_simulations_cpu(
@@ -307,7 +307,7 @@ template<typename Model>
 extern void _run_simulations_gpu(
     double * BOLD_out, double * fc_trils_out, double * fcd_trils_out,
     u_real ** global_params, u_real ** regional_params, u_real * v_list,
-    u_real ** SC, int * SC_indices, u_real * SC_dist, BaseModel *model
+    u_real ** SC, u_real ** pFF, int * SC_indices, u_real * SC_dist, BaseModel *model
 );
 
 template<typename Model>
