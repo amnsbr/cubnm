@@ -263,7 +263,7 @@ class build_ext_gsl_cuda(build_ext):
             with open(unified_source_path, 'w') as unified_file:
                 for source_file in source_files:
                     unified_file.write(f'#include "{source_file}"\n')
-            if gpu_model == 'nvcc':
+            if gpu_model == 'nvidia':
                 compile_commands = [
                     f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/_bnm.o {unified_source_path} "
                     f"{include_flags} {conf_flags}",
