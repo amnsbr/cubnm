@@ -4,6 +4,8 @@ Utility functions
 import numpy as np
 import scipy
 import subprocess
+import json
+from cubnm._setup_opts import gpu_model_flag
 
 def avail_gpus():
     """
@@ -14,16 +16,41 @@ def avail_gpus():
     :obj:`int`
         Number of available GPUs
     """
+    gpu_counts = {'nvidia': 0, 'rocm': 0}
+    # nvidia
     try:
         output = subprocess.check_output(['nvidia-smi', '-L'])
         output = output.decode('utf-8').strip()
         gpu_list = output.split('\n')
-        gpu_count = len(gpu_list)
-        return gpu_count
+        gpu_counts['nvidia'] = len(gpu_list)
     except subprocess.CalledProcessError:
-        return 0
+        gpu_counts['nvidia'] = 0
     except FileNotFoundError:
-        return 0
+        gpu_counts['nvidia'] = 0
+    # rocm
+    try:
+        output = subprocess.check_output(['rocm-smi', '-i', '--json'])
+        output = output.decode('utf-8').strip()
+        gpu_dict = json.loads(output)
+        gpu_counts['rocm'] = len(gpu_dict)
+    except subprocess.CalledProcessError:
+        gpu_counts['rocm'] = 0
+    except FileNotFoundError:
+        gpu_counts['rocm'] = 0
+    # warn if there is mismatch between the type of
+    # gpu for which the code is complied vs available gpus
+    if (
+        ((gpu_model_flag == 'nvidia') and (gpu_counts['rocm'] > 0)) |
+        ((gpu_model_flag == 'rocm') and (gpu_counts['nvidia'] > 0))
+    ):
+        print(
+            f"Warning: Toolbox compiled for {gpu_model_flag}"
+            f" but {(set(gpu_counts.keys()) - set([gpu_model_flag]))}"
+            " GPUs are available. Reinstall for the correct GPU model."
+        )
+    # but only return the number of gpus for which
+    # the code was compiled
+    return gpu_counts[gpu_model_flag]
 
 def is_jupyter():
     """

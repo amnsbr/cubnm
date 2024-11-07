@@ -913,7 +913,14 @@ void _run_simulations_gpu(
     // increase heap size as needed
     // start with initial heap size
     size_t heapSize = 0;
-    CUDA_CHECK_RETURN(cudaDeviceGetLimit(&heapSize, cudaLimitMallocHeapSize));
+    #ifndef ENABLE_HIP
+    // this is a temporary fix for the problem of cudaLimitMallocHeapSize
+    // being a very large number when this is called, which then leads to error
+    // when setting the heapSize!
+    // TODO: find the cause of the problem, or also skip it for Nvidia (as heap is only
+    // used for the variables counted below it's okay if we start from 0)
+        CUDA_CHECK_RETURN(cudaDeviceGetLimit(&heapSize, cudaLimitMallocHeapSize));
+    #endif
     // add heap size required
     // in both serial and parallel nodes
     // _ext_int and _ext_bool are stored on heap
@@ -1012,7 +1019,7 @@ void _run_simulations_gpu(
             #endif
             (void*)&(d_model->noise), (void*)&progress
         };
-        CUDA_CHECK_RETURN(cudaLaunchCooperativeKernel((void*)(bnm<Model, true>), numBlocks, threadsPerBlock, kernelArgs, shared_mem_extern));
+        CUDA_CHECK_RETURN(cudaLaunchCooperativeKernel((void*)(bnm<Model, true>), numBlocks, threadsPerBlock, kernelArgs, shared_mem_extern, 0));
     } else {
         numBlocks.x = d_model->N_SIMS;
         if (d_model->base_conf.serial) {

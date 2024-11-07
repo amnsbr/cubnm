@@ -39,17 +39,17 @@
     // "too many resources requested for launch"
 #endif
 
-#ifdef __CUDACC__
+#if defined(__CUDACC__) || defined(__HIPCC__)
 #define CUDA_CALLABLE_MEMBER __device__
 #else
 #define CUDA_CALLABLE_MEMBER
 #endif 
 
-#if defined(__CUDACC__) || defined(GPU_ENABLED)
+#if defined(__CUDACC__) || defined(__HIPCC__) || defined(GPU_ENABLED)
 #define _GPU_ENABLED
 // this is used to determine if the GPU-related
 // declarations should be done, either if
-// nvcc is compiling the cuda source code
+// nvcc/hipcc is compiling the cuda source code
 // or the C++ is being compiled but will be
 // linked with the nvcc compiled library
 // i.e., GPU_ENABLED is defined
