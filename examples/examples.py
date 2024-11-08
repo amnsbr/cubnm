@@ -17,7 +17,15 @@ def run_sim_group(N_SIMS=2, force_cpu=False):
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
     sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
     sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    import time
+    print("Running Python FIC...")
+    start = time.time()
+    sim_group._fic_analytical()
+    print("took", time.time() - start, "seconds")
+    python_wIE = sim_group.param_lists['wIE'].copy()
+    sim_group.param_lists['wIE'][:] = 0.0
     sim_group.run()
+    assert np.allclose(sim_group.param_lists['wIE'], python_wIE)
     emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
     emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
     sim_group.score(emp_fc_tril, emp_fcd_tril)

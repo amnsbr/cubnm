@@ -82,6 +82,10 @@ void rWWModel::prep_params(
     if (!(this->conf.do_fic)) {
         return;
     }
+    std::cout << "Running FIC for " << this->N_SIMS << " simulations" << std::endl;
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    std::chrono::duration<double> run_seconds;
+    start = std::chrono::high_resolution_clock::now();
     // copy SC to SCs_gsl
     std::vector<gsl_matrix*> SCs_gsl;
     #ifdef OMP_ENABLED
@@ -138,6 +142,10 @@ void rWWModel::prep_params(
         }
         SCs_gsl.clear();
     }
+    end = std::chrono::high_resolution_clock::now();
+    run_seconds = end - start;
+    std::cout << "took " << std::fixed << std::setprecision(6)
+        << run_seconds.count() << " s" << std::endl;
 }
 
 void rWWModel::h_init(

@@ -12,6 +12,7 @@ license = {file = "LICENSE"}
 dependencies = [
     "numpy<2,>=1.20",
     "scipy",
+    "sympy",
     "pandas",
     "pymoo==0.6",
     "scikit-optimize==0.9",

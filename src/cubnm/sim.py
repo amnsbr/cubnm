@@ -2,7 +2,8 @@
 Simulation of the models
 """
 import numpy as np
-import scipy.stats
+import scipy
+import sympy
 import pandas as pd
 import os
 import gc
@@ -973,6 +974,8 @@ class rWWSimGroup(SimGroup):
                 "Setting max_fic_trials to 0."
             )
             self.max_fic_trials = 0
+        # define functions needed for analytical FIC
+        self._phi()
 
     @SimGroup.N.setter
     def N(self, N):
@@ -1018,6 +1021,121 @@ class rWWSimGroup(SimGroup):
         self.param_lists["wEI"] = np.full((self.N, self.nodes), 0.15)
         if not self.do_fic:
             self.param_lists["wIE"] = np.full((self.N, self.nodes), 1.0)
+            
+    def _fic_analytical(self):
+        """ 
+        Performs analytical FIC and sets regional wIE to values 
+        that are expected to achieve the target mean rE of 3 Hz.
+
+        Adapted from https://github.com/murraylab/hbnm 
+        """
+        # required parameters 
+        # (from https://github.com/murraylab/hbnm/blob/master/hbnm/model/params/synaptic.py)
+        I_ext = 0.0  # [nA]
+        W_E = 1.0     # excitatory external input weight
+        W_I = 0.7     # inhibitory external input weight
+        I0 = 0.382           # [nA] (overall effective external input)
+        I0_E = I0 * W_E 
+        J_NMDA = np.repeat(0.15, self.nodes) # [nA] (excitatory synaptic coupling)
+        I_I_ss = 0.2528951325  # nA
+        I_E_ss = 0.3773805650  # nA
+        S_E_ss = 0.1647572075  # dimensionless
+        # arrays / variables needed for _inh_curr_fixed_pts
+        # are assigned to self to avoid recomputation as
+        # this function will be called many times for root solving
+        self._S_E_ss = np.repeat(S_E_ss, self.nodes)
+        self._I0_I = np.repeat(I0 * W_I, self.nodes)
+        self._w_II = np.repeat(1.0, self.nodes)
+        self.gamma_I = 1.0
+        self.tau_I = 0.01  # [s] (GABA)
+        self._wII_gamma_I_tau_I = self._w_II * self.gamma_I * self.tau_I
+        # make SC 3D if it is 2D
+        if ((self.sc.ndim == 2) or (self.sc.shape[0] == 1)):
+            sc = self.sc[None, :, :]
+            sc_indices = np.repeat(0, self.N).astype(np.intc)
+        else:
+            sc = self.sc.copy()
+            sc_indices = self.sc_indices.copy()
+        eye = np.identity(self.nodes)
+        for sim_idx in range(self.N):
+            # Excitatory and inhibitory connection weights
+            self._K_EE = (
+                (self.param_lists['wEE'][sim_idx] * eye) 
+                + (self.param_lists['G'][sim_idx] * J_NMDA * sc[sc_indices[sim_idx]])
+            )
+            self._K_EI = (self.param_lists['wEI'][sim_idx] * eye)
+            # precalculate dot product to reduce fsolve computation time
+            self._K_EI_dot_S_E_ss = self._K_EI.dot(self._S_E_ss)
+            # Numerically solve for inhibitory currents first
+            try:
+                _I_I_ss = \
+                scipy.optimize.fsolve(
+                    self._inh_curr_fixed_pts,
+                    x0=np.repeat(I_I_ss, self.nodes),
+                    xtol=1e-3,
+                    maxfev=100,
+                    full_output=False
+                )
+            except TypeError:
+                print(
+                    f"Failed to find steady state I_I for sim {sim_idx}"
+                    " ... setting wIE to 1.0"
+                )
+                self.param_lists['wIE'][sim_idx] = np.ones(self.nodes, dtype=float)
+            _I_I = np.copy(I_I_ss)  # needed for self._update_rate_I()
+            _I_I_ss = np.copy(_I_I_ss)  # update stored steady state value
+            _r_I = self.phi_I(_I_I)  # compute new steady state rate
+            _r_I_ss = np.copy(_r_I)  # update stored steady state value
+            _S_I_ss = np.copy(_r_I_ss) * self.tau_I * self.gamma_I # update stored val.
+            # Solve for J using the steady state values (fixed points)
+            J = (-1. / _S_I_ss) * \
+                (I_E_ss -
+                I_ext - I0_E -
+                self._K_EE.dot(self._S_E_ss))
+            self.param_lists['wIE'][sim_idx] = J
+
+    def _inh_curr_fixed_pts(self, I):
+        """ 
+        Auxiliary function to find steady state inhibitory currents when FFI is enabled.
+
+        Adapted from https://github.com/murraylab/hbnm 
+
+        Parameters
+        ----------
+        I : Inhibitory current
+
+        Returns
+        -------
+        ndarray
+            The fixed points for inhibitory currents 
+        """
+        return self._I0_I + self._K_EI_dot_S_E_ss - \
+               self._wII_gamma_I_tau_I * self.phi_I(I) - I
+    
+    def _phi(self):
+        """
+        Generate transfer function and derivatives for Excitatory and Inhibitory populations.
+
+        Adapted from https://github.com/murraylab/hbnm
+        """
+        # required parameters 
+        # (from https://github.com/murraylab/hbnm/blob/master/hbnm/model/params/synaptic.py)
+        a_E = 310.    # [nC^-1]
+        b_E = 125.    # [Hz]
+        d_E = 0.16    # [s]
+        a_I = 615.    # [nC^-1]
+        b_I = 177.    # [Hz]
+        d_I = 0.087   # [s]
+        IE = sympy.symbols('IE')
+        II = sympy.symbols('II')
+        phi_E = (a_E * IE - b_E) / (1. - sympy.exp(-d_E * (a_E * IE - b_E)))
+        phi_I = (a_I * II - b_I) / (1. - sympy.exp(-d_I * (a_I * II - b_I)))
+        dphi_E = sympy.diff(phi_E, IE)
+        dphi_I = sympy.diff(phi_I, II)
+        self.phi_E = sympy.lambdify(IE, phi_E, "numpy")
+        self.phi_I = sympy.lambdify(II, phi_I,"numpy")
+        self.dphi_E = sympy.lambdify(IE, dphi_E, "numpy")
+        self.dphi_I = sympy.lambdify(II, dphi_I, "numpy")
 
     def _process_out(self, out):
         super()._process_out(out)
