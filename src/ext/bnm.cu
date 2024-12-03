@@ -876,6 +876,10 @@ void _run_simulations_gpu(
             }
             d_model->max_delays[sim_idx] = (int)rintf(max_length/curr_velocity); // how many integration steps between two most distant nodes
         }
+    } else {
+        for (int sim_idx=0; sim_idx < d_model->N_SIMS; sim_idx++) {
+            d_model->max_delays[sim_idx] = 0;
+        }
     }
     int max_max_delay = *(std::max_element(d_model->max_delays, d_model->max_delays + d_model->N_SIMS));
     bool has_delay = (max_max_delay > 0);
