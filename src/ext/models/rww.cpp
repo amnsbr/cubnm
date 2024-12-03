@@ -116,8 +116,8 @@ void rWWModel::prep_params(
             curr_w_EE, curr_w_EI,
             curr_w_IE, global_out_bool[0]+sim_idx);
         if (global_out_bool[0][sim_idx]) {
-            std::cout << "In simulation #" << sim_idx << 
-                " FIC solution is unstable. Setting wIE to 1 in all nodes" << std::endl;
+            std::cerr << "In simulation #" << sim_idx << 
+                " analytical FIC failed. Setting wIE to 1 in all nodes" << std::endl;
             for (int j=0; j<this->nodes; j++) {
                 regional_params[2][sim_idx*this->nodes+j] = 1.0;
             }

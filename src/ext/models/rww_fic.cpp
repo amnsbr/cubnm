@@ -52,24 +52,35 @@ double gsl_fsolve(gsl_function F, double x_lo, double x_hi) {
 
     T = gsl_root_fsolver_brent;
     s = gsl_root_fsolver_alloc(T);
-    gsl_root_fsolver_set(s, &F, x_lo, x_hi);
-
-    do
-        {
-        iter++;
-        status = gsl_root_fsolver_iterate(s);
-        root = gsl_root_fsolver_root(s);
-        x_lo = gsl_root_fsolver_x_lower(s);
-        x_hi = gsl_root_fsolver_x_upper(s);
-        status = gsl_root_test_interval(x_lo, x_hi,
-                                        0, 0.001);
-        }
-    while (status == GSL_CONTINUE && iter < max_iter);
-    gsl_root_fsolver_free(s); 
+    // temporarily disable error handler to avoid
+    // the program being aborted if the solver doesn't converge
+    // or solution falls outside the interval
+    gsl_error_handler_t * default_handler = gsl_set_error_handler_off();
+    status = gsl_root_fsolver_set(s, &F, x_lo, x_hi);
     if (status != GSL_SUCCESS) {
-        std::cerr << "Root solver did not converge" << std::endl;
-        return -1;
+        std::cerr << "Root out of [0, 2] interval" << std::endl;
+        root = -1;
+    } else {
+        do
+            {
+            iter++;
+            status = gsl_root_fsolver_iterate(s);
+            root = gsl_root_fsolver_root(s);
+            x_lo = gsl_root_fsolver_x_lower(s);
+            x_hi = gsl_root_fsolver_x_upper(s);
+            status = gsl_root_test_interval(x_lo, x_hi,
+                                            0, 0.001);
+            }
+        while (status == GSL_CONTINUE && iter < max_iter);
+        if (status != GSL_SUCCESS) {
+            std::cerr << "Root solver did not converge" << std::endl;
+            root = -1;
+        }
     }
+    // free the solver
+    gsl_root_fsolver_free(s); 
+    // reset the error handler
+    gsl_set_error_handler(default_handler);
     return root;
 }
 
