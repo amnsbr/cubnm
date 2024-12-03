@@ -17,25 +17,51 @@ def find_file(file_name, search_path):
             result.append(os.path.join(root, name))
     return result
 
-# detect if there are GPUs
-def has_gpus(method='nvcc'):
-    if method == 'nvidia-smi':
+def get_gpu_model(method='compiler'):
+    """
+    Detects the GPU type (if any) to compile for.
+    It first checks for Nvidia compiler/smi and then
+    ROCm.
+
+    Parameters
+    ----------
+    method: {'compiler', 'smi'}
+    
+    Returns
+    -------
+    {False, 'nvidia', 'rocm'}
+    """
+    if method == 'smi':
+        # nvidia
         try:
             output = subprocess.check_output(['nvidia-smi', '-L'])
             output = output.decode('utf-8').strip()
             gpu_list = output.split('\n')
             gpu_count = len(gpu_list)
-            return gpu_count>0
-        except subprocess.CalledProcessError:
-            return False
-        except FileNotFoundError:
-            return False
-    elif method == 'nvcc':
+            if gpu_count>0:
+                return 'nvidia'
+        except:
+            pass
+        # rocm
+        try:
+            output = subprocess.check_output(['rocm-smi', '-i', '--json'])
+            output = output.decode('utf-8').strip()
+            gpu_dict = json.loads(output)
+            gpu_count = len(gpu_dict)
+            if gpu_count>0:
+                return 'rocm'
+        except:
+            pass
+        return False
+    elif method == 'compiler':
         # can be useful for compiling code on a
         # non-GPU system for running it later
         # on GPUs
-        if find_executable("nvcc"):
-                return True
+        # nvidia
+        if find_executable('nvcc'):
+            return 'nvidia'
+        elif find_executable('hipcc'):
+            return 'rocm'
         else:
             return False
 
@@ -43,7 +69,8 @@ def has_gpus(method='nvcc'):
 many_nodes = not ("CUBNM_NO_MANY_NODES" in os.environ)
 max_nodes_reg = os.environ.get("CUBNM_MAX_NODES_REG", 200)
 max_nodes_many = os.environ.get("CUBNM_MAX_NODES_MANY", 1024)
-gpu_enabled = has_gpus()
+gpu_model = get_gpu_model(method='compiler')
+gpu_enabled = (gpu_model != False)
 omp_enabled = not ("CUBNM_NO_OMP" in os.environ)
 noise_segment = not ("CUBNM_NOISE_WHOLE" in os.environ)
 
@@ -56,7 +83,8 @@ with open(os.path.join(ROOT, "src", "cubnm", "_setup_opts.py"), "w") as flag_fil
              f"omp_enabled_flag = {omp_enabled}",
              f"noise_segment_flag = {noise_segment}",
              f"max_nodes_reg = {max_nodes_reg}",
-             f"max_nodes_many = {max_nodes_many}"
+             f"max_nodes_many = {max_nodes_many}",
+             f"gpu_model_flag = '{gpu_model}'"
             ]
         )
     )
@@ -78,10 +106,16 @@ shared_includes = [
     np.get_include(),
     "/opt/miniconda/include" # added for conda-based cibuildwheel
 ]
-gpu_includes = [
-    "/usr/lib/cuda/include",
-    "/usr/include/cuda",
-]
+if gpu_model == 'nvidia':
+    gpu_includes = [
+        "/usr/lib/cuda/include",
+        "/usr/include/cuda",
+    ]
+elif gpu_model == 'rocm':
+    ROCM_PATH = subprocess.check_output(['hipconfig', '--path']).decode('utf-8').strip()
+    gpu_includes = [os.path.join(ROCM_PATH,"include", "hip")]
+else:
+    gpu_includes = []
 all_includes = shared_includes + gpu_includes
 
 # extra compile args shared between CPU and GPU
@@ -101,25 +135,41 @@ if omp_enabled:
         "-fopenmp",
         "-D OMP_ENABLED"
     ]
+if gpu_enabled:
+    extra_compile_args.append("-D GPU_ENABLED")
+    if gpu_model == 'rocm':
+        extra_compile_args.append("-D ENABLE_HIP")
 
 if gpu_enabled:
-    print("Compiling for GPU+CPU")
-    libraries += ["bnm", "cudart_static"]
+    print(f"Compiling for GPU ({gpu_model}) + CPU")
+    libraries += ["bnm"]
+    if gpu_model == 'nvidia':
+        libraries += ["cudart_static"]
+        library_dirs = [
+            "/usr/lib/cuda", 
+            "/usr/local/cuda/lib64",
+        ]
+    elif gpu_model == 'rocm':
+        # TODO: is there an alternative to `cudart_static`?
+        libraries += ['amdhip64']
+        library_dirs = [
+            os.path.join(ROCM_PATH, 'lib'),
+        ]
     bnm_ext = Extension(
         "cubnm.core",
         [os.path.join("src", "ext", "core.cpp")],
         language="c++",
-        extra_compile_args=extra_compile_args+["-D GPU_ENABLED"],
+        extra_compile_args=extra_compile_args,
         libraries=libraries,
         include_dirs=all_includes,
-        library_dirs=[
-            "/usr/lib/cuda", 
-            "/usr/local/cuda/lib64",
-            os.path.join(ROOT, "src", "ext"),
-            "/opt/miniconda/lib" # added for conda-based cibuildwheel
-        ] + \
-        os.environ.get("LIBRARY_PATH","").split(":") + \
-        os.environ.get("LD_LIBRARY_PATH","").split(":"),
+        library_dirs=library_dirs + \
+            [
+                os.path.join(ROOT, "src", "ext"),
+                "/opt/miniconda/lib" # added for conda-based cibuildwheel
+            ] + \
+            os.environ.get("LIBRARY_PATH","").split(":") + \
+            os.environ.get("LD_LIBRARY_PATH","").split(":")
+        ,
     )
 else:
     print("Compiling for CPU")
@@ -145,8 +195,8 @@ class build_ext_gsl_cuda(build_ext):
         lib_dirs = os.environ.get("LIBRARY_PATH","").split(":") + \
                 os.environ.get("LD_LIBRARY_PATH","").split(":") + \
                 [
-                    "/usr/lib", 
-                    "/lib", 
+                    "/usr/lib",
+                    "/lib",
                     "/usr/local/lib",
                     "/opt/miniconda/lib", # cibuildwheel
                     # TODO: identify and search current conda env
@@ -197,47 +247,39 @@ class build_ext_gsl_cuda(build_ext):
                 conf_flags.append("NOISE_SEGMENT")
             if many_nodes:
                 conf_flags.append("MANY_NODES")
+            if gpu_model == 'rocm':
+                conf_flags.append("ENABLE_HIP")
+                include_flags = " ".join([f"-I {p}" for p in all_includes])
+            else:
+                include_flags = " ".join([f"-I {p}" for p in shared_includes])
             conf_flags = " ".join([f"-D {f}" for f in conf_flags])
-            include_flags = " ".join([f"-I {p}" for p in shared_includes])
             source_files = ["bnm.cu", "utils.cu", "fc.cu"] + [
                 os.path.relpath(f, start=cuda_dir) for f in find_file('*.cu', os.path.join(cuda_dir, 'models'))
             ]
-            # compile_commands = []
-            # obj_paths = []
-            # for source_file in source_files:
-            #     source_path = os.path.join(cuda_dir, source_file)
-            #     obj_path = source_path.replace('.cu', '.o')
-            #     obj_paths.append(obj_path)
-            #     compile_commands.append(
-            #         f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {obj_path} {source_path} "
-            #         f"{include_flags} {conf_flags}"
-            #     )
-            # compile_commands += [
-            #     # link the individual object files + the dependency libraries
-            #     f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/bnm_linked.o {' '.join(obj_paths)} "
-            #         f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
-            #     # create libbnm.a
-            #     f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/bnm_linked.o {' '.join(obj_paths)}",
-            #     f"ranlib {cuda_dir}/libbnm.a",
-            # ]
-
             # create a unified source file including all .cu files
             # this offers significantly better performance than 
             # compiling each file separately and linking them later
-            # (the code commented out above)
             unified_source_path = os.path.join(cuda_dir, "_bnm.cu")
             with open(unified_source_path, 'w') as unified_file:
                 for source_file in source_files:
                     unified_file.write(f'#include "{source_file}"\n')
-            compile_commands = [
-                f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/_bnm.o {unified_source_path} "
-                f"{include_flags} {conf_flags}",
-                f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o "
-                    f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
-                f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o",
-                f"ranlib {cuda_dir}/libbnm.a",
-            ]
-
+            if gpu_model == 'nvidia':
+                compile_commands = [
+                    f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/_bnm.o {unified_source_path} "
+                    f"{include_flags} {conf_flags}",
+                    f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o "
+                        f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
+                    f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o",
+                    f"ranlib {cuda_dir}/libbnm.a",
+                ]
+            else:
+                compile_commands = [
+                    f"hipcc -fno-gpu-rdc -std=c++11 -fPIC {include_flags} {conf_flags} -c {unified_source_path} -o {cuda_dir}/_bnm.o ",
+                    f"hipcc --shared -fPIC -fno-gpu-rdc -o {cuda_dir}/_bnm_linked.so {cuda_dir}/_bnm.o "
+                        f"-L {GSL_LIB_DIR} -lgsl -lgslcblas -L {ROCM_PATH}/lib -lamdhip64", # -lm and -lcudart_static are removed
+                    f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/_bnm_linked.so {cuda_dir}/_bnm.o",
+                    f"ranlib {cuda_dir}/libbnm.a",
+                ]
             for command in compile_commands:
                 print(command)
                 result = subprocess.run(command, shell=True, stdout=sys.stdout, stderr=subprocess.STDOUT)

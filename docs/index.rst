@@ -9,11 +9,12 @@
    :maxdepth: 3
    :caption: Contents:
 
-   Installation <install>
-   Quickstart <quickstart>
-   Command Line Interface <cli>
+   install
+   quickstart
+   tutorials
+   cli
    API References <autoapi/cubnm/index>
-   Contributing new models <contribution>
+   contribution
 
 
 Indices and tables

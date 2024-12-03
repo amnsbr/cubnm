@@ -126,6 +126,30 @@ def run_sim_group_400(force_cpu=False):
     # sim_group.save()
     return sim_group
 
+def run_sim_group_delay(N_SIMS=2, force_cpu=False):
+    nodes = 100
+    sim_group = sim.rWWSimGroup(
+        duration=60,
+        TR=1,
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        sc_dist=datasets.load_sc('length', 'schaefer-100'),
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        states_ts=False,
+        states_sampling=1,
+        dt='1.0',
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['v'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.run()
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
+    sim_group.score(emp_fc_tril, emp_fcd_tril)
+    return sim_group
+
 def run_sim_group_rWWEx(force_cpu=False):
     nodes = 100
     N_SIMS = 2

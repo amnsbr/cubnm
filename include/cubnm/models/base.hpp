@@ -80,6 +80,7 @@ public:
         bw_it{0}, inner_it{0}, BOLD_TR_iters{0}, states_sampling_iters{0},
         alloc_N_SCs{0}, alloc_N_SIMS{0};
         // TODO: make some short or size_t
+    int *max_delays;
     bool cpu_initialized{false}, cpu_noise_initialized{false}, modifies_params{false}, 
         do_delay{false}, co_launch{false}, alloc_states_out{false}, alloc_fc{false},
         alloc_fcd{false};
@@ -103,7 +104,7 @@ public:
     #ifdef _GPU_ENABLED
     u_real **BOLD, **mean_bold, **ssd_bold, **fc_trils, **windows_mean_bold, **windows_ssd_bold,
         **windows_fc_trils, **windows_mean_fc, **windows_ssd_fc, **fcd_trils,
-        **d_SC, **d_pFF, **d_global_params, **d_regional_params;
+        **d_SC, **d_pFF, **d_SC_dist, **d_global_params, **d_regional_params, *d_v_list;
     double **d_fc_trils, **d_fcd_trils;
     int *pairs_i, *pairs_j, *window_pairs_i, *window_pairs_j, *d_SC_indices;
     #endif

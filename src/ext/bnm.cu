@@ -32,7 +32,8 @@ __device__ void global_input_cond(
         int& k_buff_idx,
         const int& nodes, const int& sim_idx, const int& SC_idx,
         const int& j, int& k, int& buff_idx, u_real** SC, u_real** pFF,
-        int** delay, const bool& has_delay, const int& max_delay,
+        u_real** SC_dist, const bool& has_delay, const int& max_delay, 
+        int& curr_delay, const u_real& velocity,
         u_real** conn_state_var_hist, u_real* conn_state_var_1
         ) {
     // calculates global input from other nodes `k` to current node `j`
@@ -48,10 +49,11 @@ __device__ void global_input_cond(
     globalinput_fb = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
+            curr_delay = rintf(SC_dist[SC_idx][k*nodes+j]/velocity);
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + delay[sim_idx][k*nodes+j]) % max_delay;
+            k_buff_idx = (buff_idx + curr_delay) % max_delay;
             globalinput_ff += SC[SC_idx][k*nodes+j] * pFF[SC_idx][k*nodes+j] * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
             globalinput_fb += SC[SC_idx][k*nodes+j] * (1 - pFF[SC_idx][k*nodes+j])  * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
         }
@@ -68,7 +70,8 @@ __device__ void global_input_osc(
         int& k_buff_idx,
         const int& nodes, const int& sim_idx, const int& SC_idx,
         const int& j, int& k, int& buff_idx, u_real** SC, u_real** pFF,
-        int** delay, const bool& has_delay, const int& max_delay,
+        u_real** SC_dist, const bool& has_delay, const int& max_delay, 
+        int& curr_delay, const u_real& velocity,
         u_real** conn_state_var_hist, u_real* conn_state_var_1
         ) {
     // calculates global input from other nodes `k` to current node `j`
@@ -78,10 +81,11 @@ __device__ void global_input_osc(
                         // it's included for API consistency
     if (has_delay) {
         for (k=0; k<nodes; k++) {
+            curr_delay = rintf(SC_dist[SC_idx][k*nodes+j]/velocity);
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + delay[sim_idx][k*nodes+j]) % max_delay;
+            k_buff_idx = (buff_idx + curr_delay) % max_delay;
             globalinput_ff += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_hist[sim_idx][k_buff_idx*nodes+k] - conn_state_var_hist[sim_idx][buff_idx*nodes+j]);
         }
     } else {
@@ -109,9 +113,10 @@ template<typename Model, bool co_launch>
 __global__ void bnm(
         Model* model, u_real **BOLD, u_real ***states_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real **SC, u_real **pFF, int *SC_indices, 
+        u_real **SC, u_real **pFF, u_real **SC_dist, int *SC_indices, 
         u_real **global_params, u_real **regional_params,
-        u_real **conn_state_var_hist, int **delay,
+        u_real **conn_state_var_hist, 
+        int *max_delays, u_real *v_list,
         #ifdef NOISE_SEGMENT
         int *shuffled_nodes, int *shuffled_ts,
         #endif
@@ -157,7 +162,8 @@ __global__ void bnm(
     const int inner_it = model->inner_it;
     const int BOLD_TR_iters = model->BOLD_TR_iters;
     const int states_sampling_iters = model->states_sampling_iters;
-    const int max_delay = model->max_delay;
+    const int max_delay = max_delays[sim_idx];
+    const u_real velocity = v_list[sim_idx];
 
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
@@ -295,6 +301,7 @@ __global__ void bnm(
     long noise_idx = 0;
     int bold_i = 0;
     int states_i = 0;
+    int curr_delay = 0;
     // outer loop (of bw iterations, default: 1 msec)
     while (bw_i < bw_it) {
         #ifdef NOISE_SEGMENT
@@ -312,7 +319,8 @@ __global__ void bnm(
                 k_buff_idx,
                 nodes, sim_idx, SC_idx,
                 j, k, buff_idx, SC, pFF,
-                delay, has_delay, max_delay,
+                SC_dist, has_delay, max_delay,
+                curr_delay, velocity,
                 conn_state_var_hist, conn_state_var_1
             );
             // equations
@@ -497,8 +505,10 @@ template<typename Model>
 __global__ void bnm_serial(
         Model* model, u_real **BOLD, u_real ***states_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real **SC, u_real **pFF, int *SC_indices, u_real **global_params, u_real **regional_params,
-        u_real **conn_state_var_hist, int **delay, int max_delay,
+        u_real **SC, u_real **pFF, u_real **SC_dist, int *SC_indices, 
+        u_real **global_params, u_real **regional_params,
+        u_real **conn_state_var_hist, 
+        int* max_delays, u_real *v_list,
         #ifdef NOISE_SEGMENT
         int *shuffled_nodes, int *shuffled_ts,
         #endif
@@ -522,6 +532,8 @@ __global__ void bnm_serial(
     const int inner_it = model->inner_it;
     const int BOLD_TR_iters = model->BOLD_TR_iters;
     const int states_sampling_iters = model->states_sampling_iters;
+    const int max_delay = max_delays[sim_idx];
+    const u_real velocity = v_list[sim_idx];
 
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
@@ -640,7 +652,7 @@ __global__ void bnm_serial(
     bool restart{false};
 
     // integration loop
-    int inner_i{0}, k{0}, bold_i{0}, states_i{0}, bw_i{0};
+    int inner_i{0}, k{0}, bold_i{0}, states_i{0}, bw_i{0}, curr_delay{0};
     long noise_idx{0};
     // outer loop (of bw iterations, default: 1 msec)
     while (bw_i < bw_it) {
@@ -659,7 +671,8 @@ __global__ void bnm_serial(
                     k_buff_idx,
                     nodes, sim_idx, SC_idx,
                     j, k, buff_idx, SC, pFF,
-                    delay, has_delay, max_delay,
+                    SC_dist, has_delay, max_delay,
+                    curr_delay, velocity,
                     conn_state_var_hist, conn_state_var_1
                 );
             }
@@ -823,6 +836,11 @@ void _run_simulations_gpu(
     for (int SC_idx=0; SC_idx<d_model->N_SCs; SC_idx++) {
       CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC[SC_idx], SC[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
       CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_pFF[SC_idx], pFF[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+      // TEMPORARY: Use same SC_dist for all SCs
+      // TODO: Fix this
+      CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC_dist[SC_idx], SC_dist, d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+      // Uncomment following when SC_dist is also a 2d array
+    //   CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC_dist[SC_idx], SC_dist[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
     }
     // copy SC_indices to managed memory
     CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC_indices, SC_indices, d_model->N_SIMS * sizeof(int), cudaMemcpyHostToDevice));
@@ -834,6 +852,8 @@ void _run_simulations_gpu(
     for (int i=0; i<Model::n_regional_params; i++) {
         CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_regional_params[i], regional_params[i], d_model->N_SIMS*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
     }
+    // copy v_list to managed memory
+    CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_v_list, v_list, d_model->N_SIMS * sizeof(u_real), cudaMemcpyHostToDevice));
 
     // The following currently only does analytical FIC for rWW
     // but in theory can be used for any model that requires
@@ -853,58 +873,39 @@ void _run_simulations_gpu(
     // in each run_simulations_gpu call within a session
     u_real **conn_state_var_hist; 
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist, sizeof(u_real*) * d_model->N_SIMS)); 
-    int **delay;
-    d_model->max_delay = 0;
-    float min_velocity{1e10}; // only used for printing info
+    float min_velocity{1e10};
     float max_length{0};
-    float curr_length{0.0}, curr_velocity{0.0};
-    int curr_delay{0};
+    float curr_velocity{0};
     if (d_model->do_delay) {
     // note that do_delay is user asking for delay to be considered, has_delay indicates
     // if user has asked for delay AND there would be any delay between nodes given
     // velocity and distance matrix
-    // TODO: make it less complicated
-        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay, sizeof(int*) * d_model->N_SIMS));
+        // calculate max distance
+        max_length = *(std::max_element(SC_dist, SC_dist + d_model->nodes*d_model->nodes));
         for (int sim_idx=0; sim_idx < d_model->N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&delay[sim_idx], sizeof(int) * d_model->nodes * d_model->nodes));
             curr_velocity = v_list[sim_idx] * d_model->dt; // how much signal travels in each integration step (mm)
             if (curr_velocity < min_velocity) {
                 min_velocity = curr_velocity;
             }
-            for (int i = 0; i < d_model->nodes; i++) {
-                for (int j = 0; j < d_model->nodes; j++) {
-                    curr_length = SC_dist[i*d_model->nodes+j];
-                    if (i > j) {
-                        curr_delay = (int)round(curr_length/curr_velocity); // how many integration steps between i and j
-                        // set minimum delay to 1 because a node
-                        // cannot access instantaneous states of 
-                        // other nodes, as they might not have been
-                        // calculated yet
-                        curr_delay = std::max(curr_delay, 1);
-                        delay[sim_idx][i*d_model->nodes + j] = curr_delay;
-                        delay[sim_idx][j*d_model->nodes + i] = curr_delay;
-                        if (curr_delay > d_model->max_delay) {
-                            d_model->max_delay = curr_delay;
-                            max_length = curr_length;
-                        }
-                    } else if (i == j) {
-                        delay[sim_idx][i*d_model->nodes + j] = 1;
-                    }
-                }
-            }
+            d_model->max_delays[sim_idx] = (int)rintf(max_length/curr_velocity); // how many integration steps between two most distant nodes
+        }
+    } else {
+        for (int sim_idx=0; sim_idx < d_model->N_SIMS; sim_idx++) {
+            d_model->max_delays[sim_idx] = 0;
         }
     }
-    bool has_delay = (d_model->max_delay > 0);
+    int max_max_delay = *(std::max_element(d_model->max_delays, d_model->max_delays + d_model->N_SIMS));
+    bool has_delay = (max_max_delay > 0);
     if (has_delay) {
         if (d_model->base_conf.verbose) {
             std::cout << "Max distance " << max_length << " (mm) with a minimum velocity of " 
                 << min_velocity << " (mm/dt) => Max delay: " 
-                << d_model->max_delay << " (dt)" << std::endl;
+                << max_max_delay << " (dt)" << std::endl;
         }
         // allocate memory to conn_state_var_hist for N_SIMS * (nodes * max_delay)
         // TODO: make it possible to have variable max_delay per each simulation
         for (int sim_idx=0; sim_idx < d_model->N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * d_model->nodes * d_model->max_delay));
+            CUDA_CHECK_RETURN(cudaMallocManaged((void**)&conn_state_var_hist[sim_idx], sizeof(u_real) * d_model->nodes * d_model->max_delays[sim_idx]));
         }
     }
     else if (
@@ -926,7 +927,14 @@ void _run_simulations_gpu(
     // increase heap size as needed
     // start with initial heap size
     size_t heapSize = 0;
-    CUDA_CHECK_RETURN(cudaDeviceGetLimit(&heapSize, cudaLimitMallocHeapSize));
+    #ifndef ENABLE_HIP
+    // this is a temporary fix for the problem of cudaLimitMallocHeapSize
+    // being a very large number when this is called, which then leads to error
+    // when setting the heapSize!
+    // TODO: find the cause of the problem, or also skip it for Nvidia (as heap is only
+    // used for the variables counted below it's okay if we start from 0)
+        CUDA_CHECK_RETURN(cudaDeviceGetLimit(&heapSize, cudaLimitMallocHeapSize));
+    #endif
     // add heap size required
     // in both serial and parallel nodes
     // _ext_int and _ext_bool are stored on heap
@@ -1017,16 +1025,19 @@ void _run_simulations_gpu(
             (void*)&(d_model->global_out_bool),
             (void*)&(d_model->d_SC),
             (void*)&(d_model->d_pFF), 
+            (void*)&(d_model->d_SC_dist), 
             (void*)&(d_model->d_SC_indices),
             (void*)&(d_model->d_global_params), 
             (void*)&(d_model->d_regional_params),
-            (void*)&conn_state_var_hist, (void*)&delay, 
+            (void*)&conn_state_var_hist, 
+            (void*)&(d_model->max_delays),
+            (void*)&(d_model->d_v_list),
             #ifdef NOISE_SEGMENT
             (void*)&(d_model->shuffled_nodes), (void*)&(d_model->shuffled_ts),
             #endif
             (void*)&(d_model->noise), (void*)&progress
         };
-        CUDA_CHECK_RETURN(cudaLaunchCooperativeKernel((void*)(bnm<Model, true>), numBlocks, threadsPerBlock, kernelArgs, shared_mem_extern));
+        CUDA_CHECK_RETURN(cudaLaunchCooperativeKernel((void*)(bnm<Model, true>), numBlocks, threadsPerBlock, kernelArgs, shared_mem_extern, 0));
     } else {
         numBlocks.x = d_model->N_SIMS;
         if (d_model->base_conf.serial) {
@@ -1036,9 +1047,10 @@ void _run_simulations_gpu(
                 d_model->BOLD, d_model->states_out, 
                 d_model->global_out_int,
                 d_model->global_out_bool,
-                d_model->d_SC, d_model->d_pFF, d_model->d_SC_indices,
+                d_model->d_SC, d_model->d_pFF, d_model->d_SC_dist, d_model->d_SC_indices,
                 d_model->d_global_params, d_model->d_regional_params,
-                conn_state_var_hist, delay, d_model->max_delay,
+                conn_state_var_hist, 
+                d_model->max_delays, d_model->d_v_list,
             #ifdef NOISE_SEGMENT
                 d_model->shuffled_nodes, d_model->shuffled_ts,
             #endif
@@ -1050,9 +1062,10 @@ void _run_simulations_gpu(
                 d_model->BOLD, d_model->states_out, 
                 d_model->global_out_int,
                 d_model->global_out_bool,
-                d_model->d_SC, d_model->d_pFF, d_model->d_SC_indices,
+                d_model->d_SC, d_model->d_pFF, d_model->d_SC_dist, d_model->d_SC_indices,
                 d_model->d_global_params, d_model->d_regional_params,
-                conn_state_var_hist, delay,
+                conn_state_var_hist, 
+                d_model->max_delays, d_model->d_v_list,
             #ifdef NOISE_SEGMENT
                 d_model->shuffled_nodes, d_model->shuffled_ts,
             #endif
@@ -1225,16 +1238,10 @@ void _run_simulations_gpu(
         }
     }
 
-    // free delay and conn_state_var_hist memories if allocated
+    // free conn_state_var_hist memories if allocated
     // Note: no need to clear memory of the other variables
     // as we'll want to reuse them in the next calls to run_simulations_gpu
     // within current session
-    if (d_model->do_delay) {
-        for (int sim_idx=0; sim_idx < d_model->N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaFree(delay[sim_idx]));
-        }
-        CUDA_CHECK_RETURN(cudaFree(delay));
-    }
     if (has_delay) {
         for (int sim_idx=0; sim_idx < d_model->N_SIMS; sim_idx++) {
             CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist[sim_idx]));
@@ -1281,9 +1288,11 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
     // allocate device memory for SC and pFF
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC), sizeof(u_real*) * m->N_SCs));
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_pFF), sizeof(u_real*) * m->N_SCs));
+    CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC_dist), sizeof(u_real*) * m->nodes*m->nodes));
     for (int SC_idx=0; SC_idx<m->N_SCs; SC_idx++) {
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC[SC_idx]), sizeof(u_real) * m->nodes*m->nodes));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_pFF[SC_idx]), sizeof(u_real) * m->nodes*m->nodes));
+        CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC_dist[SC_idx]), sizeof(u_real) * m->nodes*m->nodes));
     }
     CUDA_CHECK_RETURN(cudaMallocManaged(&(m->d_SC_indices), sizeof(int) * m->N_SIMS));
     
@@ -1309,6 +1318,10 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
             CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_regional_params[param_idx]), sizeof(u_real) * m->N_SIMS * m->nodes));
         }
     }
+
+    // allocate device memory for max delays and v_list
+    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->max_delays), sizeof(int) * m->N_SIMS));
+    CUDA_CHECK_RETURN(cudaMallocManaged(&(m->d_v_list), sizeof(u_real) * m->N_SIMS));
 
     // set up global int and bool outputs
     if (Model::n_global_out_int > 0) {
@@ -1653,6 +1666,7 @@ void BaseModel::free_gpu() {
         }
         CUDA_CHECK_RETURN(cudaFree(this->d_global_params));
     }
+    CUDA_CHECK_RETURN(cudaFree(this->max_delays));
     CUDA_CHECK_RETURN(cudaFree(this->d_SC_indices));
     for (int SC_idx=0; SC_idx<this->alloc_N_SCs; SC_idx++) {
         CUDA_CHECK_RETURN(cudaFree(this->d_SC[SC_idx]));

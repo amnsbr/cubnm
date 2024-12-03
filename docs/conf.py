@@ -22,7 +22,8 @@ extensions = [
     'sphinx.ext.autosummary',
     'autoapi.extension',
     # 'sphinx_rtd_theme',
-    'sphinxarg.ext'
+    'sphinxarg.ext',
+    'nbsphinx',
 ]
 
 templates_path = ['_templates']
@@ -37,7 +38,7 @@ autoapi_ignore = ["*_core*", "*_setup_opts*", "*cli*", "*_version*"]
 autoapi_template_dir = '_autoapi_templates'
 autoapi_options = [
     'members', 'undoc-members', 'show-inheritance', 'inherited-members',
-    'show-module-summary', 'special-members',
+    'show-module-summary', 'special-members', 'private-members'
 ]
 
 def autoapi_skip(app, what, name, obj, skip, options):
@@ -74,3 +75,18 @@ html_theme_options = {
 html_css_files = [
     'css/custom.css',
 ]
+html_sourcelink_suffix = ''
+
+# -- Options for nbsphinx
+nbsphinx_execute = "never"
+# TODO: add nbsphinx_prolog to launch on Kaggle
+nbsphinx_epilog = r"""
+{% set docname = env.doc2path(env.docname) %}
+
+.. role:: raw-html(raw)
+    :format: html
+
+.. nbinfo::
+
+    This page was generated from `this Jupyter Notebook <{{docname}}>`_.
+"""
