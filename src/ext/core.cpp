@@ -459,26 +459,39 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyObject* py_run_seconds = PyFloat_FromDouble(run_seconds.count());
 
     // Return output as a dictionary
+    // Note: When setting the dictionary items, the reference count of the value
+    // is increased, so we need to decrement it after setting the item
+    // otherwise the reference count will be 2 and the object will not be garbage collected
+    // (when dictionary is out of scope / deleted in Python) leading to memory leakage
     PyObject* out_dict = PyDict_New();
     PyDict_SetItemString(out_dict, "init_time", py_init_seconds);
     PyDict_SetItemString(out_dict, "run_time", py_run_seconds);
     PyDict_SetItemString(out_dict, "sim_bold", py_BOLD_ex_out);
+    Py_DECREF(py_BOLD_ex_out);
     if (model->base_conf.do_fc) {
         PyDict_SetItemString(out_dict, "sim_fc_trils", py_fc_trils_out);
+        Py_DECREF(py_fc_trils_out);
         if (model->base_conf.do_fcd) {
             PyDict_SetItemString(out_dict, "sim_fcd_trils", py_fcd_trils_out);
+            Py_DECREF(py_fcd_trils_out);
         }
     }
     if (ext_out) {
         PyDict_SetItemString(out_dict, "_sim_states", py_states_out);
+        Py_DECREF(py_states_out);
         PyDict_SetItemString(out_dict, "_global_bools", py_global_bools_out);
+        Py_DECREF(py_global_bools_out);
         PyDict_SetItemString(out_dict, "_global_ints", py_global_ints_out);
+        Py_DECREF(py_global_ints_out);
     }
     if (noise_out) {
         PyDict_SetItemString(out_dict, "_noise", py_noise_out);
+        Py_DECREF(py_noise_out);
         #ifdef NOISE_SEGMENT
         PyDict_SetItemString(out_dict, "_shuffled_nodes", py_shuffled_nodes_out);
+        Py_DECREF(py_shuffled_nodes_out);
         PyDict_SetItemString(out_dict, "_shuffled_ts", py_shuffled_ts_out);
+        Py_DECREF(py_shuffled_ts_out);
         #endif
     }
     return out_dict;
