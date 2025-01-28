@@ -141,6 +141,37 @@ def run_sim_group_kuramoto(N_SIMS=2, force_cpu=False):
     sim_group.save()
     return sim_group
 
+def run_sim_group_many_nodes(nodes=9684, force_cpu=False):
+    # generate reproducible random sc
+    np.random.seed(0)
+    sc = np.random.rand(nodes, nodes)
+    # make it symmetric
+    sc += sc.T
+    # make its sum 1
+    sc = sc / sc.sum()
+    # set diagonal to 0
+    sc[np.diag_indices(nodes)] = 0
+    sim_group = sim.rWWExSimGroup(
+        duration=60,
+        TR=1,
+        sc=sc,
+        sim_verbose=True,
+        states_ts=True,
+        states_sampling=1,
+        noise_segment_length=1,
+        do_fc=True,
+        do_fcd=False,
+        gof_terms=[],
+        progress_interval=500,
+        dt='1.0',
+        force_cpu=force_cpu,
+    )
+    sim_group.N = 1
+    sim_group._set_default_params()
+    sim_group.param_lists['G'][:] = 0.005
+    sim_group.run()
+    return sim_group
+
 def run_grid():
     gs = optimize.GridSearch(
         model = 'rWW',

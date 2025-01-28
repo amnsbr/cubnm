@@ -1,7 +1,8 @@
 __global__ void bold_stats(
     u_real **mean_bold, u_real **ssd_bold,
     u_real **BOLD, int N_SIMS, int nodes,
-    int bold_len, int corr_len, int n_vols_remove);
+    int bold_len, int corr_len, int n_vols_remove,
+    bool co_launch);
 
 __global__ void window_bold_stats(
     u_real **BOLD, int N_SIMS, int nodes,

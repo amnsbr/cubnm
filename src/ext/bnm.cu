@@ -1101,11 +1101,11 @@ void _run_simulations_gpu(
     // FC and FCD calculations
     if (d_model->base_conf.do_fc) {
         // calculate mean and sd bold for FC calculation
-        threadsPerBlock.x = d_model->nodes;
         bold_stats<<<numBlocks, threadsPerBlock>>>(
             d_model->mean_bold, d_model->ssd_bold,
             d_model->BOLD, d_model->N_SIMS, d_model->nodes,
-            d_model->bold_len, d_model->corr_len, d_model->n_vols_remove);
+            d_model->bold_len, d_model->corr_len, d_model->n_vols_remove,
+            d_model->co_launch);
         CUDA_CHECK_LAST_ERROR();
         CUDA_CHECK_RETURN(cudaDeviceSynchronize());
         if (d_model->base_conf.do_fcd) {
@@ -1124,6 +1124,11 @@ void _run_simulations_gpu(
         numBlocks.x = d_model->N_SIMS;
         numBlocks.y = ceil((float)d_model->n_pairs / (float)maxThreadsPerBlock);
         numBlocks.z = d_model->n_windows + 1; // +1 for total FC
+        if (numBlocks.y > prop.maxGridSize[1]) {
+            std::cerr << "Error: Number of pairs " << d_model->n_pairs 
+                << " exceeds the capacity of the device for FC calculation" << std::endl;
+            exit(1);
+        }
         if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
             std::cerr << "Error: Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]" << std::endl;
             exit(1);

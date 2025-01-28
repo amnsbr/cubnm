@@ -2,15 +2,29 @@
 #include "cubnm/defines.h"
 #include "cubnm/fc.cuh"
 __global__ void bold_stats(
-    u_real **mean_bold, u_real **ssd_bold,
-    u_real **BOLD, int N_SIMS, int nodes,
-    int bold_len, int corr_len, int n_vols_remove) {
-    // TODO: consider combining this with window_bold_stats
-    // get simulation index
-    int sim_idx = blockIdx.x;
+        u_real **mean_bold, u_real **ssd_bold,
+        u_real **BOLD, int N_SIMS, int nodes,
+        int bold_len, int corr_len, int n_vols_remove,
+        bool co_launch
+    ) {
+    // get simulation and node indices
+    int sim_idx;
+    int j;
+    if (co_launch) {
+        // in co_launch mode, sim_idx is the second index of the grid
+        // and j is determined based on grid and block first indices
+        // Note: co_launch refers to how the simulation kernel is launched
+        // This kernel is launched normally either way
+        sim_idx = blockIdx.y;
+        j = blockIdx.x * blockDim.x + threadIdx.x;
+    } else {
+        // in normal mode, sim_idx is the first index of the grid
+        // and j is the first index of the block
+        sim_idx = blockIdx.x;
+        j = threadIdx.x;
+    }
+    // safe-guard against out-of-bound indices
     if (sim_idx >= N_SIMS) return;
-    // get node index
-    int j = threadIdx.x;
     if (j >= nodes) return;
 
     // mean

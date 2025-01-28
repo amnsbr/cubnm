@@ -274,10 +274,10 @@ class SimGroup:
                     f"With {self.nodes} nodes in the current installation of the toolbox"
                     " simulations will fail. Please reinstall the package from source after"
                     " `export CUBNM_MANY_NODES=1`")
-            if self.do_fc or self.do_fcd:
+            if self.do_fcd:
                 raise NotImplementedError(
-                    "With many nodes, FC and FCD calculations are not supported."
-                    " Set do_fc and do_fcd to False."
+                    "With many nodes, FCD calculation is not supported."
+                    " Set do_fcd to False."
                 )
             if self.dt < 1.0:
                 print(
