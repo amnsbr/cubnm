@@ -5,6 +5,7 @@ import numpy as np
 import scipy
 import subprocess
 import json
+from cubnm._core import run_fc_calculation
 from cubnm._setup_opts import gpu_model_flag
 
 def avail_gpus():
@@ -135,13 +136,15 @@ def calculate_fc(
         Motion outliers should either be excluded or replaced with zeros.
     exc_interhemispheric: :obj:`bool`, optional
         exclude interhemispheric connections
+        assuming nodes are split equally between hemispheres
+        and are ordered by hemisphere
     return_tril: :obj:`bool`, optional
         return only the lower triangular part of the FCD matrix
 
     Returns
     -------
     fc: :obj:`np.ndarray`
-        FC dynamics matrix. 
+        FC matrix. 
         Shape: (nodes, nodes) or (n_node_pairs,)
         if return_tril is True
     """
@@ -161,6 +164,33 @@ def calculate_fc(
         fc = fc[~np.isnan(fc)]
     return fc
 
+def calculate_fc_gpu(
+    bold,
+    exc_interhemispheric=False,
+    return_tril=True,
+):
+    """
+    Calculates functional connectivity matrices on GPU
+
+    Parameters
+    ---------
+    bold: :obj:`np.ndarray`
+        cleaned and BOLD time series. Shape: (N_BOLD, volumes, nodes)
+    exc_interhemispheric: :obj:`bool`, optional
+        exclude interhemispheric connections
+        assuming nodes are split equally between hemispheres
+        and are ordered by hemisphere
+
+    Returns
+    -------
+    fc: :obj:`np.ndarray`
+        FC matrices. 
+        Shape: (N_BOLD, n_node_pairs,)
+    """
+    # ensure BOLD shape is correct
+    assert bold.ndim == 3, "BOLD must have 3 dimensions"
+    # run FC calculation on GPU
+    return run_fc_calculation(np.ascontiguousarray(bold), exc_interhemispheric)
 
 def calculate_fcd(
     bold,
@@ -194,6 +224,8 @@ def calculate_fcd(
         that would lead to discarding the window
     exc_interhemispheric: :obj:`bool`, optional
         exclude interhemispheric connections
+        assuming nodes are split equally between hemispheres
+        and are ordered by hemisphere
     return_tril: :obj:`bool`, optional
         return only the lower triangular part of the FCD matrix
     return_dfc: :obj:`bool`, optional

@@ -1,3 +1,7 @@
+/*
+Functions for calculating functional connectivity (FC) and functional connectivity dynamics (FCD)
+*/
+#include "cubnm/fc.hpp"
 gsl_vector * BaseModel::calculate_fc_tril(gsl_matrix * bold) {
     /*
      Given empirical/simulated bold (n_vols x nodes) returns

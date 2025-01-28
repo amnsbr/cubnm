@@ -1,5 +1,5 @@
 import numpy as np
-from cubnm import optimize, sim, datasets
+from cubnm import optimize, sim, datasets, utils
 import copy
 
 def run_sim_group(N_SIMS=2, force_cpu=False):
@@ -459,3 +459,22 @@ def run_batch_optimize_identical():
     cmaes_ind.optimize()
     print(cmaes_ind.opt)
     return optimizers[0], optimizers[1], cmaes_ind
+
+def run_fc_calculation(exc_interhemispheric=False):
+    bold = datasets.load_functional('bold', 'schaefer-100')
+    fc = utils.calculate_fc_gpu(bold.T[None, :, :], exc_interhemispheric)
+    fc_cpu = utils.calculate_fc(bold, exc_interhemispheric)
+    print(fc)
+    print(fc_cpu)
+    assert np.allclose(fc, fc_cpu, atol=1e-12)
+    return fc
+
+def run_fc_calculation_dense(exc_interhemispheric=False):
+    np.random.seed(0)
+    bold = np.random.rand(1, 790, 10000)
+    fc = utils.calculate_fc_gpu(bold, exc_interhemispheric)
+    fc_cpu = utils.calculate_fc(bold[0].T, exc_interhemispheric)
+    print(fc)
+    print(fc_cpu)
+    assert np.allclose(fc, fc_cpu, atol=1e-12)
+    return fc

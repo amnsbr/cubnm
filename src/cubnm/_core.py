@@ -13,5 +13,5 @@ except ImportError as e:
         print("To fix this error try building cuBNM from source (https://github.com/amnsbr/cuBNM)")
     raise
 else:
-    from cubnm.core import init, set_const
+    from cubnm.core import init, set_const, run_fc_calculation
     init()

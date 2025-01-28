@@ -41,8 +41,10 @@
 
 #if defined(__CUDACC__) || defined(__HIPCC__)
 #define CUDA_CALLABLE_MEMBER __device__
+#define CUDA_CALLABLE_MEMBER_GLOBAL __global__
 #else
 #define CUDA_CALLABLE_MEMBER
+#define CUDA_CALLABLE_MEMBER_GLOBAL
 #endif 
 
 #if defined(__CUDACC__) || defined(__HIPCC__) || defined(GPU_ENABLED)

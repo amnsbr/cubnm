@@ -1,6 +1,7 @@
 #include "cubnm/includes.cuh"
 #include "cubnm/defines.h"
 #include "cubnm/fc.cuh"
+
 __global__ void bold_stats(
         u_real **mean_bold, u_real **ssd_bold,
         u_real **BOLD, int N_SIMS, int nodes,
@@ -238,3 +239,149 @@ __global__ void fcd(
             R_fcd_trils[sim_idx][window_pair_idx] = cov / (R_windows_ssd_fc[sim_idx][w_i] * R_windows_ssd_fc[sim_idx][w_j]);
         }
     }
+
+void run_fc_calculation_gpu(
+    double *fc_trils_out, double *BOLD, 
+    int N_BOLD, int nodes, int bold_len, int n_pairs, 
+    bool exc_interhemispheric, int rh_idx
+) {
+    /*
+        Standalone function to run the FC calculation on the GPU
+        for user-provided (empirical) BOLD data.
+    */
+    /* Initializations */
+    // get device properties without printing device name
+    cudaDeviceProp prop = get_device_prop(0);
+    // copy BOLD data from np array on host to managed memory
+    // while converting it from 3D to 2D array
+    u_real **d_BOLD;
+    int bold_size = nodes * bold_len;
+    CUDA_CHECK_RETURN(cudaMallocManaged(&d_BOLD, N_BOLD * sizeof(double *)));
+    for (int bold_idx=0; bold_idx<N_BOLD; bold_idx++) {
+        CUDA_CHECK_RETURN(cudaMallocManaged(&(d_BOLD[bold_idx]), bold_size * sizeof(double)));
+        CUDA_CHECK_RETURN(cudaMemcpy(
+            d_BOLD[bold_idx],
+            BOLD+(bold_idx*bold_size),
+            bold_size * sizeof(double), 
+            cudaMemcpyHostToDevice
+            ));
+    }
+    // specify n_vols_remove as 0
+    int n_vols_remove = 0;
+    int corr_len = bold_len - n_vols_remove;
+    if (corr_len < 2) {
+        std::cerr << "Number of BOLD volumes is too low for FC calculations" << std::endl;
+        exit(1);
+    }
+    // create a mapping between pair_idx and i and j
+    int curr_idx = 0;
+    int *pairs_i, *pairs_j;
+    CUDA_CHECK_RETURN(cudaMallocManaged(&pairs_i, sizeof(int) * n_pairs));
+    CUDA_CHECK_RETURN(cudaMallocManaged(&pairs_j, sizeof(int) * n_pairs));
+    for (int i=0; i < nodes; i++) {
+        for (int j=0; j < nodes; j++) {
+            if (i > j) {
+                if (exc_interhemispheric) {
+                    // skip if each node belongs to a different hemisphere
+                    if ((i < rh_idx) ^ (j < rh_idx)) {
+                        continue;
+                    }
+                }
+                pairs_i[curr_idx] = i;
+                pairs_j[curr_idx] = j;
+                curr_idx++;
+            }
+        }
+    }
+    // allocate memory for mean_bold, ssd_bold and fc_trils
+    double **mean_bold, **ssd_bold, **fc_trils;
+    CUDA_CHECK_RETURN(cudaMallocManaged(&mean_bold, sizeof(double*) * N_BOLD));
+    CUDA_CHECK_RETURN(cudaMallocManaged(&ssd_bold, sizeof(double*) * N_BOLD));
+    CUDA_CHECK_RETURN(cudaMallocManaged(&fc_trils, sizeof(double*) * N_BOLD));
+    for (int bold_idx=0; bold_idx<N_BOLD; bold_idx++) {
+        CUDA_CHECK_RETURN(cudaMallocManaged(&mean_bold[bold_idx], sizeof(double) * nodes));
+        CUDA_CHECK_RETURN(cudaMallocManaged(&ssd_bold[bold_idx], sizeof(double) * nodes));
+        CUDA_CHECK_RETURN(cudaMallocManaged(&fc_trils[bold_idx], sizeof(double) * n_pairs));
+    }
+    // Note: since FC and FCD calculations are entangled in some
+    // kernels (e.g. `fc` kernel calculates both static and dynamic FCs)
+    // skipping FCD calculation can be done by setting n_windows to 0
+    // in which case window fc and fcd calculation kernels are called
+    // but don't do anything
+    int n_windows = 0;
+    int n_window_pairs = 0;
+    /* Running kernels */
+    // set co_launch to true so that many nodes can be supported
+    bool co_launch = true;
+    // run bold_stats kernel
+    // setting grid and block dimensions similar to the
+    // co_launch mode when running simulations
+    dim3 numBlocks;
+    dim3 threadsPerBlock;
+    threadsPerBlock.x = 256;
+    numBlocks.x = ceil((float)nodes / (float)threadsPerBlock.x);
+    numBlocks.y = N_BOLD;
+    bold_stats<<<numBlocks, threadsPerBlock>>>(
+        mean_bold, ssd_bold,
+        d_BOLD, N_BOLD, nodes,
+        bold_len, corr_len, n_vols_remove,
+        co_launch);
+    CUDA_CHECK_LAST_ERROR();
+    CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+    // run FC calculation kernel
+    int maxThreadsPerBlock = prop.maxThreadsPerBlock;
+    numBlocks.x = N_BOLD;
+    numBlocks.y = ceil((float)n_pairs / (float)maxThreadsPerBlock);
+    numBlocks.z = n_windows + 1; // +1 for total FC
+    if (numBlocks.y > prop.maxGridSize[1]) {
+        std::cerr << "Error: Number of pairs " << n_pairs 
+            << " exceeds the capacity of the device for FC calculation" << std::endl;
+        exit(1);
+    }
+    if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
+        std::cerr << "Error: Code not implemented for GPUs in which maxThreadsPerBlock!=maxThreadsDim[0]" << std::endl;
+        exit(1);
+    }
+    threadsPerBlock.x = maxThreadsPerBlock;
+    threadsPerBlock.y = 1;
+    threadsPerBlock.z = 1;
+    // launch kernel, passing FCD-related arrays as NULL
+    fc<<<numBlocks, threadsPerBlock>>>(
+        fc_trils, NULL, d_BOLD, 
+        N_BOLD, nodes, n_pairs, 
+        pairs_i, pairs_j,
+        bold_len, n_vols_remove, 
+        corr_len, mean_bold, ssd_bold,
+        n_windows, 1, NULL, NULL,
+        NULL, NULL,
+        maxThreadsPerBlock
+    );
+    CUDA_CHECK_LAST_ERROR();
+    CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+
+    /* Copy results to host np array */
+    for (int bold_idx=0; bold_idx<N_BOLD; bold_idx++) {
+        CUDA_CHECK_RETURN(cudaMemcpy(
+            fc_trils_out+(bold_idx*n_pairs), 
+            fc_trils[bold_idx], 
+            n_pairs * sizeof(double), 
+            cudaMemcpyDeviceToHost
+        ));
+    }
+
+    /* Free memory */
+    // free mean_bold, ssd_bold and fc_trils
+    for (int bold_idx=0; bold_idx<N_BOLD; bold_idx++) {
+        CUDA_CHECK_RETURN(cudaFree(fc_trils[bold_idx]));
+        CUDA_CHECK_RETURN(cudaFree(ssd_bold[bold_idx]));
+        CUDA_CHECK_RETURN(cudaFree(mean_bold[bold_idx]));
+    }
+    // free pairs_i and pairs_j
+    CUDA_CHECK_RETURN(cudaFree(pairs_i));
+    CUDA_CHECK_RETURN(cudaFree(pairs_j));
+    // free BOLD copy
+    for (int bold_idx=0; bold_idx<N_BOLD; bold_idx++) {
+        CUDA_CHECK_RETURN(cudaFree(d_BOLD[bold_idx]));
+    }
+    CUDA_CHECK_RETURN(cudaFree(d_BOLD));
+}

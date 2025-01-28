@@ -189,6 +189,51 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
+#ifdef GPU_ENABLED
+static PyObject* run_fc_calculation(PyObject* self, PyObject* args) {
+    // parse the input arguments
+    PyArrayObject *py_BOLD = NULL;
+    int exc_interhemispheric; // capturing it as integer since using bool leads to Python-side segmenation fault
+    // TODO: understand why this happens in this function, but not in run_simulations
+    // and make them consistent perhaps by changing bool arguments to integers in both
+    if (!PyArg_ParseTuple(args, "O!i", 
+            &PyArray_Type, &py_BOLD,
+            &exc_interhemispheric
+            )) {
+        std::cerr << "Error parsing arguments" << std::endl;
+        Py_RETURN_NONE;
+    }
+    // get N_BOLD, nodes, bold_len and BOLD data from the numpy array
+    double* BOLD = (double*)PyArray_DATA(py_BOLD);
+    int N_BOLD = PyArray_DIM(py_BOLD, 0);
+    int bold_len = PyArray_DIM(py_BOLD, 1);
+    int nodes = PyArray_DIM(py_BOLD, 2);
+    // calculate number of pairs
+    int n_pairs = ((nodes) * (nodes - 1)) / 2;
+    int rh_idx;
+    if (exc_interhemispheric) {
+        if ((nodes % 2) != 0) {
+            std::cerr << "Error: exc_interhemispheric is set but number of nodes is not even" << std::endl;
+            exit(1);
+        }
+        rh_idx = nodes / 2; // assumes symmetric number of parcels and L->R order
+        n_pairs -= pow(rh_idx, 2); // exclude the middle square
+    }
+    // create output array
+    npy_intp fc_trils_dims[2] = {N_BOLD, n_pairs};
+    PyObject *py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
+    // and get the pointer to its data
+    double *fc_trils_out = (double*)PyArray_DATA(py_fc_trils_out);
+    // calculate FC
+    run_fc_calculation_gpu(
+        fc_trils_out, BOLD, 
+        N_BOLD, nodes, bold_len, n_pairs,
+        exc_interhemispheric, rh_idx
+    );
+
+    return py_fc_trils_out;
+}
+#endif
 
 static PyObject* run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
@@ -225,11 +270,6 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         std::cerr << "Error parsing arguments" << std::endl;
         Py_RETURN_NONE;
     }
-
-    py_global_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_global_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
-    py_regional_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_regional_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
-    py_SC = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_SC, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
-    if ((py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL)) return NULL;
 
     u_real ** global_params = np_to_array_2d(py_global_params);
     u_real ** regional_params = np_to_array_2d(py_regional_params);
@@ -605,6 +645,20 @@ static PyMethodDef methods[] = {
             "\tname of the constant to set\n"
         "value (float)\n"
             "\tvalue of the constant to set\n\n"
+    },
+    {"run_fc_calculation", run_fc_calculation, METH_VARARGS, 
+        "run_fc_calculation(bold, exc_interhemispheric)\n"
+        "Calculates FC on GPU\n\n"
+        "Parameters:\n"
+        "-----------\n"
+        "bold (np.ndarray) (N_BOLD, nodes, bold_len)\n"
+            "\tBOLD time series\n"
+        "exc_interhemispheric (bool)\n"
+            "\twhether to exclude interhemispheric connections\n\n"
+        "Returns:\n"
+        "--------\n"
+        "fc_trils (np.ndarray) (N_BOLD, n_pairs)\n"
+            "\tlower triangles of functional connectivity matrices\n"
     },
     {NULL, NULL, 0, NULL}
 };
