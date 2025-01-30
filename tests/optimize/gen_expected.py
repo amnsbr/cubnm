@@ -52,6 +52,6 @@ def gen_expected(optimizer_name):
     optimizer.history.to_csv(os.path.join(test_data_dir, f'{optimizer_name}.csv'))
 
 if __name__ == "__main__":
-    model = sys.argv[1]
+    optimizer_name = sys.argv[1]
     os.makedirs(test_data_dir, exist_ok=True)
-    gen_expected(model)
+    gen_expected(optimizer_name)

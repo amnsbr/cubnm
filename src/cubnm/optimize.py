@@ -844,7 +844,7 @@ class CMAESOptimizer(PymooOptimizer):
         x0: array-like, optional
             The initial guess for the optimization.
             If None (default), the initial guess will be estimated based on
-            20 random samples as the first generation
+            `popsize` random samples as the first generation
         sigma: :obj:`float`, optional
             The initial step size for the optimization
         use_bound_penalty: :obj:`bool`, optional
@@ -885,7 +885,7 @@ class CMAESOptimizer(PymooOptimizer):
             print(
                 "Warning: Seed value for CMAES is set to 0."
                 " This will result in different random initializations for each run"
-                " due to a bug in `cma`. Setting seed to 100 instead."
+                " due to how `cma` works. Setting seed to 100 instead."
             )
             self.seed = 100
         self.use_bound_penalty = (
@@ -893,11 +893,15 @@ class CMAESOptimizer(PymooOptimizer):
         )
         self.popsize = popsize
         self.algorithm = CMAES(
-            x0=x0,  # will estimate the initial guess based on 20 random samples
+            x0=x0, 
             sigma=sigma,
-            popsize=popsize,  # from second generation
+            popsize=popsize,
             **algorithm_kws,
         )
+        if x0 is None:
+            # overwrite the default of 20 sample points
+            # (in pymoo) to popsize
+            self.algorithm.n_sample_points = self.popsize
 
     def setup_problem(self, problem, **kwargs):
         """
