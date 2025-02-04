@@ -708,6 +708,16 @@ class SimGroup:
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
 
+        .. note::
+            If `emp_bold` is provided, `emp_fc_tril` and `emp_fcd_tril` will be ignored.
+
+        .. note::
+            For each measure, if the value is NaN, it will be set to the "worst" possible value.
+            NaNs may occur in simulated FCD or FC. For example, in the rWWEx model, when excitation
+            is too high and noise is low, `S` and in turn `BOLD` in some areas may become saturated
+            and show no variability. This can result in correlations of their BOLD signals with
+            other nodes (within certain dynamic windows) being NaN.
+
         Parameters
         --------
         emp_fc_tril: :obj:`np.ndarray` or None
@@ -756,25 +766,33 @@ class SimGroup:
             columns += list(set(["-fcd_ks"]) & set(self.gof_terms))
         columns += ["+gof"]
         scores = pd.DataFrame(columns=columns, dtype=float)
-        # calculate GOF
+        # calculate each gof measure for each simulation
         for idx in range(self.N):
             for column in columns:
                 if column == "+fc_corr":                    
                     scores.loc[idx, column] = scipy.stats.pearsonr(
                         self.sim_fc_trils[idx], emp_fc_tril
                     ).statistic
+                    if np.isnan(scores.loc[idx, column]):
+                        scores.loc[idx, column] = -1
                 elif column == "-fc_diff":
                     scores.loc[idx, column] = -np.abs(
                         self.sim_fc_trils[idx].mean() - emp_fc_tril.mean()
                     )
+                    if np.isnan(scores.loc[idx, column]):
+                        scores.loc[idx, column] = -2
                 elif column == "-fc_normec":
                     scores.loc[idx, column] = -utils.fc_norm_euclidean(
                         self.sim_fc_trils[idx], emp_fc_tril
                     )
+                    if np.isnan(scores.loc[idx, column]):
+                        scores.loc[idx, column] = -1
                 elif column == "-fcd_ks":
                     scores.loc[idx, column] = -scipy.stats.ks_2samp(
                         self.sim_fcd_trils[idx], emp_fcd_tril
                     ).statistic
+                    if np.isnan(scores.loc[idx, column]):
+                        scores.loc[idx, column] = -1
             # combined the selected terms into gof (that should be maximized)
             scores.loc[idx, "+gof"] = 0
             for term in self.gof_terms:
