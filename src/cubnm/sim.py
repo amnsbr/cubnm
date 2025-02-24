@@ -34,8 +34,8 @@ class SimGroup:
         noise_out=False,
         do_fc=True,
         do_fcd=True,
-        window_size=10,
-        window_step=2,
+        window_size=30,
+        window_step=5,
         rand_seed=410,
         exc_interhemispheric=False,
         force_cpu=False,
@@ -61,7 +61,7 @@ class SimGroup:
         TR: :obj:`float`
             BOLD TR (in seconds)
         sc: :obj:`str` or :obj:`np.ndarray`
-            path to structural connectome strengths (as an unlabled .txt)
+            path to structural connectome strengths (as an unlabled .txt/.npy)
             or a numpy array
             Shape: (nodes, nodes)
             If asymmetric, rows are sources and columns are targets.
@@ -97,10 +97,12 @@ class SimGroup:
         do_fcd: :obj:`bool`, optional
             calculate simulated functional connectivity dynamics (FCD)
         window_size: :obj:`int`, optional
-            dynamic FC window size (in TR)
-            Must be even. The actual window size is +1 (including center)
+            dynamic FC window size (in seconds)
+            will be converted to N TRs (nearest even number)
+            The actual window size is number of TRs + 1 (including center)
         window_step: :obj:`int`, optional
-            dynamic FC window step (in TR)
+            dynamic FC window step (in seconds)
+            will be converted to N TRs
         rand_seed: :obj:`int`, optional
             seed used for the noise simulation
         exc_interhemispheric: :obj:`bool`, optional
@@ -182,118 +184,59 @@ class SimGroup:
         And they must implement the following methods:
             _set_default_params: set default (example) parameters for the simulations
         """
-        self.duration = duration
-        self.TR = TR
         self.input_sc = sc
         if isinstance(sc, (str, os.PathLike)):
-            self.sc = np.loadtxt(self.input_sc)
+            if sc.endswith(".txt"):
+                self.sc = np.loadtxt(self.input_sc)
+            elif sc.endswith(".npy"):
+                self.sc = np.load(self.input_sc)
         else:
             self.sc = self.input_sc
+        if np.any(np.diag(self.sc)):
+            print("Warning: The diagonal of the SC matrix is not 0. "
+                "Self-connections are not ignored by default in "
+                "the simulations. If you want to ignore them set "
+                "the diagonal of the SC matrix to 0.")
+        self.duration = duration
+        self.TR = TR
         self._dt = Decimal(dt)
         self._bw_dt = Decimal(bw_dt)
+        self._check_dt()
         self.ext_out = ext_out
+        self.states_sampling = states_sampling
         self.states_ts = self.ext_out & states_ts
-        if states_sampling is None:
-            self.states_sampling = self.TR
-        else:
-            self.states_sampling = states_sampling
+        self.gof_terms = gof_terms
         self.do_fc = do_fc
-        if self.do_fc:
-            self.do_fcd = do_fcd
-        elif do_fcd:
-            raise ValueError("Cannot calculate FCD without FC")
-        else:
-            self.do_fcd = False
-        if not self.do_fc:
-            if ('+fc_corr' in gof_terms) or ('-fc_diff' in gof_terms) or ('-fc_normec' in gof_terms):
-                raise ValueError("Cannot calculate FC goodness-of-fit terms without FC."
-                                 " Set do_fc to True or remove FC-related goodness-of-fit"
-                                 " terms.")
-        if not self.do_fcd:
-            if '-fcd_ks' in gof_terms:
-                raise ValueError("Cannot calculate FCD goodness-of-fit terms without FCD."
-                                 " Set do_fcd to True or remove FCD-related goodness-of-fit"
-                                 " terms.")
+        self.do_fcd = do_fcd
         self.window_size = window_size
-        assert self.window_size % 2 == 0, "Window size must be even"
         self.window_step = window_step
         self.rand_seed = rand_seed
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
         self.force_gpu = force_gpu
         self.serial_nodes = serial_nodes
-        self.gof_terms = gof_terms
         self.bold_remove_s = bold_remove_s
         self.fcd_drop_edges = fcd_drop_edges
         self.noise_segment_length = noise_segment_length
-        if self.noise_segment_length is None:
-            self.noise_segment_length = self.duration
         self.noise_out = noise_out
         self.sim_verbose = sim_verbose
         self.progress_interval = progress_interval
-        # get duration, TR and extended sampling rate in msec
-        self.duration_msec = int(duration * 1000)  # in msec
-        self.TR_msec = int(TR * 1000)
-        self.states_sampling_msec = int(self.states_sampling * 1000)
-        # ensure bw_dt > dt and divisible by dt + duration is divisible by bw_dt
-        self._check_dt()
-        # warn user if serial is set to True
-        # + revert unsupported options to default
-        if self.serial_nodes and not self.force_cpu:
-            print(
-                "Warning: Running simulations serially on GPU is an experimental "
-                "feature which is generally not recommended and has "
-                "significantly slower performance. Consider setting "
-                "serial_nodes to False."
-            )
-            if self.states_sampling != self.TR:
-                print(
-                    "In serial different states_sampling from TR is not "
-                    "supported. Reseting it to TR."
-                )
-                self.states_sampling = self.TR
-        # warn user if SC diagonal is not 0
-        if np.any(np.diag(self.sc)):
-            print("Warning: The diagonal of the SC matrix is not 0. "
-                "Self-connections are not ignored by default in "
-                "the simulations. If you want to ignore them set "
-                "the diagonal of the SC matrix to 0.")
-        # raise an error if sampling rate is below model's outer loop dt
-        if (self.states_sampling < 0.001):
-            raise ValueError(
-                "states_sampling cannot be lower than 0.001s "
-                "which is model dt"
-            )
-        # determine number of nodes based on sc dimensions
+        self.use_cpu = (
+            (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
+            & (not self.force_gpu)
+        )
         self.nodes = self.sc.shape[0]
-        self.use_cpu = (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
-        max_nodes = max_nodes_many if many_nodes_flag else max_nodes_reg
-        if (self.nodes > max_nodes) and (not self.use_cpu) and (not self.serial_nodes):
-            if not many_nodes_flag:
-                raise NotImplementedError(
-                    f"With {self.nodes} nodes in the current installation of the toolbox"
-                    " simulations will fail. Please reinstall the package from source after"
-                    " `export CUBNM_MANY_NODES=1`")
-            if self.do_fcd:
-                raise NotImplementedError(
-                    "With many nodes, FCD calculation is not supported."
-                    " Set do_fcd to False."
-                )
-            if self.dt < 1.0:
-                print(
-                    "Warning: When runnig simulations with large number"
-                    " of nodes it is recommended to set the model dt to"
-                    " >=1.0 msec for better performance."
-                )
-        # inter-regional delay will be added to the simulations
-        # if SC distance matrix is provided
+        # load sc distance if provided, and set delay flag accordingly
         self.input_sc_dist = sc_dist
         if self.input_sc_dist is None:
             self.sc_dist = np.zeros_like(self.sc, dtype=float)
             self.do_delay = False
         else:
             if isinstance(self.input_sc_dist, (str, os.PathLike)):
-                self.sc_dist = np.loadtxt(self.input_sc_dist)
+                if self.input_sc_dist.endswith(".txt"):
+                    self.sc_dist = np.loadtxt(self.input_sc_dist)
+                elif self.input_sc_dist.endswith(".npy"):
+                    self.sc_dist = np.load(self.input_sc_dist)
             else:
                 self.sc_dist = self.input_sc_dist
             self.do_delay = True
@@ -308,7 +251,7 @@ class SimGroup:
                 "When `out_dir` is set to 'same' `sc` must be"
                 "a path-like string"
             )
-            self.out_dir = self.input_sc.replace(".txt", "")
+            self.out_dir = self.input_sc.replace(".txt", "").replace(".npy", "")
         else:
             self.out_dir = self.input_out_dir
         # keep track of the last N and config to determine if force_reinit
@@ -325,8 +268,101 @@ class SimGroup:
     @N.setter
     def N(self, N):
         self._N = N
-        if not self.do_delay:
+        if hasattr(self, "_do_delay") and (not self.do_delay):
             self.param_lists["v"] = np.zeros(self._N, dtype=float)
+
+    @property
+    def nodes(self):
+        return self._nodes
+    
+    @nodes.setter
+    def nodes(self, nodes):
+        self._nodes = nodes
+        max_nodes = max_nodes_many if many_nodes_flag else max_nodes_reg
+        # determine if with this number of nodes co-launch mode will be enabled
+        # in co-launch mode multiple blocks are occupied by a single (massive) simulation
+        self._co_launch = (self.nodes > max_nodes) and (not self.use_cpu) and (not self.serial_nodes)
+        if self._co_launch:
+            if not many_nodes_flag:
+                raise NotImplementedError(
+                    f"With {self.nodes} nodes in the current installation of the toolbox"
+                    " simulations will fail. Please reinstall the package from source after"
+                    " `export CUBNM_MANY_NODES=1`")
+            if self.do_fcd:
+                raise NotImplementedError(
+                    "With many nodes, FCD calculation is not supported."
+                    " Set do_fcd to False."
+                )
+            if self.dt < 1.0:
+                print(
+                    "Warning: When runnig simulations with large number"
+                    " of nodes it is recommended to set the model dt to"
+                    " >=1.0 msec for better performance."
+                )
+
+    @property
+    def duration(self):
+        return self._duration
+    
+    @duration.setter
+    def duration(self, duration):
+        self._duration = duration
+        self.duration_msec = int(duration * 1000)
+        if hasattr(self, "_noise_segment_length") and (self.noise_segment_length is None):
+            self.noise_segment_length = self.duration
+
+    @property
+    def TR(self):
+        return self._TR
+
+    @TR.setter
+    def TR(self, TR):
+        self._TR = TR
+        self.TR_msec = int(TR * 1000)
+        if hasattr(self, "_states_sampling") and ((self.states_sampling == None) | (self.states_sampling == self.TR)):
+            self.states_sampling = self.TR
+        if hasattr(self, "_window_size"):
+            self.window_size_TRs = int(np.round(self.window_size / (self.TR*2))) * 2
+        if hasattr(self, "_window_step"):
+            self.window_step_TRs = int(np.round(self.window_step / self.TR))
+
+    @property
+    def states_sampling(self):
+        return self._states_sampling
+
+    @states_sampling.setter
+    def states_sampling(self, states_sampling):
+        # raise an error if sampling rate is below model's outer loop dt
+        if (states_sampling is not None) and (states_sampling < 0.001):
+            raise ValueError(
+                "states_sampling cannot be lower than 0.001s "
+                "which is model dt"
+            )
+        if hasattr(self, "serial_nodes") and self.serial_nodes and (not self.force_cpu) and (states_sampling != self.TR):
+            # set states_sampling to TR if serial and different from TR
+            print(
+                "In serial different states_sampling from TR is not "
+                "supported. Reseting it to TR."
+            )
+            self._states_sampling = self.TR
+        elif hasattr(self, "_TR") and (states_sampling is None):
+            # also set it to TR when None
+            self._states_sampling = self.TR
+        else:
+            self._states_sampling = states_sampling
+        # convert states_sampling to msec
+        self.states_sampling_msec = int(self.states_sampling * 1000)
+
+    @property
+    def noise_segment_length(self):
+        return self._noise_segment_length
+
+    @noise_segment_length.setter
+    def noise_segment_length(self, noise_segment_length):
+        if hasattr(self, "_duration") and (noise_segment_length is None):
+            self._noise_segment_length = self.duration
+        else:
+            self._noise_segment_length = noise_segment_length
 
     @property
     def dt(self):
@@ -365,11 +401,80 @@ class SimGroup:
     @do_delay.setter
     def do_delay(self, do_delay):
         self._do_delay = do_delay
-        if self.do_delay and (self.dt < 1.0):
+        if hasattr(self, "_dt") and self.do_delay and (self.dt < 1.0):
             print(
                 "Warning: When using delay in the simulations"
                 " it is recommended to set the model dt to >="
                 " 1.0 msec for better performance."
+            )
+
+    @property
+    def window_size(self):
+        return self._window_size
+
+    @window_size.setter
+    def window_size(self, window_size):
+        self._window_size = window_size
+        # calculate nearest even number of TRs
+        # TODO: enable odd window sizes
+        self.window_size_TRs = int(np.round(window_size / (self.TR*2))) * 2
+
+    @property
+    def window_step(self):
+        return self._window_step
+    
+    @window_step.setter
+    def window_step(self, window_step):
+        self._window_step = window_step
+        self.window_step_TRs = int(np.round(window_step / self.TR))
+
+    @property
+    def do_fc(self):
+        return self._do_fc
+
+    @do_fc.setter
+    def do_fc(self, do_fc):
+        if hasattr(self, "gof_terms") and (not do_fc):
+            if ('+fc_corr' in self.gof_terms) or ('-fc_diff' in self.gof_terms) or ('-fc_normec' in self.gof_terms):
+                raise ValueError("Cannot calculate FC goodness-of-fit terms without FC."
+                                 " Set do_fc to True or remove FC-related goodness-of-fit"
+                                 " terms.")
+        if hasattr(self, "_do_fcd") and (not do_fc):
+            raise ValueError("Cannot calculate FCD without FC. Set do_fcd to False.")
+        self._do_fc = do_fc
+
+    @property
+    def do_fcd(self):
+        return self._do_fcd
+
+    @do_fcd.setter
+    def do_fcd(self, do_fcd):
+        if hasattr(self, "_do_fc") and self.do_fc:
+            self._do_fcd = do_fcd
+        elif do_fcd:
+            raise ValueError("Cannot calculate FCD without FC")
+        else:
+            self._do_fcd = False
+        if hasattr(self, "gof_terms") and (not self._do_fcd) and ('-fcd_ks' in self.gof_terms):
+            raise ValueError("Cannot calculate FCD goodness-of-fit terms without FCD."
+                                " Set do_fcd to True or remove FCD-related goodness-of-fit"
+                                " terms.")
+
+    @property
+    def serial_nodes(self):
+        return self._serial_nodes
+
+    @serial_nodes.setter
+    def serial_nodes(self, serial_nodes):
+        self._serial_nodes = serial_nodes
+        # warn user if serial is set to True
+        # + revert unsupported options to default
+        if hasattr(self, "force_cpu") and self._serial_nodes and not self.force_cpu:
+            print(
+                "Warning: Running simulations serially on GPU is an experimental "
+                "feature which is generally not recommended and has "
+                "significantly slower performance. Consider setting "
+                "serial_nodes to False."
             )
 
     def _check_dt(self):
@@ -425,6 +530,8 @@ class SimGroup:
             "do_fcd": self.do_fcd,
             "window_size": self.window_size,
             "window_step": self.window_step,
+            "window_size_TRs": self.window_size_TRs,
+            "window_step_TRs": self.window_step_TRs,
             "rand_seed": self.rand_seed,
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
@@ -457,8 +564,8 @@ class SimGroup:
             'do_fcd': str(int(self.do_fcd)),
             'bold_remove_s': str(self.bold_remove_s),
             'exc_interhemispheric': str(int(self.exc_interhemispheric)),
-            'window_size': str(self.window_size),
-            'window_step': str(self.window_step),
+            'window_size': str(self.window_size_TRs),
+            'window_step': str(self.window_step_TRs),
             'drop_edges': str(int(self.fcd_drop_edges)),
             'noise_time_steps': str(int(self.noise_segment_length*1000)), 
             'verbose': str(int(self.sim_verbose)),
@@ -748,8 +855,8 @@ class SimGroup:
             if self.do_fcd:
                 emp_fcd_tril = utils.calculate_fcd(
                     emp_bold, 
-                    self.window_size, 
-                    self.window_step, 
+                    self.window_size_TRs, 
+                    self.window_step_TRs, 
                     drop_edges=self.fcd_drop_edges,
                     exc_interhemispheric=self.exc_interhemispheric,
                     return_tril=True,
@@ -896,6 +1003,8 @@ class SimGroup:
         sim_group = cls(
             duration=60,
             TR=1,
+            window_size=10,
+            window_step=2,
             sc=datasets.load_sc('strength', 'schaefer-100'),
             sc_dist=sc_dist,
             dt = dt,

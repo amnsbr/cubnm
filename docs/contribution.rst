@@ -819,6 +819,8 @@ Build the toolbox from source
         sim_group = sim.rWWExSimGroup(
             duration=60,
             TR=1,
+            window_size=10,
+            window_step=2,
             sc=datasets.load_sc('strength', 'schaefer-100'),
         )
         sim_group.N = 1

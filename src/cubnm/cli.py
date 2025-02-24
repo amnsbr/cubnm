@@ -54,20 +54,8 @@ def main():
         args.sc = datasets.load_sc('strength', 'schaefer-100')
     if args.sc_dist == 'example':
         args.sc_dist = datasets.load_sc('length', 'schaefer-100')
-    if args.emp_fc_tril == 'example':
-        args.emp_fc_tril = datasets.load_functional(
-            'FC', 'schaefer-100', 
-             exc_interhemispheric=args.exc_interhemispheric
-        )
-    if args.emp_fcd_tril == 'example':
-        args.emp_fcd_tril = datasets.load_functional(
-            'FCD', 'schaefer-100', 
-             exc_interhemispheric=args.exc_interhemispheric
-        )
     if args.emp_bold == 'example':
-        args.emp_bold = datasets.load_functional(
-            'bold', 'schaefer-100'
-        )
+        args.emp_bold = datasets.load_bold('schaefer-100')
     if (args.cmd == 'optimize') and (args.maps == 'example'):
         args.maps = datasets.load_maps(
             ['myelinmap', 'fcgradient01'],

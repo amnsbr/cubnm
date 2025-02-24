@@ -136,13 +136,13 @@ def add_shared_arguments(parser):
     parser.add_argument('-d', '--out_dir', type=str, default="same", 
                         help='Output directory')
     parser.add_argument('--emp_fc_tril', type=str,
-                    help='Functional connectivity lower triangle as space-separated .txt file or "example"')
+                    help='Functional connectivity lower triangle as space-separated .txt file')
     parser.add_argument('--emp_fcd_tril', type=str,
-                    help='Functional connectivity dynamics lower triangle as space-separated .txt file or "example"')
+                    help='Functional connectivity dynamics lower triangle as space-separated .txt file')
     parser.add_argument('--emp_bold', type=str,
                     help='Cleaned and parcellated BOLD signal as space-separated .txt file or "example"'
                         ' BOLD signal should be in the shape (nodes, volumes).'
-                        ' Motion outliers should either be excluded (not recommended as it disrupts'
+                        ' Motion outliers can either be excluded (not recommended as it disrupts'
                         ' the temporal structure) or replaced with zeros.'
                         ' If provided emp_fc_tril and emp_fcd_tril will be ignored.')
     parser.add_argument('--no_fc', action='store_true', 
@@ -165,10 +165,10 @@ def add_shared_arguments(parser):
     parser.add_argument('--bold_remove_s', type=int, default=30, 
                         help='Remove initial n seconds of the simulation from FC/FCD calculations'
                            ' and average of state variables')
-    parser.add_argument('--window_size', type=int, default=10, 
-                        help='FCD window size')
-    parser.add_argument('--window_step', type=int, default=2, 
-                        help='FCD window step')
+    parser.add_argument('--window_size', type=int, default=30, 
+                        help='FCD window size (s)')
+    parser.add_argument('--window_step', type=int, default=5, 
+                        help='FCD window step (s)')
     parser.add_argument('--exc_interhemispheric', action='store_true', 
                         help='Exclude interhemispheric connections in FC/FCD calculations')
     parser.add_argument('--fcd_keep_edges', action='store_true', 

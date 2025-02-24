@@ -10,8 +10,7 @@ from cubnm import optimize, datasets
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'optimize')
 
 # define problem arguments
-emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
-emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
+emp_bold = datasets.load_bold('schaefer-100')
 problem_args = dict(
     model = 'rWW',
     params = {
@@ -19,8 +18,7 @@ problem_args = dict(
         'wEE': (0.05, 0.5),
         'wEI': 0.15,
     },
-    emp_fc_tril = emp_fc_tril,
-    emp_fcd_tril = emp_fcd_tril,
+    emp_bold = emp_bold,
     het_params = ['wEE', 'wEI'],
     maps = datasets.load_maps(
         ['myelinmap', 'fcgradient01'],
@@ -28,6 +26,8 @@ problem_args = dict(
     ),
     duration = 60,
     TR = 1,
+    window_size = 10,
+    window_step = 2,
     sc = datasets.load_sc('strength', 'schaefer-100'),
 )
 

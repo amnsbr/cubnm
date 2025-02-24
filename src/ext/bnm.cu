@@ -47,7 +47,7 @@ __device__ void global_input_cond(
     tmp_globalinput = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
-            curr_delay = rintf(SC_dist[SC_idx][k*nodes+j]/velocity);
+            curr_delay = rintf(SC_dist[SC_idx][k*nodes+j]/velocity); // how many integration steps between i and j
             // calculate correct index of the other region in the buffer based on j-k delay
             // buffer is moving backward, therefore the delay timesteps back in history
             // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)

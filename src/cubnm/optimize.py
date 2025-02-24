@@ -56,9 +56,8 @@ class GridSearch:
                 sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
                 states_ts = True
             )
-            emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
-            emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
-            scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
+            emp_bold = datasets.load_bold('schaefer-100')
+            scores = gs.evaluate(emp_bold=emp_bold)
         """
         self.model = model
         sim_group_cls = getattr(sim, f"{self.model}SimGroup")
@@ -96,7 +95,7 @@ class GridSearch:
                 self.sim_group.param_lists[param]
             )
 
-    def evaluate(self, emp_fc_tril=None, emp_fcd_tril=None, bold=None):
+    def evaluate(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None):
         """
         Runs the grid simulations and evaluates their
         goodness of fit to the empirical FC and FCD
@@ -119,7 +118,7 @@ class GridSearch:
             The goodness of fit measures (columns) of each simulation (rows)
         """
         self.sim_group.run()
-        return self.sim_group.score(emp_fc_tril, emp_fcd_tril)
+        return self.sim_group.score(emp_fc_tril, emp_fcd_tril, emp_bold)
 
 
 class BNMProblem(Problem):
@@ -159,7 +158,7 @@ class BNMProblem(Problem):
             lower triangular part of empirical FCD. Shape: (window_pairs,)
         emp_bold: :obj:`np.ndarray` or None
             cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
-            Motion outliers should either be excluded (not recommended as it disrupts
+            Motion outliers can either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
         het_params: :obj:`list` of :obj:`str`, optional
@@ -222,8 +221,8 @@ class BNMProblem(Problem):
             if self.sim_group.do_fcd:
                 self.emp_fcd_tril = utils.calculate_fcd(
                     self.emp_bold, 
-                    self.sim_group.window_size, 
-                    self.sim_group.window_step, 
+                    self.sim_group.window_size_TRs, 
+                    self.sim_group.window_step_TRs, 
                     drop_edges=self.sim_group.fcd_drop_edges,
                     exc_interhemispheric=self.sim_group.exc_interhemispheric,
                     return_tril=True,
@@ -868,11 +867,10 @@ class CMAESOptimizer(PymooOptimizer):
                     'wEE': (0.05, 0.75),
                     'wEI': 0.15,
                 },
-                emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
-                emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
+                emp_bold = datasets.load_bold('schaefer-100'),
                 duration = 60,
                 TR = 1,
-                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+                sc_path = datasets.load_sc('strength', 'schaefer-100'),
                 states_ts = True
             )
             cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=10, seed=1)

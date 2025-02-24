@@ -161,7 +161,7 @@ void bnm(
             for (int j = 0; j < model->nodes; j++) {
                 curr_length = SC_dist[i*model->nodes+j];
                 if (i > j) {
-                    curr_delay = (int)round(curr_length/sim_velocity); // how many integration steps between i and j
+                    curr_delay = rintf(curr_length/sim_velocity); // how many integration steps between i and j
                     // set minimum delay to 1 because a node
                     // cannot access instantaneous states of 
                     // other nodes, as they might not have been

@@ -18,11 +18,12 @@ Run a CMAES optimization of reduced Wong Wang model with G and wEE as free param
             'wEE': (0.05, 0.75),
             'wEI': 0.15,
         },
-        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
-        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        emp_bold = datasets.load_bold('schaefer-100'),
         duration = 60,
         TR = 1,
-        sc = datasets.load_sc('strength', 'schaefer-100'),
+        window_size = 10,
+        window_step = 2,
         states_ts = True,
         out_dir = './cmaes_homo',
     )
@@ -36,9 +37,9 @@ Using command line interface:
 .. code-block:: bash
 
     cubnm optimize \
-        --model rWW --sc example --emp_fc_tril example --emp_fcd_tril example \
+        --model rWW --sc example --emp_bold example \
         --out_dir ./cmaes_homo_cli \
-        --TR 1 --duration 60 --states_ts \
+        --TR 1 --duration 60 --window_size 10 --window_step 2 --states_ts \
         --params G=0.5:2.5,wEE=0.05:0.75,wEI=0.15 \
         --optimizer CMAES --optimizer_seed 0 --n_iter 10 --popsize 20
 
@@ -62,11 +63,12 @@ maps (HCP T1w/T2w, HCP FC G1):
         },
         het_params = ['wEE', 'wEI'],
         maps = datasets.load_maps(['myelinmap', 'fcgradient01'], 'schaefer-100', norm='zscore'),
-        emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
-        emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        emp_bold = datasets.load_bold('schaefer-100'),
         duration = 60,
         TR = 1,
-        sc = datasets.load_sc('strength', 'schaefer-100'),
+        window_size = 10,
+        window_step = 2,
         states_ts = True,
         out_dir = './cmaes_hetero',
     )
@@ -82,7 +84,7 @@ Using command line interface:
     cubnm optimize \
         --model rWW --sc example --emp_fc_tril example --emp_fcd_tril example \
         --out_dir ./cmaes_hetero_cli \
-        --TR 1 --duration 60 --states_ts \
+        --TR 1 --duration 60 --window_size 10 --window_step 2 --states_ts \
         --params G=0.5:2.5,wEE=0.05:0.75,wEI=0.15 \
         --optimizer CMAES --optimizer_seed 0 --n_iter 10 --popsize 30 \
         --het_params wEE wEI --maps example
@@ -105,24 +107,25 @@ Run a 10x10 grid search of reduced Wong Wang model with G and wEE as free parame
             'wEE': (0.05, 0.75, 10),
             'wEI': 0.21
         },
+        sc = datasets.load_sc('strength', 'schaefer-100'),
         duration = 60,
         TR = 1,
-        sc = datasets.load_sc('strength', 'schaefer-100'),
+        window_size = 10,
+        window_step = 2,
         states_ts = True,
         noise_out = True,
         sim_verbose = True,
         out_dir = './grid',
     )
-    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
-    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
-    scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
+    emp_bold = datasets.load_bold('schaefer-100')
+    scores = gs.evaluate(emp_bold=emp_bold)
 
 Using command line interface:
 
 .. code-block:: bash
 
     cubnm grid \
-        --model rWW --sc example --emp_fc_tril example --emp_fcd_tril example \
+        --model rWW --sc example --emp_bold example \
         --out_dir ./grid_cli \
-        --TR 1 --duration 60 --states_ts \
+        --TR 1 --duration 60 --window_size 10 --window_step 2 --states_ts \
         --params G=0.5:2.5:10,wEE=0.05:0.75:10,wEI=0.21 --sim_verbose
