@@ -240,7 +240,7 @@ def load_sc(measure, parc, sub="sub-HC001", exc_subcortex=True,
     if measure == 'strength':
         fname += f'_norm-{norm}'
     fname += f'_desc-{measure}.npz'
-    path = files("cubnm.data").joinpath('micamics', 'sc', fname).as_posix()
+    path = files("cubnm.data").joinpath('micamics').joinpath('sc').joinpath(fname).as_posix()
     mat = np.load(path)['arr_0']
     return mat
 
@@ -279,7 +279,7 @@ def load_bold(parc, sub="sub-HC001", exc_subcortex=True, micamics_dir=None):
     if not exc_subcortex:
         fname += '_sctx'
     fname += '_desc-bold.npz'
-    path = files("cubnm.data").joinpath('micamics', 'bold', fname).as_posix()
+    path = files("cubnm.data").joinpath('micamics').joinpath('bold').joinpath(fname).as_posix()
     out = np.load(path)['arr_0']
     return out
 
@@ -329,7 +329,7 @@ def load_maps(names, parc, norm="minmax"):
         else:
             norm = None
             filename = f"ctx_parc-{parc}_desc-{name}.txt"
-        path = files("cubnm.data").joinpath('maps', filename).as_posix()
+        path = files("cubnm.data").joinpath('maps').joinpath(filename).as_posix()
         curr_map = np.loadtxt(path)
         if norm=='minmax':
             curr_map = (curr_map - np.min(curr_map)) / (np.max(curr_map) - np.min(curr_map))
