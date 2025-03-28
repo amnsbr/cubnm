@@ -23,6 +23,7 @@
 #include <thread>
 #include <chrono>
 #include <iomanip>
+#include <stdexcept>
 
 #ifndef ENABLE_HIP
     // compiling with nvcc for Nvidia GPUs

@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <memory>
 #include <iomanip>
+#include <stdexcept>
 #include "cubnm/defines.h"
 #include "utils.cpp"
 #include "./models/bw.cpp"
@@ -160,7 +161,7 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
     double value;
 
     if (!PyArg_ParseTuple(args, "sd", &key, &value)) {
-        return NULL;
+        Py_RETURN_NONE;
     }
 
     // update value of the constant
@@ -189,8 +190,7 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
-
-static PyObject* run_simulations(PyObject* self, PyObject* args) {
+static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
     PyArrayObject *py_SC, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
     PyObject* config_dict;
@@ -283,7 +283,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         }
         else {
             std::cerr << "Model " << model_name << " not found" << std::endl;
-            return NULL;
+            Py_RETURN_NONE;
         }
     } else {
         // update model properties based on user data
@@ -312,7 +312,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         // TODO: write a proper warning + instructions on what to do
         // if the system does have a CUDA-enabled GPU
         std::cerr << "Library not compiled with GPU support and cannot use GPU." << std::endl;
-        return NULL;
+        Py_RETURN_NONE;
         #endif
     }
 
@@ -495,6 +495,17 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         #endif
     }
     return out_dict;
+}
+
+static PyObject* run_simulations(PyObject* self, PyObject* args) {
+    // a wrapper for _run_simulations that catches exceptions
+    // and returns them as Python exceptions
+    try {
+        return _run_simulations(self, args);
+    } catch (const std::exception& e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
 }
 
 

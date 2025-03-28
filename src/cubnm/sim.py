@@ -631,7 +631,8 @@ class SimGroup:
         assert sc.shape[0] == np.unique(sc_indices).size
         assert (np.sort(np.unique(sc_indices)) == np.arange(np.unique(sc_indices).size)).all()
         assert sc_indices.size == self.N
-        out = run_simulations(
+        # run the simulations
+        args = (
             self.model_name,
             sc,
             sc_indices,
@@ -655,6 +656,20 @@ class SimGroup:
             float(self.dt),
             float(self.bw_dt),
         )
+        try:
+            out = run_simulations(*args)
+        except RuntimeError as e:
+            if "CUDA Error" in str(e):
+                print(
+                    "CUDA error occurred. This might be due to the data exceeding "
+                    "the available GPU memory. Try reducing the number of simulations or "
+                    "sampling rate of states,",
+                    end=" "
+                )
+                if self.states_ts:
+                    print("or set `states_ts` to False", end=" ")
+                print("to reduce memory usage")
+            raise e
         # avoid reinitializing GPU in the next runs
         # of the same group
         self.last_N = self.N
