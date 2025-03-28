@@ -728,8 +728,10 @@ void BaseModel::free_cpu() {
     if (this->base_conf.verbose) {
         std::cout << "Freeing CPU memory (" << this->get_name() << ")" << std::endl;
     }
-    free(this->window_ends);
-    free(this->window_starts);
+    if (this->base_conf.do_fcd) {
+        free(this->window_ends);
+        free(this->window_starts);
+    }
     if (this->alloc_states_out) {
         for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {
             for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
