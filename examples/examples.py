@@ -129,31 +129,58 @@ def run_sim_group_many_nodes(nodes=9684, force_cpu=False):
     return sim_group
 
 def run_grid():
-    gs = optimize.GridSearch(
+    problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (0.5, 2.5, 4),
+            'G': (0.5, 2.5),
             'wEE': 0.15,
-            'wEI': 0.21
+            'wEI': (0.21, 0.22),
         },
         duration = 60,
         TR = 1,
         window_size=10,
         window_step=2,
         sc = datasets.load_sc('strength', 'schaefer-100'),
+        emp_bold = datasets.load_bold('schaefer-100'),
+        out_dir = './grid_optimizer',
     )
-    emp_bold = datasets.load_bold('schaefer-100')
-    scores = gs.evaluate(emp_bold=emp_bold)
-    return gs, scores
+    go = optimize.GridOptimizer()
+    go.optimize(problem, grid_shape={'G': 4, 'wEI': 2})
+    return go
 
-def run_grid_delay():
-    gs = optimize.GridSearch(
+def run_grid_het():
+    problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': 0.5,
-            'wEE': (0.05, 1, 2),
-            'wEI': (0.07, 0.75, 2),
-            'v': (1, 5, 2)
+            'G': (0.5, 2.5),
+            'wEE': 0.15,
+            'wEI': (0.21, 0.42),
+        },
+        duration = 60,
+        TR = 1,
+        window_size=10,
+        window_step=2,
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        emp_bold = datasets.load_bold('schaefer-100'),
+        het_params = ['wEI'],
+        maps = datasets.load_maps(
+            ['myelinmap'],
+            'schaefer-100', norm='minmax'
+        ),
+        out_dir = './grid_optimizer',
+    )
+    go = optimize.GridOptimizer()
+    go.optimize(problem, grid_shape={'G': 2, 'wEI': 2, 'wEIscale0': 2})
+    return go
+
+def run_grid_delay():
+    problem = optimize.BNMProblem(
+        model = 'rWW',
+        params = {
+            'G': (0.5, 2.5),
+            'wEE': 0.15,
+            'wEI': (0.21, 0.22),
+            'v': (0.5, 2.5),
         },
         duration = 60,
         TR = 1,
@@ -161,10 +188,13 @@ def run_grid_delay():
         window_step=2,
         sc = datasets.load_sc('strength', 'schaefer-100'),
         sc_dist = datasets.load_sc('length', 'schaefer-100'),
+        dt = '1.0',
+        emp_bold = datasets.load_bold('schaefer-100'),
+        out_dir = './grid_optimizer',
     )
-    emp_bold = datasets.load_bold('schaefer-100')
-    scores = gs.evaluate(emp_bold=emp_bold)
-    return gs, scores
+    go = optimize.GridOptimizer()
+    go.optimize(problem, grid_shape={'G': 2, 'wEI': 2, 'v': 2})
+    return go
 
 def run_problem():
     emp_bold = datasets.load_bold('schaefer-100')

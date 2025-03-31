@@ -30,19 +30,37 @@ problem_args = dict(
     window_step = 2,
     sc = datasets.load_sc('strength', 'schaefer-100'),
 )
+# for grid search use a smaller number of free parameters
+grid_problem_args = problem_args.copy()
+grid_problem_args.update({
+    'maps': datasets.load_maps(
+        ['myelinmap'],
+        'schaefer-100', norm='minmax'
+    ),
+    'het_params': ['wEE']
+})
+
 
 def gen_expected(optimizer_name):
     # get optimizer class
     Optimizer = getattr(optimize, f'{optimizer_name}Optimizer')
-    # initialize problem
-    if Optimizer.max_obj>1:
-        problem_args['multiobj'] = True
+    if optimizer_name == 'Grid':
+        problem_args = grid_problem_args
+    else:
+        problem_args = problem_args.copy()
+        # initialize problem
+        if Optimizer.max_obj>1:
+            problem_args['multiobj'] = True
     problem = optimize.BNMProblem(**problem_args)
-    # initialize optimizer and register problem
-    optimizer = Optimizer(popsize=10, n_iter=2, seed=1)
-    optimizer.setup_problem(problem)
-    # run optimization
-    optimizer.optimize()
+    if optimizer_name == 'Grid':
+        optimizer = Optimizer()
+        optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEEscale0': 2})
+    else:
+        # initialize optimizer and register problem
+        optimizer = Optimizer(popsize=10, n_iter=2, seed=1)
+        optimizer.setup_problem(problem)
+        # run optimization
+        optimizer.optimize()
     # warn if history has changed
     if os.path.exists(os.path.join(test_data_dir, f'{optimizer_name}.csv')):
         prev_hist = pd.read_csv(os.path.join(test_data_dir, f'{optimizer_name}.csv'))

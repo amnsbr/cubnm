@@ -19,108 +19,6 @@ import skopt
 
 from cubnm import sim, utils
 
-
-class GridSearch:
-    # TODO: GridSearch should also be an Optimizer
-    def __init__(self, model, params, **kwargs):
-        """
-        Grid search of model free parameters
-
-        Parameters
-        ---------
-        model: :obj:`str`, {'rWW', 'rWWEx', 'Kuramoto'}
-            model name
-        params: :obj:`dict` of :obj:`tuple` or :obj:`float`
-            a dictionary including parameter names as keys and their
-            fixed values (:obj:`float`) or discrete range of
-            values (:obj:`tuple` of (min, max, n)) as values.
-        **kwargs
-            Keyword arguments passed to :class:`cubnm.sim.SimGroup`
-
-        Example
-        -------
-        Run a grid search of rWW model with 10 G and 10 wEE values
-        with fixed wEI: ::
-
-            from cubnm import datasets, optimize
-        
-            gs = optimize.GridSearch(
-                model = 'rWW',
-                params = {
-                    'G': (0.5, 2.5, 10),
-                    'wEE': (0.05, 0.75, 10),
-                    'wEI': 0.21
-                },
-                duration = 60,
-                TR = 1,
-                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
-                states_ts = True
-            )
-            emp_bold = datasets.load_bold('schaefer-100')
-            scores = gs.evaluate(emp_bold=emp_bold)
-        """
-        self.model = model
-        sim_group_cls = getattr(sim, f"{self.model}SimGroup")
-        self.sim_group = sim_group_cls(**kwargs)
-        param_ranges = {}
-        for param, v in params.items():
-            if isinstance(v, tuple):
-                param_ranges[param] = np.linspace(v[0], v[1], v[2])
-            else:
-                param_ranges[param] = np.array([v])
-        self.param_combs = pd.DataFrame(
-            list(itertools.product(*param_ranges.values())),
-            columns=param_ranges.keys(),
-            dtype=float,
-        )
-        self.sim_group.N = self.param_combs.shape[0]
-        for param in params.keys():
-            self.sim_group.param_lists[param] = []
-            for sim_idx in range(self.sim_group.N):
-                if param in (self.sim_group.global_param_names+["v"]):
-                    # global parameters have (sims,) shape
-                    self.sim_group.param_lists[param].append(
-                        self.param_combs.iloc[sim_idx].loc[param]
-                    )
-                else:
-                    # regional parameters have (sims, nodes) shape
-                    # but the same value for each node is repeated
-                    self.sim_group.param_lists[param].append(
-                        np.repeat(
-                            self.param_combs.iloc[sim_idx].loc[param],
-                            self.sim_group.nodes,
-                        )
-                    )
-            self.sim_group.param_lists[param] = np.array(
-                self.sim_group.param_lists[param]
-            )
-
-    def evaluate(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None):
-        """
-        Runs the grid simulations and evaluates their
-        goodness of fit to the empirical FC and FCD
-
-        Parameters
-        ----------
-        emp_fc_tril: :obj:`np.ndarray` or :obj:`None`
-            lower triangular part of empirical FC. Shape: (edges,)
-        emp_fcd_tril: :obj:`np.ndarray` or :obj:`None`
-            lower triangular part of empirical FCD. Shape: (window_pairs,)
-        emp_bold: :obj:`np.ndarray` or None
-            cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
-            Motion outliers should either be excluded (not recommended as it disrupts
-            the temporal structure) or replaced with zeros.
-            If provided emp_fc_tril and emp_fcd_tril will be ignored.
-            
-        Returns
-        -------
-        :obj:`pd.DataFrame`
-            The goodness of fit measures (columns) of each simulation (rows)
-        """
-        self.sim_group.run()
-        return self.sim_group.score(emp_fc_tril, emp_fcd_tril, emp_bold)
-
-
 class BNMProblem(Problem):
     def __init__(
         self,
@@ -395,12 +293,14 @@ class BNMProblem(Problem):
             the configuration of the problem
         """
         config = {
+            "model": self.model,
             "params": self.params,
             "het_params": self.het_params,
             "maps": self.input_maps,
             "node_grouping": self.node_grouping,
             "emp_fc_tril": self.emp_fc_tril,
             "emp_fcd_tril": self.emp_fcd_tril,
+            "emp_bold": self.emp_bold,
         }
         if include_N:
             config["N"] = self.sim_group.N
@@ -594,10 +494,6 @@ class Optimizer(ABC):
         pass
 
     @abstractmethod
-    def setup_problem(self, problem, **kwargs):
-        pass
-
-    @abstractmethod
     def optimize(self):
         pass
 
@@ -620,6 +516,8 @@ class Optimizer(ABC):
             Warning: this file is very large.
         """
         # specify the directory
+        # TODO: avoid saving if an identical optimizer directory already exists
+        # by checking the optimizer and problem jsons in previous directories
         run_idx = 0
         while True:
             dirname = (
@@ -633,13 +531,14 @@ class Optimizer(ABC):
         os.makedirs(optimizer_dir, exist_ok=True)
         # save the optimizer object
         if save_obj:
-            with open(os.path.join(optimizer_dir, "optimizer.pickle"), "wb") as f:
+            with open(os.path.join(optimizer_dir, "optimizer.pkl"), "wb") as f:
                 pickle.dump(self, f)
         # save the optimizer history
         self.history.to_csv(os.path.join(optimizer_dir, "history.csv"))
         if self.problem.n_obj == 1:
-            self.opt_history.to_csv(os.path.join(optimizer_dir, "opt_history.csv"))
             self.opt.to_csv(os.path.join(optimizer_dir, "opt.csv"))
+            if type(self).__name__ != "GridOptimizer":
+                self.opt_history.to_csv(os.path.join(optimizer_dir, "opt_history.csv"))
         # save the configs of simulations and optimizer
         problem_config = self.problem.get_config(include_sim_group=True, include_N=True)
         ## problem config might include numpy arrays (for sc, sc_dist, etc.)
@@ -667,28 +566,36 @@ class Optimizer(ABC):
         with open(os.path.join(optimizer_dir, "optimizer.json"), "w") as f:
             json.dump(self.get_config(), f, indent=4)
         if save_opt:
-            # rerun optimum simulation(s) and save it
-            print("Rerunning and saving the optimal simulation(s)")
-            ## reuse the original problem used throughout the optimization
-            ## but change its out_dir, N and parameters to the optimum
-            self.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
-            os.makedirs(self.problem.sim_group.out_dir, exist_ok=True)
-            if type(self).__name__ == "BayesOptimizer":
-                # TODO: ideally implement this part as a separate method
-                # and handle differences of PymooOptimizer and BayesOptimizer
-                # more properly
-                res = self.algorithm.get_result()
-                X = np.atleast_2d(res.x)
+            # (rerun) optimum simulation(s) and save it
+            opt_sim_dir = os.path.join(optimizer_dir, "opt_sim")
+            os.makedirs(opt_sim_dir, exist_ok=True)
+            if type(self).__name__ == "GridOptimizer":
+                print("Saving the optimal simulation")
+                ## slice sim_group at the index of the optimal simulation
+                opt_idx = self.opt.name
+                self.problem.opt_sim_group = self.problem.sim_group.slice(opt_idx, inplace=False)
             else:
-                res = self.algorithm.result()
-                X = np.atleast_2d(res.X)
-            Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
-            opt_scores = self.problem.eval(X)
-            pd.concat([Xt, opt_scores], axis=1).to_csv(
-                os.path.join(self.problem.sim_group.out_dir, "res.csv")
-            )
+                print("Rerunning and saving the optimal simulation(s)")
+                ## reuse the original problem used throughout the optimization
+                ## but change its out_dir, N and parameters to the optimum
+                if type(self).__name__ == "BayesOptimizer":
+                    # TODO: ideally implement this part as a separate method
+                    # and handle differences of PymooOptimizer and BayesOptimizer
+                    # more properly
+                    res = self.algorithm.get_result()
+                    X = np.atleast_2d(res.x)
+                else:
+                    res = self.algorithm.result()
+                    X = np.atleast_2d(res.X)
+                Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+                opt_scores = self.problem.eval(X)
+                pd.concat([Xt, opt_scores], axis=1).to_csv(
+                    os.path.join(opt_sim_dir, "scores.csv")
+                )
+                self.problem.opt_sim_group = self.problem.sim_group
             ## save simulations data (including BOLD, FC and FCD, extended output, and param maps)
-            self.problem.sim_group.save()
+            self.problem.opt_sim_group.out_dir = opt_sim_dir
+            self.problem.opt_sim_group.save()
         return optimizer_dir
 
     def get_config(self):
@@ -703,6 +610,109 @@ class Optimizer(ABC):
         # TODO: add optimizer-specific get_config funcitons
         return {"n_iter": self.n_iter, "popsize": self.popsize, "seed": self.seed}
 
+class GridOptimizer(Optimizer):
+    def __init__(self, **kwargs):
+        """
+        Grid search optimizer
+
+        Example
+        -------
+        Run a grid search of rWW model with 10 G and 10 wEE values
+        with fixed wEI: ::
+
+            from cubnm import datasets, optimize
+
+            problem = optimize.BNMProblem(
+                model = 'rWW',
+                params = {
+                    'G': (0.5, 2.5),
+                    'wEE': (0.05, 0.75),
+                    'wEI': 0.21,
+                },
+                duration = 60,
+                TR = 1,
+                window_size=10,
+                window_step=2,
+                sc = datasets.load_sc('strength', 'schaefer-100'),
+                emp_bold = datasets.load_bold('schaefer-100'),
+            )
+            go = optimize.GridOptimizer()
+            go.optimize(problem, grid_shape=10)
+            go.save()
+        """
+        pass
+
+    def optimize(self, problem, grid_shape):
+        """
+        Runs a grid search optimization on the given problem.
+
+        Parameters
+        ----------
+        problem: :obj:`cubnm.optimizer.BNMProblem`
+            The problem to be set up with the algorithm.
+
+        grid_shape: :obj:`int` or :obj:`dict`
+            Shape of the grid search. If an integer is provided
+            the same number of points are used for each parameter. 
+            If a dictionary is provided, the keys should be the 
+            parameter names and the values should be the number of points 
+            within the range of each parameter.
+        """
+        self.problem = problem
+        if isinstance(grid_shape, int):
+            grid_shape = {param: grid_shape for param in self.problem.free_params}
+        self.grid_shape = grid_shape
+        param_ranges = {}
+        for free_param in self.problem.free_params:
+            param_ranges[free_param] = np.linspace(0, 1, grid_shape[free_param])
+        X = np.array(list(itertools.product(*param_ranges.values())))
+        self.popsize = X.shape[0]
+        out = {} # will include 'F' (cost)
+        scores = [] # will include individual GOF measures
+        self.problem._evaluate(X, out, scores=scores)
+        scores = scores[0]
+        scores['cost'] = out['F']
+        Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+        self.history = pd.concat([Xt, scores], axis=1)
+        self.opt = self.history.loc[self.history["cost"].idxmin()]
+
+    def save(self, save_avg_states=True, **kwargs):
+        """
+        Saves the output of the optimizer, including history
+        of particles, history of optima, the optimal point,
+        and its simulation data. The output will be saved
+        to `out_dir` of the problem's :class:`cubnm.sim.SimGroup`.
+
+        Parameters
+        ---------
+        save_avg_states: :obj:`bool`, optional
+            saves the average states of all simulations
+        **kwargs
+            additional keyword arguments passed to the :meth:`cubnm.optimizer.Optimizer.save`
+        """
+        optimizer_dir = super().save(**kwargs)
+        # save the average states of the optimal simulation
+        if save_avg_states:
+            state_averages = {}
+            for state_var in self.problem.sim_group.state_names:
+                if self.problem.sim_group.states_ts:
+                    state_avg = self.problem.sim_group.sim_states[state_var].mean(axis=2).mean(axis=1)
+                else:
+                    state_avg = self.problem.sim_group.sim_states[state_var].mean(axis=1)
+                state_averages[state_var] = state_avg
+            pd.DataFrame(state_averages).to_csv(os.path.join(optimizer_dir, "state_averages.csv"))
+        return optimizer_dir
+
+    def get_config(self):
+        """
+        Get the optimizer configuration
+
+        Returns
+        -------
+        :obj:`dict`
+            the configuration of the optimizer
+        """
+        return {'grid_shape': self.grid_shape}
 
 class PymooOptimizer(Optimizer):
     def __init__(

@@ -34,6 +34,16 @@ problem_args = dict(
     window_step = 2,
     sc = datasets.load_sc('strength', 'schaefer-100'),
 )
+# modify problem args for grid search
+grid_problem_args = problem_args.copy()
+grid_problem_args.update({
+    'maps': datasets.load_maps(
+        ['myelinmap'],
+        'schaefer-100', norm='minmax'
+    ),
+    'het_params': ['wEE']
+})
+
 
 def get_test_params(for_batch=False):
     """
@@ -59,6 +69,7 @@ def get_test_params(for_batch=False):
     # exclude non-Pymoo optimizers if for batch
     if for_batch:
         optimizer_names.remove('Bayes')
+        optimizer_names.remove('Grid')
     # get all possible combinations
     for optimizer_name in optimizer_names:
         test_param = pytest.param(optimizer_name)
@@ -78,22 +89,28 @@ def test_opt(optimizer_name):
     -------
     optimizer_name: (str)
     """
-    # make a copy of problem args for current test
-    p_args = copy.deepcopy(problem_args)
-    # load expected history
-    hist_expected = pd.read_csv(os.path.join(test_data_dir, f'{optimizer_name}.csv'), index_col=0)
     # get optimizer class
     Optimizer = getattr(optimize, f'{optimizer_name}Optimizer')
+    # load expected history
+    hist_expected = pd.read_csv(os.path.join(test_data_dir, f'{optimizer_name}.csv'), index_col=0)
+    # make a copy of problem args for current test
+    if optimizer_name == 'Grid':
+        p_args = grid_problem_args.copy()
+    else:
+        p_args = problem_args.copy()
+        if Optimizer.max_obj>1:
+            p_args['multiobj'] = True
     # initialize problem
-    if Optimizer.max_obj>1:
-        p_args['multiobj'] = True
     p_args['out_dir'] = tempfile.mkdtemp() # to test saving in a temporary directory
     problem = optimize.BNMProblem(**p_args)
-    # initialize optimizer and register problem
-    optimizer = Optimizer(popsize=10, n_iter=2, seed=1)
-    optimizer.setup_problem(problem)
     # run optimization
-    optimizer.optimize()
+    if optimizer_name == 'Grid':
+        optimizer = Optimizer()
+        optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEEscale0': 2})
+    else:    
+        optimizer = Optimizer(popsize=10, n_iter=2, seed=1)
+        optimizer.setup_problem(problem)
+        optimizer.optimize()
     # compare history
     assert np.isclose(hist_expected.values, optimizer.history.values).all()
     # test saving

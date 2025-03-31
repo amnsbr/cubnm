@@ -70,41 +70,18 @@ def main():
             args.het_params = []
         run_optimize(args)
 
-def run_grid(args):
+def _get_problem(args):
     """
-    Runs a grid search based on CLI inputs
+    Helper function to get the optimization problem based on CLI inputs
 
     Parameters
     ----------
     args : :obj:`argparse.NameSpace`
-    """
-    # Note: using vars(args) instead of repeating every argument. 
-    # It must be ensured that extra arguments are not passed on
-    # via the argument parser validations. 
-    # Remove extra arguments
-    emp_fc_tril = args.emp_fc_tril
-    emp_fcd_tril = args.emp_fcd_tril
-    emp_bold = args.emp_bold
-    del args.cmd, args.emp_fc_tril, args.emp_fcd_tril, args.emp_bold
-    # initialize GridSearch and run it
-    gs = optimize.GridSearch(
-        **vars(args)
-    )
-    scores = gs.evaluate(emp_fc_tril, emp_fcd_tril, emp_bold)
-    # save the grid and scores
-    gs.sim_group.save()
-    params_scores = pd.concat([gs.param_combs, scores], axis=1)
-    params_scores.to_csv(os.path.join(gs.sim_group.out_dir, 'scores.csv'))
 
-def run_optimize(args):
+    Returns
+    -------
+    :obj:`optimize.BNMProblem`
     """
-    Runs an evolutionary optimization based on CLI inputs
-
-    Parameters
-    ----------
-    args : :obj:`argparse.NameSpace`
-    """
-    # initialize optimization problem
     problem = optimize.BNMProblem(
         model=args.model,
         params=args.params,
@@ -142,6 +119,34 @@ def run_optimize(args):
         sim_verbose=args.sim_verbose,
         progress_interval=args.progress_interval,
     )
+    return problem
+
+def run_grid(args):
+    """
+    Runs a grid search based on CLI inputs
+
+    Parameters
+    ----------
+    args : :obj:`argparse.NameSpace`
+    """
+    # initialize optimization problem
+    problem = _get_problem(args)
+    # initialize and run grid search
+    grid = optimize.GridOptimizer()
+    grid.optimize(problem, args.grid_shape)
+    grid.save()
+    print("Optimal simulation:", grid.opt, sep="\n")
+
+def run_optimize(args):
+    """
+    Runs an evolutionary optimization based on CLI inputs
+
+    Parameters
+    ----------
+    args : :obj:`argparse.NameSpace`
+    """
+    # initialize optimization problem
+    problem = _get_problem(args)
     # initialize optimizer
     optimizer_cls = getattr(optimize, f'{args.optimizer}Optimizer')
     optimizer = optimizer_cls(

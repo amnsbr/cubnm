@@ -100,25 +100,26 @@ Run a 10x10 grid search of reduced Wong Wang model with G and wEE as free parame
 
     from cubnm import datasets, optimize
 
-    gs = optimize.GridSearch(
+    problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (0.5, 2.5, 10),
-            'wEE': (0.05, 0.75, 10),
-            'wEI': 0.21
+            'G': (0.5, 2.5),
+            'wEE': (0.05, 0.75),
+            'wEI': 0.21,
         },
         sc = datasets.load_sc('strength', 'schaefer-100'),
+        emp_bold = datasets.load_bold('schaefer-100'),
         duration = 60,
         TR = 1,
         window_size = 10,
         window_step = 2,
         states_ts = True,
-        noise_out = True,
         sim_verbose = True,
         out_dir = './grid',
     )
-    emp_bold = datasets.load_bold('schaefer-100')
-    scores = gs.evaluate(emp_bold=emp_bold)
+    grid = optimize.GridOptimizer()
+    grid.optimize(problem, grid_shape={'G': 10, 'wEE': 10})
+    grid.save()
 
 Using command line interface:
 
@@ -128,4 +129,4 @@ Using command line interface:
         --model rWW --sc example --emp_bold example \
         --out_dir ./grid_cli \
         --TR 1 --duration 60 --window_size 10 --window_step 2 --states_ts \
-        --params G=0.5:2.5:10,wEE=0.05:0.75:10,wEI=0.21 --sim_verbose
+        --params G=0.5:2.5,wEE=0.05:0.75,wEI=0.21 --grid_shape G=10,wEI=10 --sim_verbose

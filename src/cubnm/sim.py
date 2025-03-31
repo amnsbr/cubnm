@@ -16,6 +16,8 @@ from cubnm._setup_opts import (
     noise_segment_flag
 )
 from cubnm import utils, datasets
+from . import _version
+__version__ = _version.get_versions()['version']
 
 
 class SimGroup:
@@ -550,6 +552,7 @@ class SimGroup:
             config["sc"] = self.input_sc
             config["sc_dist"] = self.input_sc_dist
             config["bw_params"] = self.bw_params
+            config["version"] = __version__
             if include_N:
                 config["N"] = self.N
         return config
@@ -785,6 +788,47 @@ class SimGroup:
         # transpose to (n_noise, nodes, time_steps, 10)
         return noise_all.transpose(3, 2, 0, 1)
 
+    def slice(self, key, inplace=False):
+        """
+        Slice the simulation group to a single simulation
+
+        Parameters
+        ----------
+        key: :obj:`int`
+            index of the simulation to slice
+        inplace: :obj:`bool`, optional
+            the object will be sliced in place
+            and therefore the data of other simulations
+            will be removed. Otherwise a new object
+            copied from the current object will be returned.
+        
+        Returns
+        -------
+        obj: :obj:`cubnm.sim.SimGroup`
+            sliced simulation group
+        """
+        if not isinstance(key, int):
+            raise ValueError("Only integer indexing is supported")
+        if key >= self.N:
+            raise IndexError("Index out of range")
+        if inplace:
+            obj = self
+        else:
+            # create a (shallow) copy
+            # and not a deep copy as the
+            # data may be very large
+            obj = copy.copy(self)
+        obj.param_lists = {k: v[key][np.newaxis, ...] for k, v in self.param_lists.items()}
+        obj.sim_bold = self.sim_bold[key][np.newaxis, ...]
+        if obj.do_fc:
+            obj.sim_fc_trils = self.sim_fc_trils[key][np.newaxis, ...]
+            if obj.do_fcd:
+                obj.sim_fcd_trils = self.sim_fcd_trils[key][np.newaxis, ...]
+        if obj.ext_out:
+            obj.sim_states = {k: v[key][np.newaxis, ...] for k, v in self.sim_states.items()}
+        obj.N = 1
+        return obj
+
     def clear(self):
         """
         Clear the simulation outputs
@@ -944,33 +988,21 @@ class SimGroup:
         if self.do_fcd:
             out_data['sim_fcd_trils'] = self.sim_fcd_trils
         if self.ext_out:
-            out_data['sim_states'] = self.sim_states
+            out_data.update(self.sim_states)
         out_data.update(self.param_lists)
         return out_data
 
-    def save(self, save_as="npz"):
+    def save(self):
         """
-        Save simulation outputs to disk.
-
-        Parameters
-        ---------
-        save_as: {'npz' or 'txt'}, optional
-            - 'npz': all the output of all sims will be written to a npz file
-            - 'txt': outputs of simulations will be written to separate files,\
-                recommended when N = 1 (e.g. rerunning the best simulation)
+        Save simulation outputs to disk as an npz file.
         """
         assert self.out_dir is not None, (
             "Cannot save the simulations when `.out_dir`"
             "is not set"
         )
-        sims_dir = self.out_dir
-        os.makedirs(sims_dir, exist_ok=True)
+        os.makedirs(self.out_dir, exist_ok=True)
         out_data = self._get_save_data()
-        if save_as == "npz":
-            # TODO: use more informative filenames
-            np.savez_compressed(os.path.join(sims_dir, f"it{self.it}.npz"), **out_data)
-        elif save_as == "txt":
-            raise NotImplementedError
+        np.savez_compressed(os.path.join(self.out_dir, "sim_data.npz"), **out_data)
 
     @classmethod
     def _get_test_configs(cls, cpu_gpu_identity=False):

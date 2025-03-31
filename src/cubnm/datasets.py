@@ -6,7 +6,7 @@ import os
 import numpy as np
 import pandas as pd
 
-if sys.version_info >= (3, 10):
+if sys.version_info >= (3, 9):
     from importlib.resources import files
 else:
     from importlib_resources import files
