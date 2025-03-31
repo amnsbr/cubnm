@@ -558,6 +558,11 @@ class SimGroup:
     def _model_config(self):
         """
         Internal model configuration used in the simulation
+
+        Returns
+        -------
+        model_config : :obj:`dict`
+            Dictionary of internal model configurations
         """
         model_config = {
             'do_fc': str(int(self.do_fc)),
@@ -704,20 +709,11 @@ class SimGroup:
             - sim_fcd_trils : :obj:`np.ndarray`
                 simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
         If `ext_out` is True, additionally includes:
-            - _sim_states: :obj:`np.ndarray`
-                Model state variables. Shape: (n_vars, N_SIMS, nodes[*duration/TR])
-            - _global_bools: :obj:`np.ndarray`
-                Global boolean variables. Shape: (n_bools, N_SIMS)
-            - _global_ints: :obj:`np.ndarray`
-                Global integer variables. Shape: (n_ints, N_SIMS)
-        If `noise_out` is True, additionally includes:
-            - _noise: :obj:`np.ndarray`
-                Noise segment array. Shape: (nodes*noise_time_steps*10*Model.n_noise,)
-        If `noise_out` is True and noise segmenting is on, additionally includes:
-            - _shuffled_nodes: :obj: `np.ndarray`
-                Node shufflings in each noise repeate. Shape: (noise_repeats, nodes)
-            - _shuffled_ts: :obj: `np.ndarray`
-                Time step shufflings in each noise repeate. Shape: (noise_repeats, noise_time_steps)                
+            - sim_states: :obj:`dict` of :obj:`np.ndarray`
+                simulated state variables with keys as state names
+                and values as arrays with the shape (N_SIMS, nodes)
+                when `states_ts` is False, and (N_SIMS, duration/TR, nodes)
+                when `states_ts` is True
         """
         # assign the output to object attributes
         self.__dict__.update(out)
@@ -729,6 +725,7 @@ class SimGroup:
                 self.sim_fcd_trils = self.sim_fcd_trils.reshape(self.N, -1)
         if self.ext_out:
             # process sim states into a dictionary
+            # TODO: ensure each state's array is a view and not a copy of the original
             self.sim_states = {}
             for state_i, state_name in enumerate(self.state_names):
                 self.sim_states[state_name] = self._sim_states[state_i, :, :]
@@ -792,7 +789,16 @@ class SimGroup:
         """
         Clear the simulation outputs
         """
-        for attr in ["sim_bold", "sim_fc_trils", "sim_fcd_trils", "sim_states"]:
+        for attr in [
+            "sim_bold", 
+            "sim_fc_trils", 
+            "sim_fcd_trils", 
+            "sim_states",
+            "_sim_states",
+            "_noise",
+            "_shuffled_nodes",
+            "_shuffled_ts",
+        ]:
             if hasattr(self, attr):
                 delattr(self, attr)
         gc.collect()
