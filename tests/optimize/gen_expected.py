@@ -45,13 +45,13 @@ def gen_expected(optimizer_name):
     # get optimizer class
     Optimizer = getattr(optimize, f'{optimizer_name}Optimizer')
     if optimizer_name == 'Grid':
-        problem_args = grid_problem_args
+        p_args = grid_problem_args
     else:
-        problem_args = problem_args.copy()
+        p_args = problem_args.copy()
         # initialize problem
         if Optimizer.max_obj>1:
-            problem_args['multiobj'] = True
-    problem = optimize.BNMProblem(**problem_args)
+            p_args['multiobj'] = True
+    problem = optimize.BNMProblem(**p_args)
     if optimizer_name == 'Grid':
         optimizer = Optimizer()
         optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEEscale0': 2})

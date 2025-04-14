@@ -8,6 +8,8 @@ import os
 import gc
 import copy
 from decimal import Decimal
+import multiprocessing
+import cupy as cp
 
 from cubnm._core import run_simulations, set_const
 from cubnm._setup_opts import (
@@ -19,6 +21,15 @@ from cubnm import utils, datasets
 from . import _version
 __version__ = _version.get_versions()['version']
 
+
+# NaN values in the scores are replaced with the worst possible scores
+# listed below.
+WORST_SCORES = {
+    "+fc_corr": -1.0,
+    "-fc_diff": -2.0,
+    "-fc_normec": -1.0,
+    "-fcd_ks": -1.0,
+}
 
 class SimGroup:
     def __init__(
@@ -223,10 +234,6 @@ class SimGroup:
         self.noise_out = noise_out
         self.sim_verbose = sim_verbose
         self.progress_interval = progress_interval
-        self.use_cpu = (
-            (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
-            & (not self.force_gpu)
-        )
         self.nodes = self.sc.shape[0]
         # load sc distance if provided, and set delay flag accordingly
         self.input_sc_dist = sc_dist
@@ -256,6 +263,9 @@ class SimGroup:
             self.out_dir = self.input_sc.replace(".txt", "").replace(".npy", "")
         else:
             self.out_dir = self.input_out_dir
+        # get number of available hardware
+        self.avail_gpus = utils.avail_gpus()
+        self.avail_cpus = multiprocessing.cpu_count()
         # keep track of the last N and config to determine if force_reinit
         # is needed in the next run if any are changed
         self.last_N = 0
@@ -582,6 +592,20 @@ class SimGroup:
         }
         return model_config
 
+    @property
+    def use_cpu(self):
+        """
+        Check if CPU should be used for the simulations
+        based on the available hardware, compilation options, 
+        and user settings
+        """
+        return (
+            (self.force_cpu | 
+            (not gpu_enabled_flag) | 
+            (self.avail_gpus == 0)) & 
+            (not self.force_gpu)
+        )
+
     def run(self, force_reinit=False):
         """
         Run the simulations in parallel (as possible) on GPU/CPU
@@ -605,10 +629,6 @@ class SimGroup:
             force_reinit
             | (self.N != self.last_N)
             | (curr_config != self.last_config)
-        )
-        self.use_cpu = (
-            (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
-            & (not self.force_gpu)
         )
         # check if running on Jupyter and print warning that
         # simulations are running but progress will not be shown
@@ -876,7 +896,14 @@ class SimGroup:
         """
         pass
 
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None):
+    def score(
+            self, 
+            emp_fc_tril=None, 
+            emp_fcd_tril=None, 
+            emp_bold=None, 
+            force_cpu=False,
+            usable_mem=None
+        ):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
 
@@ -901,6 +928,13 @@ class SimGroup:
             Motion outliers should either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
+        force_cpu: :obj:`bool`, optional
+            force CPU for the calculations. Otherwise if GPU is available
+            some of the scores (including "+fc_corr", "-fcd_ks") 
+            will be calculated on GPU.
+        usable_mem: :obj:`int`, optional
+            amount of available GPU memory to be used in bytes.
+            If None, 80% of the free memory will be used.
 
         Returns
         -------
@@ -934,41 +968,57 @@ class SimGroup:
         columns = []
         if self.do_fc and (emp_fc_tril is not None):
             columns += list(set(["+fc_corr", "-fc_diff", "-fc_normec"]) & set(self.gof_terms))
+            assert emp_fc_tril.size == self.sim_fc_trils.shape[1], (
+                "Empirical FC lower triangle size does not match the simulated FC size"
+            )
         if self.do_fcd and (emp_fcd_tril is not None):
             columns += list(set(["-fcd_ks"]) & set(self.gof_terms))
         columns += ["+gof"]
         scores = pd.DataFrame(columns=columns, dtype=float)
-        # calculate each gof measure for each simulation
-        for idx in range(self.N):
+        # vectorized calculation of some measures on CPU
+        for column in columns:
+            if column == "-fc_diff":
+                scores.loc[:, column] = -np.abs(
+                    self.sim_fc_trils.mean(axis=1) - emp_fc_tril.mean()
+                )
+            elif column == "-fc_normec":
+                scores.loc[:, column] = -np.linalg.norm(
+                    self.sim_fc_trils.mean(axis=1) - emp_fc_tril.mean()
+                ) / (2 * np.sqrt(emp_fc_tril.shape[1]))
+
+        # calculation of fc_corr and fcd_ks per simulation on CPU
+        # or in parallel batches on GPU
+        if (self.use_cpu or force_cpu):
+            # TODO: run in parallel on CPU cores when
+            # self.avail_cpus > 1
+            for idx in range(self.N):
+                for column in columns:
+                    if column == "+fc_corr":                    
+                        # TODO: vectorize FC corr calculation
+                        scores.loc[idx, column] = scipy.stats.pearsonr(
+                            self.sim_fc_trils[idx], emp_fc_tril
+                        ).statistic
+                    elif column == "-fcd_ks":
+                        scores.loc[idx, column] = -scipy.stats.ks_2samp(
+                            self.sim_fcd_trils[idx], emp_fcd_tril
+                        ).statistic
+        else:
+            # calculate on GPU
+            if usable_mem is None:
+                # get amount of available GPU memory as
+                # 80% of the free memory
+                free_mem, _ = cp.cuda.runtime.memGetInfo()
+                usable_mem = int(free_mem * 0.8)
             for column in columns:
-                if column == "+fc_corr":                    
-                    scores.loc[idx, column] = scipy.stats.pearsonr(
-                        self.sim_fc_trils[idx], emp_fc_tril
-                    ).statistic
-                    if np.isnan(scores.loc[idx, column]):
-                        scores.loc[idx, column] = -1
-                elif column == "-fc_diff":
-                    scores.loc[idx, column] = -np.abs(
-                        self.sim_fc_trils[idx].mean() - emp_fc_tril.mean()
-                    )
-                    if np.isnan(scores.loc[idx, column]):
-                        scores.loc[idx, column] = -2
-                elif column == "-fc_normec":
-                    scores.loc[idx, column] = -utils.fc_norm_euclidean(
-                        self.sim_fc_trils[idx], emp_fc_tril
-                    )
-                    if np.isnan(scores.loc[idx, column]):
-                        scores.loc[idx, column] = -1
+                if column == "+fc_corr":
+                    scores.loc[:, column] = utils.fc_corr_device(self.sim_fc_trils, emp_fc_tril, usable_mem)
                 elif column == "-fcd_ks":
-                    scores.loc[idx, column] = -scipy.stats.ks_2samp(
-                        self.sim_fcd_trils[idx], emp_fcd_tril
-                    ).statistic
-                    if np.isnan(scores.loc[idx, column]):
-                        scores.loc[idx, column] = -1
-            # combined the selected terms into gof (that should be maximized)
-            scores.loc[idx, "+gof"] = 0
-            for term in self.gof_terms:
-                scores.loc[idx, "+gof"] += scores.loc[idx, term]
+                    scores.loc[:, column] = -utils.fcd_ks_device(self.sim_fcd_trils, emp_fcd_tril, usable_mem)
+        # fill NaNs with the worst possible value
+        for column in columns:
+            scores.loc[:, column] = scores.loc[:, column].fillna(WORST_SCORES.get(column, np.nan))
+        # combined the selected terms into gof (that should be maximized)
+        scores.loc[:, "+gof"] = scores.loc[:, self.gof_terms].sum(axis=1)
         return scores
     
     def _get_save_data(self):

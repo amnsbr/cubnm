@@ -15,7 +15,8 @@ dependencies = [
     "pandas",
     "pymoo==0.6",
     "scikit-optimize==0.9",
-    "tabulate"
+    "tabulate",
+    # "cupy-cuda11x" or "cupy-cuda12x" depending on cuda version
 ]
 requires-python = ">=3.7"
 description = "A toolbox for brain network modeling on GPUs "
