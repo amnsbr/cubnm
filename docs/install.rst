@@ -19,6 +19,15 @@ Install via:
 
     pip install cubnm
     
+In addition to the numerical simulations and FC/FCD calculation supported in the core functions, the package also supports calculation of empirical to simulated
+FC correlation as well as FCD Kolmogorov-Smirnov distance on GPUs. This is especially useful when working with very large grids. 
+To use these additional features, `CuPy <https://docs.cupy.dev/en/stable/install.html#installing-cupy>`_ must also be available, via:
+
+.. code-block:: bash
+
+    pip install cubnm[cupy-cuda11x] # for CUDA 11.x
+    # or
+    pip install cubnm[cupy-cuda12x] # for CUDA 12.x
 
 .. _from-source:
 
