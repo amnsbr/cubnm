@@ -6,9 +6,58 @@ import scipy
 import subprocess
 import json
 import gc
-from numba import cuda
-import cupy as cp
 from cubnm._setup_opts import gpu_model_flag
+try:
+    import cupy as cp
+    from numba import cuda
+    has_cupy = True
+except ImportError:
+    cp = None
+    cuda = None
+    has_cupy = False
+
+if has_cupy:
+    @cuda.jit
+    def cdf_2d_2d_right(A_sorted, x_values, out):
+        """
+        CUDA kernel for calculating CDF of matching rows in 2D arrays.
+        For each row i, performs searchsorted (right-sided) of 
+        x_values[i] in A_sorted[i] divided by the length of A_sorted[i]
+        resulting in empirical CDF of A_sorted[i] at x_values[i].
+        Each row of A_sorted[i] must be sorted in ascending order.
+
+        Parameters
+        ----------
+        A_sorted : `obj`:cp.ndarray
+            2D array of sorted values. Shape: (n_rows, m)
+        x_values : `obj`:cp.ndarray
+            2D array of values to calculate CDF for. Shape: (n_rows, k)
+        out : `obj`:cp.ndarray
+            2D array to store the CDF values. Shape: (n_rows, k)
+        """
+        # get current row and x_value index (col)
+        row, col = cuda.grid(2)
+        # get dimensions
+        n_rows, m = A_sorted.shape
+        _, k = x_values.shape
+        # calculate CDF of A_sorted[row]
+        # at x_values[row, col]
+        if row < n_rows and col < k:
+            x = x_values[row, col]
+            left = 0
+            right = m
+            while left < right:
+                mid = (left + right) // 2
+                if x < A_sorted[row, mid]:
+                    right = mid
+                else:
+                    left = mid + 1
+            out[row, col] = left / m
+else:
+    def cdf_2d_2d_right(*args, **kwargs):
+        raise RuntimeError(
+            "CuPy is not available. Install `cubnm[cupy-cuda11x]` or `cubnm[cupy-cuda12x]`."
+        )
 
 def avail_gpus():
     """
@@ -246,43 +295,6 @@ def calculate_fcd(
     else:
         return fcd_matrix
 
-@cuda.jit
-def cdf_2d_2d_right(A_sorted, x_values, out):
-    """
-    CUDA kernel for calculating CDF of matching rows in 2D arrays.
-    For each row i, performs searchsorted (right-sided) of 
-    x_values[i] in A_sorted[i] divided by the length of A_sorted[i]
-    resulting in empirical CDF of A_sorted[i] at x_values[i].
-    Each row of A_sorted[i] must be sorted in ascending order.
-
-    Parameters
-    ----------
-    A_sorted : `obj`:cp.ndarray
-        2D array of sorted values. Shape: (n_rows, m)
-    x_values : `obj`:cp.ndarray
-        2D array of values to calculate CDF for. Shape: (n_rows, k)
-    out : `obj`:cp.ndarray
-        2D array to store the CDF values. Shape: (n_rows, k)
-    """
-    # get current row and x_value index (col)
-    row, col = cuda.grid(2)
-    # get dimensions
-    n_rows, m = A_sorted.shape
-    _, k = x_values.shape
-    # calculate CDF of A_sorted[row]
-    # at x_values[row, col]
-    if row < n_rows and col < k:
-        x = x_values[row, col]
-        left = 0
-        right = m
-        while left < right:
-            mid = (left + right) // 2
-            if x < A_sorted[row, mid]:
-                right = mid
-            else:
-                left = mid + 1
-        out[row, col] = left / m
-
 def fcd_ks_device(sim_fcd_trils, emp_fcd_tril, usable_mem=None):
     """
     Calculates Kolmogorov-Smirnov distance of provided simulated FCDs
@@ -305,6 +317,11 @@ def fcd_ks_device(sim_fcd_trils, emp_fcd_tril, usable_mem=None):
     ks : :obj:`np.ndarray`
         Kolmogorov-Smirnov distances. Shape: (n_simulations,)
     """
+    if not has_cupy:
+        raise RuntimeError(
+            "CuPy is not available. Install `cubnm[cupy-cuda11x]` or `cubnm[cupy-cuda12x]`."
+        )
+
     if usable_mem is None:
         free_mem, _ = cp.cuda.runtime.memGetInfo()
         usable_mem = int(free_mem * 0.8)
@@ -409,6 +426,11 @@ def fc_corr_device(sim_fc_trils, emp_fc_tril, usable_mem=None):
     fc_corr : :obj:`np.ndarray`
         Pearson correlation coefficients. Shape: (n_simulations,)
     """
+    if not has_cupy:
+        raise RuntimeError(
+            "CuPy is not available. Install `cubnm[cupy-cuda11x]` or `cubnm[cupy-cuda12x]`."
+        )
+
     if usable_mem is None:
         free_mem, _ = cp.cuda.runtime.memGetInfo()
         usable_mem = int(free_mem * 0.8)

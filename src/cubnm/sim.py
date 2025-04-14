@@ -9,7 +9,6 @@ import gc
 import copy
 from decimal import Decimal
 import multiprocessing
-import cupy as cp
 
 from cubnm._core import run_simulations, set_const
 from cubnm._setup_opts import (
@@ -20,6 +19,14 @@ from cubnm._setup_opts import (
 from cubnm import utils, datasets
 from . import _version
 __version__ = _version.get_versions()['version']
+
+try:
+    import cupy as cp
+    has_cupy = True
+except ImportError:
+    cp = None
+    has_cupy = False
+
 
 
 # NaN values in the scores are replaced with the worst possible scores
@@ -987,8 +994,8 @@ class SimGroup:
                 ) / (2 * np.sqrt(emp_fc_tril.shape[1]))
 
         # calculation of fc_corr and fcd_ks per simulation on CPU
-        # or in parallel batches on GPU
-        if (self.use_cpu or force_cpu):
+        # or in parallel batches on GPU (if available and CuPy is installled)
+        if (self.use_cpu or force_cpu or (not has_cupy)):
             # TODO: run in parallel on CPU cores when
             # self.avail_cpus > 1
             for idx in range(self.N):
