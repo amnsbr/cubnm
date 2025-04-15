@@ -27,6 +27,7 @@
 cuBNM toolbox is designed for efficient brain network modeling on GPUs.
 
 .. overview-start
+
 Overview
 --------
 cuBNM toolbox uses GPUs to efficiently run simulations of brain network models 
