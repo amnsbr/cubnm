@@ -37,7 +37,7 @@ cudaDeviceProp get_device_prop(int verbose) {
                 << ", pciDeviceID: " << prop.pciDeviceID << ", tccDriver: " << prop.tccDriver  << std::endl;
         }
     } else {
-        throw std::runtime_error("No CUDA devices was found");
+        throw std::runtime_error(std::string("No CUDA devices was found"));
     }
     return prop;
 }

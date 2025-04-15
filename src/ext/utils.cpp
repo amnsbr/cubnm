@@ -8,9 +8,9 @@ int get_fc_n_pairs(int nodes, bool exc_interhemispheric) {
     int rh_idx;
     if (exc_interhemispheric) {
         if ((nodes % 2) != 0) {
-            throw std::runtime_error(
+            throw std::runtime_error(std::string(
                 "exc_interhemispheric is set but number of nodes is not even"
-            );
+            ));
         }
         rh_idx = nodes / 2; // assumes symmetric number of parcels and L->R order
         n_pairs -= pow(rh_idx, 2); // exc the middle square
@@ -48,7 +48,7 @@ int get_dfc_windows(
         n_windows ++;
     }
     if (n_windows == 0) {
-        throw std::runtime_error("Number of dynamic FC windows is 0");
+        throw std::runtime_error(std::string("Number of dynamic FC windows is 0"));
     }
     return n_windows;
 }

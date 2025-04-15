@@ -949,10 +949,10 @@ void _run_simulations_gpu(
             }
             d_model->co_launch = true;
         } else {
-            throw std::runtime_error(
+            throw std::runtime_error(std::string(
                 "Cooperative launch for running simulation "
                 "of many nodes is not supported on this device."
-            );
+            ));
         }
     }
 
@@ -997,13 +997,13 @@ void _run_simulations_gpu(
         int numBlocksPerSm = 0;
         CUDA_CHECK_RETURN(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, bnm<Model, true>, threadsPerBlock.x, shared_mem_extern));
         if (numBlocks.x*numBlocks.y > prop.multiProcessorCount * numBlocksPerSm) {
-            throw std::runtime_error(
+            throw std::runtime_error(std::string(
                 "Number of blocks " + std::to_string(numBlocks.x*numBlocks.y) +
                 " exceeds the capacity of the device for cooperative launch: SM count " +
                 std::to_string(prop.multiProcessorCount) + " * max blocks per SM " +
                 std::to_string(numBlocksPerSm) + " = " + 
                 std::to_string(prop.multiProcessorCount * numBlocksPerSm)
-            );
+            ));
         }
         void *kernelArgs[] = {
             (void*)&d_model,
@@ -1126,16 +1126,16 @@ void _run_simulations_gpu(
         numBlocks.y = ceil((float)d_model->n_pairs / (float)maxThreadsPerBlock);
         numBlocks.z = d_model->n_windows + 1; // +1 for total FC
         if (numBlocks.y > prop.maxGridSize[1]) {
-            throw std::runtime_error(
+            throw std::runtime_error(std::string(
                 "Number of pairs " + std::to_string(d_model->n_pairs) + 
                 " exceeds the capacity of the device for FC calculation"
-            );
+            ));
         }
         if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
-            throw std::runtime_error(
+            throw std::runtime_error(std::string(
                 "Code not implemented for GPUs in which "
                 "maxThreadsPerBlock!=maxThreadsDim[0]"
-            );
+            ));
         }
         threadsPerBlock.x = maxThreadsPerBlock;
         threadsPerBlock.y = 1;
@@ -1157,10 +1157,10 @@ void _run_simulations_gpu(
             numBlocks.z = 1;
             threadsPerBlock.x = d_model->n_windows;
             if (d_model->n_windows >= prop.maxThreadsPerBlock) {
-                throw std::runtime_error(
+                throw std::runtime_error(std::string(
                     "Mean/ssd FC tril of " + std::to_string(d_model->n_windows) + 
                     " windows cannot be calculated on this device"
-                );
+                ));
             }
             window_fc_stats<<<numBlocks,threadsPerBlock>>>(
                 d_model->windows_mean_fc, d_model->windows_ssd_fc,
@@ -1174,10 +1174,10 @@ void _run_simulations_gpu(
             numBlocks.y = ceil((float)d_model->n_window_pairs / (float)maxThreadsPerBlock);
             numBlocks.z = 1;
             if (prop.maxThreadsPerBlock!=prop.maxThreadsDim[0]) {
-                throw std::runtime_error(
+                throw std::runtime_error(std::string(
                     "Code not implemented for GPUs in which "
                     "maxThreadsPerBlock!=maxThreadsDim[0]"
-                );
+                ));
             }
             threadsPerBlock.x = maxThreadsPerBlock;
             threadsPerBlock.y = 1;
@@ -1361,12 +1361,12 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         m->n_vols_remove = m->base_conf.bold_remove_s * 1000 / m->BOLD_TR;
         m->corr_len = m->bold_len - m->n_vols_remove;
         if (m->corr_len < 2) {
-            throw std::runtime_error(
+            throw std::runtime_error(std::string(
                 "Number of BOLD volumes (after removing " +
                 std::to_string(m->n_vols_remove) + " initial volumes) is " +
                 std::to_string(m->corr_len) +
                 " which is too low for FC calculations"
-            );
+            ));
         }
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->mean_bold), sizeof(u_real*) * m->N_SIMS));
         CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->ssd_bold), sizeof(u_real*) * m->N_SIMS));
@@ -1374,9 +1374,9 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         int rh_idx;
         if (m->base_conf.exc_interhemispheric) {
             if ((m->nodes % 2) != 0) {
-                throw std::runtime_error(
+                throw std::runtime_error(std::string(
                     "exc_interhemispheric is set but number of nodes is not even"
-                );
+                ));
             }
             rh_idx = m->nodes / 2; // assumes symmetric number of parcels and L->R order
             m->n_pairs -= pow(rh_idx, 2); // exclude the middle square
@@ -1431,7 +1431,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
                 m->corr_len, m->bold_len, m->n_vols_remove,
                 m->base_conf.window_step, m->base_conf.window_size, m->base_conf.drop_edges);
             if (m->n_windows == 0) {
-                throw std::runtime_error("Number of windows is 0");
+                throw std::runtime_error(std::string("Number of windows is 0"));
             }
             CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_starts), sizeof(int) * m->n_windows));
             CUDA_CHECK_RETURN(cudaMallocManaged(&(m->window_ends), sizeof(int) * m->n_windows));

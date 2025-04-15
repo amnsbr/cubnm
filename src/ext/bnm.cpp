@@ -630,7 +630,7 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         // calculate length of BOLD after removing initial volumes
         m->corr_len = m->bold_len - m->n_vols_remove;
         if (m->corr_len < 2) {
-            throw std::runtime_error("Number of BOLD volumes (after removing initial volumes) is too low for FC calculations");
+            throw std::runtime_error(std::string("Number of BOLD volumes (after removing initial volumes) is too low for FC calculations"));
         }
         // calculate the number of FC pairs
         m->n_pairs = get_fc_n_pairs(m->nodes, m->base_conf.exc_interhemispheric);
