@@ -318,11 +318,11 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
 
     // Initialize GPU/CPU if it's not already done in current session
     // it does memory allocation and noise precalculation among other things
-    start = std::chrono::high_resolution_clock::now();
+    start = std::chrono::system_clock::now();
     if (use_cpu & ((!model->cpu_initialized) | (force_reinit))) {
         std::cout << "Initializing CPU session..." << std::endl;
         model->init_cpu(force_reinit);
-        end = std::chrono::high_resolution_clock::now();
+        end = std::chrono::system_clock::now();
         init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6)
             << init_seconds.count() << " s" << std::endl;
@@ -331,7 +331,7 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     else if (!use_cpu & ((!model->gpu_initialized) | (force_reinit))) {
         std::cout << "Initializing GPU session..." << std::endl;
         model->init_gpu(bwc, force_reinit);
-        end = std::chrono::high_resolution_clock::now();
+        end = std::chrono::system_clock::now();
         init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6) 
             << init_seconds.count() << " s" << std::endl;
@@ -400,7 +400,7 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
 
     // Run simulations
     std::cout << "Running " << N_SIMS << " simulations..." << std::endl;
-    start = std::chrono::high_resolution_clock::now();
+    start = std::chrono::system_clock::now();
     // TODO: cast the arrays to double if u_real is float
     if (use_cpu) {
         model->run_simulations_cpu(
@@ -420,8 +420,17 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
         );
     }
     #endif
-    end = std::chrono::high_resolution_clock::now();
+    end = std::chrono::system_clock::now();
     run_seconds = end - start;
+    if (model->base_conf.verbose) {
+        std::cout << "Simulations ";
+        if (model->base_conf.do_fc) {
+            std::cout << "and calculation of FC ";
+            if (model->base_conf.do_fcd) {
+                std::cout << "and FCD ";
+            }
+        }
+    }
     std::cout << "took " << std::fixed << std::setprecision(6)
         << run_seconds.count() << " s" << std::endl;
 

@@ -814,6 +814,10 @@ void _run_simulations_gpu(
         m->print_config();
     }
 
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    std::chrono::duration<double> duration;
+    start = std::chrono::system_clock::now();
+
     // copy model to device 
     Model* h_model = (Model*)m; // cast BaseModel to its specific subclass, TODO: see if this is really needed
     Model* d_model;
@@ -822,11 +826,11 @@ void _run_simulations_gpu(
 
     // copy SC to managed memory
     for (int SC_idx=0; SC_idx<d_model->N_SCs; SC_idx++) {
-      CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC[SC_idx], SC[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-      // TEMPORARY: Use same SC_dist for all SCs
-      // TODO: Fix this
-      CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC_dist[SC_idx], SC_dist, d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
-      // Uncomment following when SC_dist is also a 2d array
+        CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC[SC_idx], SC[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+        // TEMPORARY: Use same SC_dist for all SCs
+        // TODO: Fix this
+        CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC_dist[SC_idx], SC_dist, d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
+        // Uncomment following when SC_dist is also a 2d array
     //   CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_SC_dist[SC_idx], SC_dist[SC_idx], d_model->nodes*d_model->nodes * sizeof(u_real), cudaMemcpyHostToDevice));
     }
     // copy SC_indices to managed memory
@@ -1096,11 +1100,35 @@ void _run_simulations_gpu(
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
     if (d_model->base_conf.verbose) {
-        std::cout << "Simulation completed" << std::endl;
+        std::cout << "Simulations completed in ";
+        end = std::chrono::system_clock::now();
+        duration = end - start;
+        std::cout << std::fixed << std::setprecision(6)
+            << duration.count() << " s" << std::endl;
     }
 
     // FC and FCD calculations
     if (d_model->base_conf.do_fc) {
+        if (d_model->base_conf.verbose) {
+            std::cout << "Calculating simulated FC";
+            if (d_model->base_conf.do_fcd) {
+                std::cout << ", dynamic FCs and FCD ";
+            }
+            start = std::chrono::system_clock::now();
+        }
+        // advise BOLD to be read-only and prefetch arrays needed for (dynamic) FC calculation
+        // this and additional prefetch and advise calls improve the performance especially when 
+        // the amount of GPU memory used is close to the maximum available memory
+        CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->pairs_i, d_model->n_pairs*sizeof(int), 0, 0));
+        CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->pairs_j, d_model->n_pairs*sizeof(int), 0, 0));
+        for (int sim_idx=0; sim_idx<d_model->N_SIMS; sim_idx++) {
+            CUDA_CHECK_RETURN(cudaMemAdvise(d_model->BOLD[sim_idx], d_model->bold_size*sizeof(u_real), cudaMemAdviseSetReadMostly, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->BOLD[sim_idx], d_model->bold_size*sizeof(u_real), 0, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->mean_bold[sim_idx], d_model->nodes*sizeof(u_real), 0, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->ssd_bold[sim_idx], d_model->nodes*sizeof(u_real), 0, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->fc_trils[sim_idx], d_model->n_pairs*sizeof(u_real), 0, 0));
+        }
+        CUDA_CHECK_RETURN(cudaDeviceSynchronize()); // prefetching is done
         // calculate mean and sd bold for FC calculation
         bold_stats<<<numBlocks, threadsPerBlock>>>(
             d_model->mean_bold, d_model->ssd_bold,
@@ -1110,12 +1138,27 @@ void _run_simulations_gpu(
         CUDA_CHECK_LAST_ERROR();
         CUDA_CHECK_RETURN(cudaDeviceSynchronize());
         if (d_model->base_conf.do_fcd) {
+            // prefetching arrays onto device for the reason described above
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_starts, d_model->n_windows*sizeof(int), 0, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_ends, d_model->n_windows*sizeof(int), 0, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_pairs_i, d_model->n_window_pairs*sizeof(int), 0, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_pairs_j, d_model->n_window_pairs*sizeof(int), 0, 0));
+            for (int sim_idx=0; sim_idx<d_model->N_SIMS; sim_idx++) {
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_mean_bold[sim_idx], d_model->n_windows*d_model->nodes*sizeof(u_real), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_ssd_bold[sim_idx], d_model->n_windows*d_model->nodes*sizeof(u_real), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_fc_trils[sim_idx], d_model->n_windows*d_model->n_pairs*sizeof(u_real), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_mean_fc[sim_idx], d_model->n_windows*sizeof(u_real), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_ssd_fc[sim_idx], d_model->n_windows*sizeof(u_real), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->fcd_trils[sim_idx], d_model->n_window_pairs*sizeof(u_real), 0, 0));
+            }
+            CUDA_CHECK_RETURN(cudaDeviceSynchronize()); // prefetching is done TODO: see if this is beneficial
             // calculate window mean and sd bold for FCD calculations
             numBlocks.x = d_model->N_SIMS;
             numBlocks.y = d_model->n_windows;
             window_bold_stats<<<numBlocks,threadsPerBlock>>>(
                 d_model->BOLD, d_model->N_SIMS, d_model->nodes, 
-                d_model->n_windows, d_model->base_conf.window_size+1, d_model->window_starts, d_model->window_ends,
+                d_model->n_windows, d_model->base_conf.window_size+1, 
+                d_model->window_starts, d_model->window_ends,
                 d_model->windows_mean_bold, d_model->windows_ssd_bold);
             CUDA_CHECK_LAST_ERROR();
             CUDA_CHECK_RETURN(cudaDeviceSynchronize());
@@ -1211,6 +1254,12 @@ void _run_simulations_gpu(
             CUDA_CHECK_RETURN(cudaDeviceSynchronize());
         }
         #endif
+    }
+    if (d_model->base_conf.verbose) {
+        end = std::chrono::system_clock::now();
+        duration = end - start;
+        std::cout << "took " << std::fixed << std::setprecision(6)
+            << duration.count() << " s" << std::endl;
     }
 
     // copy the output from managed memory to _out arrays (which can be numpy arrays)
