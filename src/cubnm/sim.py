@@ -981,7 +981,7 @@ class SimGroup:
         if self.do_fcd and (emp_fcd_tril is not None):
             columns += list(set(["-fcd_ks"]) & set(self.gof_terms))
         columns += ["+gof"]
-        scores = pd.DataFrame(columns=columns, dtype=float)
+        scores = pd.DataFrame(index=range(self.N), columns=columns, dtype=float)
         # vectorized calculation of some measures on CPU
         for column in columns:
             if column == "-fc_diff":
@@ -1266,7 +1266,7 @@ class rWWSimGroup(SimGroup):
             # write FIC (+ numerical adjusted) wIE to param_lists
             self.param_lists["wIE"] = self._regional_params[2].reshape(self.N, -1)
     
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, fic_penalty_scale=2):
+    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, fic_penalty_scale=2, **kwargs):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
         In FIC models also calculates fic_penalty.
@@ -1287,13 +1287,15 @@ class rWWSimGroup(SimGroup):
             Set to 0 to disable the FIC penalty term.
             Note that while it is included in the cost function of
             optimizer, it is not included in the aggregate GOF
+        **kwargs:
+            keyword arguments passed to `cubnm.sim.SimGroup.score`
 
         Returns
         -------
         scores: :obj:`pd.DataFrame`
             The goodness of fit measures (columns) of each simulation (rows)
         """
-        scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold)
+        scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold, **kwargs)
         # calculate FIC penalty
         if self.do_fic & self.fic_penalty:
             if self.states_ts:
