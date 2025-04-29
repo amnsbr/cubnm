@@ -162,6 +162,6 @@ cython_debug/
 # project specific
 src/cuda/*.o
 src/cuda/*.a
-sample_input/*/
 src/cubnm/_setup_opts.py
 wheelhouse/
+docs/tutorials/*/

@@ -3,4 +3,5 @@ Tutorials
 .. toctree::
    :maxdepth: 2
 
-   tutorials/01_basics
+   tutorials/basics
+   tutorials/grid_search
