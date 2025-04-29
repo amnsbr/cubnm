@@ -5,3 +5,4 @@ Tutorials
 
    tutorials/basics
    tutorials/grid_search
+   tutorials/cmaes_homo
