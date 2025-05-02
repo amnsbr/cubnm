@@ -373,6 +373,10 @@ class SimGroup:
         self.states_sampling_msec = int(self.states_sampling * 1000)
 
     @property
+    def n_states_samples_remove(self):
+        return int(self.bold_remove_s // self.states_sampling)
+
+    @property
     def noise_segment_length(self):
         return self._noise_segment_length
 
@@ -1299,7 +1303,7 @@ class rWWSimGroup(SimGroup):
         # calculate FIC penalty
         if self.do_fic & self.fic_penalty:
             if self.states_ts:
-                mean_r_E = self.sim_states["r_E"][:, self.bold_remove_s:].mean(axis=1)
+                mean_r_E = self.sim_states["r_E"][:, self.n_states_samples_remove:].mean(axis=1)
             else:
                 mean_r_E = self.sim_states["r_E"]
             for idx in range(self.N):
