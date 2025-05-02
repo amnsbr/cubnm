@@ -4,3 +4,5 @@ cupy-cuda12x
 numba
 nbformat>=4.2.0
 nbconvert
+imageio
+tqdm
