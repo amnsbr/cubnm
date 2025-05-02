@@ -60,7 +60,6 @@ class SimGroup:
         exc_interhemispheric=False,
         force_cpu=False,
         force_gpu=False,
-        serial_nodes=False,
         gof_terms=["+fc_corr", "-fcd_ks"],
         bw_params="friston2003",
         bold_remove_s=30,
@@ -136,13 +135,6 @@ class SimGroup:
             available GPU device. Use this if there is a GPU available but
             is not being used for the simulation. If set to True but a GPU
             is not available will lead to errors.
-        serial_nodes: :obj:`bool`, optional
-            only applicable to GPUs; uses one thread per simulation and do calculation
-            of nodes serially. This is an experimental feature which is generally not 
-            recommended and has significantly slower performance in typical use cases. 
-            Only may provide performance benefits with very large grids as computing 
-            time does not scale with the number of simulations as much as the 
-            parallel (default) mode.
         gof_terms: :obj:`list` of :obj:`str`, optional
             list of goodness-of-fit terms to be used for scoring. May include:
             - '-fcd_ks': negative Kolmogorov-Smirnov distance of FCDs
@@ -234,7 +226,6 @@ class SimGroup:
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
         self.force_gpu = force_gpu
-        self.serial_nodes = serial_nodes
         self.bold_remove_s = bold_remove_s
         self.fcd_drop_edges = fcd_drop_edges
         self.noise_segment_length = noise_segment_length
@@ -300,7 +291,7 @@ class SimGroup:
         max_nodes = max_nodes_many if many_nodes_flag else max_nodes_reg
         # determine if with this number of nodes co-launch mode will be enabled
         # in co-launch mode multiple blocks are occupied by a single (massive) simulation
-        self._co_launch = (self.nodes > max_nodes) and (not self.use_cpu) and (not self.serial_nodes)
+        self._co_launch = (self.nodes > max_nodes) and (not self.use_cpu)
         if self._co_launch:
             if not many_nodes_flag:
                 raise NotImplementedError(
@@ -357,14 +348,7 @@ class SimGroup:
                 "states_sampling cannot be lower than 0.001s "
                 "which is model dt"
             )
-        if hasattr(self, "serial_nodes") and self.serial_nodes and (not self.force_cpu) and (states_sampling != self.TR):
-            # set states_sampling to TR if serial and different from TR
-            print(
-                "In serial different states_sampling from TR is not "
-                "supported. Reseting it to TR."
-            )
-            self._states_sampling = self.TR
-        elif hasattr(self, "_TR") and (states_sampling is None):
+        if hasattr(self, "_TR") and (states_sampling is None):
             # also set it to TR when None
             self._states_sampling = self.TR
         else:
@@ -483,23 +467,6 @@ class SimGroup:
                                 " Set do_fcd to True or remove FCD-related goodness-of-fit"
                                 " terms.")
 
-    @property
-    def serial_nodes(self):
-        return self._serial_nodes
-
-    @serial_nodes.setter
-    def serial_nodes(self, serial_nodes):
-        self._serial_nodes = serial_nodes
-        # warn user if serial is set to True
-        # + revert unsupported options to default
-        if hasattr(self, "force_cpu") and self._serial_nodes and not self.force_cpu:
-            print(
-                "Warning: Running simulations serially on GPU is an experimental "
-                "feature which is generally not recommended and has "
-                "significantly slower performance. Consider setting "
-                "serial_nodes to False."
-            )
-
     def _check_dt(self):
         """
         Check if integrations steps are valid
@@ -599,7 +566,6 @@ class SimGroup:
             'noise_time_steps': str(int(self.noise_segment_length*1000)), 
             'verbose': str(int(self.sim_verbose)),
             'progress_interval': str(int(self.progress_interval)),
-            'serial': str(int(self.serial_nodes)),
         }
         return model_config
 
@@ -1208,12 +1174,6 @@ class rWWSimGroup(SimGroup):
         # model-specific attributes (e.g. self.do_fic)
         super().__init__(*args, **kwargs)
         self.ext_out = self.ext_out | self.do_fic
-        if self.serial_nodes and (self.max_fic_trials > 0):
-            print(
-                "Numerical FIC is not supported in serial_nodes mode. "
-                "Setting max_fic_trials to 0."
-            )
-            self.max_fic_trials = 0
 
     @SimGroup.N.setter
     def N(self, N):

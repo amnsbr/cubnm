@@ -122,7 +122,6 @@ public:
         bool states_ts{false};
         int noise_time_steps{30000}; // msec
         int progress_interval{500}; // msec; real time interval for updating progress
-        bool serial{false};
     };
 
     Config base_conf;
@@ -146,7 +145,6 @@ public:
         std::cout << "do_fcd: " << base_conf.do_fcd << std::endl;
         std::cout << "states_ts: " << base_conf.states_ts << std::endl;
         std::cout << "noise_time_steps: " << base_conf.noise_time_steps << std::endl;
-        std::cout << "serial: " << base_conf.serial << std::endl;
     }
 
     virtual void set_conf(std::map<std::string, std::string> config_map) {
@@ -295,8 +293,6 @@ protected:
                 this->base_conf.noise_time_steps = std::stoi(pair.second);
             } else if (pair.first == "progress_interval") {
                 this->base_conf.progress_interval = std::stoi(pair.second);
-            } else if (pair.first == "serial") {
-                this->base_conf.serial = (bool)std::stoi(pair.second);
             }
         }
     }

@@ -215,10 +215,6 @@ def add_shared_arguments(parser):
                         help='Force CPU')
     parser.add_argument('--force_gpu', action='store_true', 
                         help='Force GPU')
-    parser.add_argument('--serial_nodes', action='store_true', 
-                        help='Only applicable to GPUs; Uses one thread'
-                             ' per simulation and do calculation of nodes serially; Experimental'
-                       )
     parser.add_argument('-v', '--sim_verbose', action='store_true',
                         help='Show simulation progress')
     parser.add_argument('--progress_interval', type=int, default=500, 

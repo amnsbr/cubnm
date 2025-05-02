@@ -110,7 +110,6 @@ def _get_problem(args):
         exc_interhemispheric=args.exc_interhemispheric,
         force_gpu=args.force_gpu,
         force_cpu=args.force_cpu,
-        serial_nodes=args.serial_nodes,
         gof_terms=args.gof_terms,
         bw_params=args.bw_params,
         bold_remove_s=args.bold_remove_s,
