@@ -165,3 +165,4 @@ src/cuda/*.a
 src/cubnm/_setup_opts.py
 wheelhouse/
 docs/tutorials/*/
+docs/tutorials/micapipe_MICs_v1.1.zip

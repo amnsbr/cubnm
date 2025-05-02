@@ -64,6 +64,11 @@ def _clean_micamics_sc(
         - 'none': no normalization
     out_dir: :obj:`str`, optional
         Path to save the cleaned SC matrix
+
+    Returns
+    -------
+    :obj:`np.ndarray`
+        Structural connectivity (strength/length) matrix. Shape: (nodes, nodes)
     """
     sc_file_prefix = os.path.join(
         micamics_dir, sub, 'ses-01', 'dwi', 
@@ -145,6 +150,11 @@ def _clean_micamics_bold(micamics_dir, parc, sub, exc_subcortex=True, out_dir=No
         Whether to exclude subcortical regions. Default: True
     out_dir: :obj:`str`, optional
         Path to save the cleaned BOLD time series
+
+    Returns
+    -------
+    :obj:`np.ndarray`
+        BOLD time series. Shape: (nodes, volumes)
     """
     bold_file_path = os.path.join(
         micamics_dir, sub, 'ses-01', 'func', 
