@@ -358,7 +358,7 @@ class SimGroup:
 
     @property
     def n_states_samples_remove(self):
-        return int(self.bold_remove_s // self.states_sampling)
+        return int(self.bold_remove_s / self.states_sampling)
 
     @property
     def noise_segment_length(self):
