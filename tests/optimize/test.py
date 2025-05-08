@@ -68,7 +68,6 @@ def get_test_params(for_batch=False):
         optimizer_names.remove(exc_name)
     # exclude non-Pymoo optimizers if for batch
     if for_batch:
-        optimizer_names.remove('Bayes')
         optimizer_names.remove('Grid')
     # get all possible combinations
     for optimizer_name in optimizer_names:

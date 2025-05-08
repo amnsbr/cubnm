@@ -15,7 +15,6 @@ from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.termination import get_termination
 import cma
-import skopt
 
 from cubnm import sim, utils
 
@@ -578,15 +577,8 @@ class Optimizer(ABC):
                 print("Rerunning and saving the optimal simulation(s)")
                 ## reuse the original problem used throughout the optimization
                 ## but change its out_dir, N and parameters to the optimum
-                if type(self).__name__ == "BayesOptimizer":
-                    # TODO: ideally implement this part as a separate method
-                    # and handle differences of PymooOptimizer and BayesOptimizer
-                    # more properly
-                    res = self.algorithm.get_result()
-                    X = np.atleast_2d(res.x)
-                else:
-                    res = self.algorithm.result()
-                    X = np.atleast_2d(res.X)
+                res = self.algorithm.result()
+                X = np.atleast_2d(res.X)
                 Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
                 opt_scores = self.problem.eval(X)
                 pd.concat([Xt, opt_scores], axis=1).to_csv(
@@ -952,92 +944,6 @@ class NSGA2Optimizer(PymooOptimizer):
         self.popsize = popsize
         self.algorithm = NSGA2(pop_size=popsize, **algorithm_kws)
 
-
-class BayesOptimizer(Optimizer):
-    max_obj = 1
-    def __init__(self, popsize, n_iter, seed=0):
-        """
-        Bayesian optimizer
-
-        Parameters
-        ----------
-        popsize: :obj:`int`
-            The population size for the optimizer
-        n_iter: :obj:`int`
-            The number of iterations for the optimization process
-        seed: :obj:`int`, optional
-            The seed value for the random number generator used by the optimizer.
-        """
-        # does not initialize the optimizer yet because
-        # the number of dimensions are not known yet
-        # TODO: consider defining Problem before optimizer
-        # and then passing it on to the optimizer
-        self.popsize = popsize
-        self.n_iter = n_iter
-        self.seed = seed
-        self.save_history_sim=False # currently saving history of simulations is not implemented
-
-    def setup_problem(self, problem, **kwargs):
-        """
-        Sets up the optimizer with the problem
-
-        Parameters
-        ----------
-        problem: :obj:`cubnm.optimizer.BNMProblem`
-            The problem to be set up with the algorithm.
-        **kwargs
-            Additional keyword arguments to be passed to :class:`skopt.Optimizer`
-        """
-        self.problem = problem
-        self.algorithm = skopt.Optimizer(
-            dimensions=[skopt.space.Real(0.0, 1.0)] * self.problem.ndim,
-            random_state=self.seed,
-            base_estimator="gp",
-            acq_func="LCB",  # TODO: see if this is the best option
-            **kwargs,
-        )
-
-    def optimize(self):
-        """
-        Optimizes the associated :class:`cubnm.optimizer.BNMProblem`
-        free parameters through an evolutionary optimization approach by
-        running multiple generations of parallel simulations until the
-        termination criteria is met or maximum number of iterations is reached.
-        """
-        self.history = []
-        self.opt_history = []
-        for it in range(self.n_iter):
-            # ask for next popsize suggestions
-            X = np.array(self.algorithm.ask(n_points=self.popsize))
-            # evaluate them
-            out = {}
-            # pass an empty scores list to the evaluator to store the individual GOF measures
-            scores = []
-            self.problem._evaluate(X, out, scores=scores)
-            if not self.save_history_sim:
-                # clear current simulation data
-                # it has to be here before .tell
-                self.problem.sim_group.clear()
-            # tell the results to the optimizer
-            self.algorithm.tell(X.tolist(), out["F"].tolist())
-            # convert results to dataframe
-            ## parameters
-            res = pd.DataFrame(
-                self.problem._get_Xt(X), columns=self.problem.free_params
-            )
-            res.index.name = "sim_idx"
-            ## cost function
-            res["F"] = out["F"]
-            ## GOF measures
-            res = pd.concat([res, scores[0]], axis=1)
-            print(res.to_string())
-            self.history.append(res)
-            self.opt_history.append(res.loc[res["F"].argmin()])
-        self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
-        self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
-        self.opt = self.opt_history.loc[self.opt_history["F"].argmin()]
-
-
 def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
     """
     Optimize a batch of optimizers in parallel (without requiring
@@ -1261,15 +1167,8 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
             ## but change its out_dir, N and parameters to the optimum
             optimizer.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
             os.makedirs(optimizer.problem.sim_group.out_dir, exist_ok=True)
-            if type(optimizer).__name__ == "BayesOptimizer":
-                # TODO: ideally implement this part as a separate method
-                # and handle differences of PymooOptimizer and BayesOptimizer
-                # more properly
-                res = optimizer.algorithm.get_result()
-                X = np.atleast_2d(res.x)
-            else:
-                res = optimizer.algorithm.result()
-                X = np.atleast_2d(res.X)
+            res = optimizer.algorithm.result()
+            X = np.atleast_2d(res.X)
             optimizer.problem.sim_group.N = X.shape[0]
             optimizer.problem._set_sim_params(X)
             Xs.append(X)

@@ -264,27 +264,6 @@ def run_cmaes_optimizer_rWWEx():
     cmaes.optimize()
     return cmaes
 
-def run_bayes_optimizer():
-    emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
-        model = 'rWW',
-        params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
-        },
-        emp_bold = emp_bold,
-        duration = 60,
-        TR = 1,
-        window_size=10,
-        window_step=2,
-        sc = datasets.load_sc('strength', 'schaefer-100'),
-    )
-    bo = optimize.BayesOptimizer(popsize=10, n_iter=2, seed=0)
-    bo.setup_problem(problem)
-    bo.optimize()
-    return bo
-
 def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
     emp_bold = datasets.load_bold('schaefer-100')
     problem = optimize.BNMProblem(
