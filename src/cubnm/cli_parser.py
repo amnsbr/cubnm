@@ -181,7 +181,7 @@ def add_shared_arguments(parser):
                         help='Do not calculate simulated/empirical FC')
     parser.add_argument('--no_fcd', action='store_true', 
                         help='Do not calculate simulated/empirical FCD')
-    parser.add_argument('--rand_seed', type=int, default=410, 
+    parser.add_argument('--sim_seed', type=int, default=0, 
                         help='Simulation noise seed')
     parser.add_argument('--noise_segment_length', type=int, default=30, 
                         help='Noise segment length (seconds)')

@@ -7,7 +7,7 @@ class BaseModel {
 public:
     BaseModel(
         int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
-        int time_steps, bool do_delay, int rand_seed,
+        int time_steps, bool do_delay, int sim_seed,
         double dt, double bw_dt
         ) : nodes{nodes},
             N_SIMS{N_SIMS},
@@ -16,7 +16,7 @@ public:
             states_sampling{states_sampling},
             time_steps{time_steps},
             do_delay{do_delay},
-            rand_seed{rand_seed},
+            sim_seed{sim_seed},
             dt{dt}, // in msec
             bw_dt{bw_dt / 1000.0} // input is in msec, but bw_dt is in seconds in the code
         {
@@ -31,7 +31,7 @@ public:
 
     virtual void update(
         int nodes, int N_SIMS, int N_SCs, int BOLD_TR, int states_sampling,
-        int time_steps, bool do_delay, int rand_seed,
+        int time_steps, bool do_delay, int sim_seed,
         double dt, double bw_dt
         ) {
             this->nodes = nodes;
@@ -41,7 +41,7 @@ public:
             this->states_sampling = states_sampling;
             this->time_steps = time_steps;
             this->do_delay = do_delay;
-            this->rand_seed = rand_seed;
+            this->sim_seed = sim_seed;
             this->dt = dt; // msec
             this->bw_dt = bw_dt / 1000.0; // input is in msec, but bw_dt is in seconds in the code
             this->set_bold_states_len();
@@ -71,11 +71,11 @@ public:
     virtual void free_cpu_noise();
 
     int nodes{0}, N_SIMS{0}, N_SCs{0}, BOLD_TR{0}, states_sampling{0}, time_steps{0}, 
-        rand_seed{0}, n_pairs{0}, n_windows{0}, 
+        sim_seed{0}, n_pairs{0}, n_windows{0}, 
         n_window_pairs{0}, bold_len{0}, bold_size{0}, states_len{0}, states_size{0},
         n_vols_remove{0}, n_states_samples_remove{0}, corr_len{0}, 
         noise_size{0}, noise_repeats{0}, max_delay{0},
-        last_nodes{0}, last_time_steps{0}, last_rand_seed{0}, 
+        last_nodes{0}, last_time_steps{0}, last_sim_seed{0}, 
         last_noise_time_steps{0},
         bw_it{0}, inner_it{0}, BOLD_TR_iters{0}, states_sampling_iters{0},
         alloc_N_SCs{0}, alloc_N_SIMS{0};
@@ -133,7 +133,7 @@ public:
         std::cout << "states_sampling: " << states_sampling << std::endl;
         std::cout << "time_steps: " << time_steps << std::endl;
         std::cout << "do_delay: " << do_delay << std::endl;
-        std::cout << "rand_seed: " << rand_seed << std::endl;
+        std::cout << "sim_seed: " << sim_seed << std::endl;
         std::cout << "exc_interhemispheric: " << base_conf.exc_interhemispheric << std::endl;
         std::cout << "verbose: " << base_conf.verbose << std::endl;
         std::cout << "progress_interval: " << base_conf.progress_interval << std::endl;

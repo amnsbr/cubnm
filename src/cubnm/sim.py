@@ -56,7 +56,7 @@ class SimGroup:
         do_fcd=True,
         window_size=30,
         window_step=5,
-        rand_seed=410,
+        sim_seed=0,
         exc_interhemispheric=False,
         force_cpu=False,
         force_gpu=False,
@@ -122,7 +122,7 @@ class SimGroup:
         window_step: :obj:`int`, optional
             dynamic FC window step (in seconds)
             will be converted to N TRs
-        rand_seed: :obj:`int`, optional
+        sim_seed: :obj:`int`, optional
             seed used for the noise simulation
         exc_interhemispheric: :obj:`bool`, optional
             excluded interhemispheric connections from sim FC and FCD calculations
@@ -222,7 +222,7 @@ class SimGroup:
         self.do_fcd = do_fcd
         self.window_size = window_size
         self.window_step = window_step
-        self.rand_seed = rand_seed
+        self.sim_seed = sim_seed
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
         self.force_gpu = force_gpu
@@ -522,7 +522,7 @@ class SimGroup:
             "window_step": self.window_step,
             "window_size_TRs": self.window_size_TRs,
             "window_step_TRs": self.window_step_TRs,
-            "rand_seed": self.rand_seed,
+            "sim_seed": self.sim_seed,
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
             "force_gpu": self.force_gpu,
@@ -657,7 +657,7 @@ class SimGroup:
             self.duration_msec,
             self.TR_msec,
             self.states_sampling_msec,
-            self.rand_seed,
+            self.sim_seed,
             float(self.dt),
             float(self.bw_dt),
         )
@@ -1527,7 +1527,7 @@ class KuramotoSimGroup(SimGroup):
             # sample from uniform distribution of [0, 2*pi] across nodes and
             # repeat it across simulations
             # use the same random seed as the simulation noise
-            rng = np.random.default_rng(self.rand_seed)
+            rng = np.random.default_rng(self.sim_seed)
             self.param_lists["init_theta"] = np.tile(rng.uniform(0, 2 * np.pi, self.nodes), (self._N, 1))
         else:
             self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)

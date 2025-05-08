@@ -106,7 +106,7 @@ def _get_problem(args):
         states_sampling=args.states_sampling,
         window_size=args.window_size,
         window_step=args.window_step,
-        rand_seed=args.rand_seed,
+        sim_seed=args.sim_seed,
         exc_interhemispheric=args.exc_interhemispheric,
         force_gpu=args.force_gpu,
         force_cpu=args.force_cpu,

@@ -1171,7 +1171,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
 
     // check if noise needs to be (re)calculated
     if (
-        (m->rand_seed != m->last_rand_seed) ||
+        (m->sim_seed != m->last_sim_seed) ||
         (m->time_steps != m->last_time_steps) ||
         (m->nodes != m->last_nodes) ||
         (m->base_conf.noise_time_steps != m->last_noise_time_steps) ||
@@ -1200,15 +1200,13 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
         }
         m->last_time_steps = m->time_steps;
         m->last_nodes = m->nodes;
-        m->last_rand_seed = m->rand_seed;
+        m->last_sim_seed = m->sim_seed;
         m->last_noise_time_steps = m->base_conf.noise_time_steps;
-        std::mt19937 rand_gen(m->rand_seed);
-        std::normal_distribution<float> normal_dist(0, 1);
+        std::mt19937 rand_gen(m->sim_seed);
+        std::normal_distribution<double> normal_dist(0, 1);
         CUDA_CHECK_RETURN(cudaMallocManaged(&(m->noise), sizeof(double) * m->noise_size));
         for (int i = 0; i < m->noise_size; i++) {
-            // cast noise to double
-            // TODO: generate noise as double from the beginning
-            m->noise[i] = (double)normal_dist(rand_gen);
+            m->noise[i] = normal_dist(rand_gen);
         }
         #ifdef NOISE_SEGMENT
         // create shuffled nodes and ts indices for each repeat of the 
