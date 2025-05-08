@@ -2,8 +2,8 @@
 #include "cubnm/defines.h"
 #include "cubnm/fc.cuh"
 __global__ void bold_stats(
-        u_real **mean_bold, u_real **ssd_bold,
-        u_real **BOLD, int N_SIMS, int nodes,
+        double **mean_bold, double **ssd_bold,
+        double **BOLD, int N_SIMS, int nodes,
         int bold_len, int corr_len, int n_vols_remove,
         bool co_launch
     ) {
@@ -28,14 +28,14 @@ __global__ void bold_stats(
     if (j >= nodes) return;
 
     // mean
-    u_real _mean_bold = 0;
+    double _mean_bold = 0;
     int vol;
     for (vol=n_vols_remove; vol<bold_len; vol++) {
         _mean_bold += BOLD[sim_idx][vol*nodes+j];
     }
     _mean_bold /= corr_len;
     // ssd
-    u_real _ssd_bold = 0;
+    double _ssd_bold = 0;
     for (vol=n_vols_remove; vol<bold_len; vol++) {
         _ssd_bold += POW(BOLD[sim_idx][vol*nodes+j] - _mean_bold, 2);
     }
@@ -45,9 +45,9 @@ __global__ void bold_stats(
 }
 
 __global__ void window_bold_stats(
-    u_real **BOLD, int N_SIMS, int nodes,
+    double **BOLD, int N_SIMS, int nodes,
     int n_windows, int window_size_1, int *window_starts, int *window_ends,
-    u_real **windows_mean_bold, u_real **windows_ssd_bold) {
+    double **windows_mean_bold, double **windows_ssd_bold) {
         // get simulation index
         int sim_idx = blockIdx.x;
         if (sim_idx >= N_SIMS) return;
@@ -58,14 +58,14 @@ __global__ void window_bold_stats(
         int j = threadIdx.x;
         if (j >= nodes) return;
         // calculate mean of window
-        u_real _mean_bold = 0;
+        double _mean_bold = 0;
         int vol;
         for (vol=window_starts[w]; vol<=window_ends[w]; vol++) {
             _mean_bold += BOLD[sim_idx][vol*nodes+j];
         }
         _mean_bold /= window_size_1;
         // calculate sd of window
-        u_real _ssd_bold = 0;
+        double _ssd_bold = 0;
         for (vol=window_starts[w]; vol<=window_ends[w]; vol++) {
             _ssd_bold += POW(BOLD[sim_idx][vol*nodes+j] - _mean_bold, 2);
         }
@@ -74,11 +74,11 @@ __global__ void window_bold_stats(
         windows_ssd_bold[sim_idx][w*nodes+j] = SQRT(_ssd_bold);
 }
 
-__global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
-    u_real **BOLD, int N_SIMS, int nodes, int n_pairs, int *pairs_i,
+__global__ void fc(double **fc_trils, double **windows_fc_trils,
+    double **BOLD, int N_SIMS, int nodes, int n_pairs, int *pairs_i,
     int *pairs_j, int bold_len, int n_vols_remove, 
-    int corr_len, u_real **mean_bold, u_real **ssd_bold, 
-    int n_windows, int window_size_1, u_real **windows_mean_bold, u_real **windows_ssd_bold,
+    int corr_len, double **mean_bold, double **ssd_bold, 
+    int n_windows, int window_size_1, double **windows_mean_bold, double **windows_ssd_bold,
     int *window_starts, int *window_ends,
     int maxThreadsPerBlock) {
         // get simulation index
@@ -93,7 +93,7 @@ __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
         int w = blockIdx.z - 1; // -1 indicates total FC
         if (w >= n_windows) return;
         int vol_start, vol_end;
-        u_real _mean_bold_i, _mean_bold_j, _ssd_bold_i, _ssd_bold_j;
+        double _mean_bold_i, _mean_bold_j, _ssd_bold_i, _ssd_bold_j;
         if (w == -1) {
             vol_start = n_vols_remove;
             vol_end = bold_len;
@@ -111,12 +111,12 @@ __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
         }
         // calculate sigma(x_i * x_j)
         int vol;
-        u_real cov = 0;
+        double cov = 0;
         for (vol=vol_start; vol<vol_end; vol++) {
             cov += (BOLD[sim_idx][vol*nodes+i] - _mean_bold_i) * (BOLD[sim_idx][vol*nodes+j] - _mean_bold_j);
         }
         // calculate corr(i, j)
-        u_real corr = cov / (_ssd_bold_i * _ssd_bold_j);
+        double corr = cov / (_ssd_bold_i * _ssd_bold_j);
         if (w == -1) {
             fc_trils[sim_idx][pair_idx] = corr;
         } else {
@@ -125,10 +125,10 @@ __global__ void fc(u_real **fc_trils, u_real **windows_fc_trils,
     }
 
 __global__ void window_fc_stats(
-    u_real **windows_mean_fc, u_real **windows_ssd_fc,
-    u_real **L_windows_mean_fc, u_real **L_windows_ssd_fc,
-    u_real **R_windows_mean_fc, u_real **R_windows_ssd_fc,
-    u_real **windows_fc_trils, int N_SIMS, int n_windows, int n_pairs,
+    double **windows_mean_fc, double **windows_ssd_fc,
+    double **L_windows_mean_fc, double **L_windows_ssd_fc,
+    double **R_windows_mean_fc, double **R_windows_ssd_fc,
+    double **windows_fc_trils, int N_SIMS, int n_windows, int n_pairs,
     bool save_hemis, int n_pairs_hemi) {
         // get simulation index
         int sim_idx = blockIdx.x;
@@ -144,7 +144,7 @@ __global__ void window_fc_stats(
             if (hemi > 2) return;
         }
         // calculate mean fc of window
-        u_real _mean_fc = 0;
+        double _mean_fc = 0;
         int pair_idx_start = 0;
         int pair_idx_end = n_pairs; // non-inclusive
         int pair_idx;
@@ -164,7 +164,7 @@ __global__ void window_fc_stats(
         }
         _mean_fc /= _curr_n_pairs;
         // calculate ssd fc of window
-        u_real _ssd_fc = 0;
+        double _ssd_fc = 0;
         for (pair_idx=pair_idx_start; pair_idx<pair_idx_end; pair_idx++) {
             _ssd_fc += POW(windows_fc_trils[sim_idx][w*n_pairs+pair_idx] - _mean_fc, 2);
         }
@@ -182,11 +182,11 @@ __global__ void window_fc_stats(
     }
 
 __global__ void fcd(
-    u_real **fcd_trils, u_real **L_fcd_trils, u_real **R_fcd_trils,
-    u_real **windows_fc_trils,
-    u_real **windows_mean_fc, u_real **windows_ssd_fc,
-    u_real **L_windows_mean_fc, u_real **L_windows_ssd_fc,
-    u_real **R_windows_mean_fc, u_real **R_windows_ssd_fc,
+    double **fcd_trils, double **L_fcd_trils, double **R_fcd_trils,
+    double **windows_fc_trils,
+    double **windows_mean_fc, double **windows_ssd_fc,
+    double **L_windows_mean_fc, double **L_windows_ssd_fc,
+    double **R_windows_mean_fc, double **R_windows_ssd_fc,
     int N_SIMS, int n_pairs, int n_windows, int n_window_pairs, 
     int *window_pairs_i, int *window_pairs_j, int maxThreadsPerBlock,
     bool save_hemis, int n_pairs_hemi) {
@@ -207,7 +207,7 @@ __global__ void fcd(
         }
         // calculate cov
         int pair_idx;
-        u_real cov = 0;
+        double cov = 0;
         // pair_idx_start = 0;
         // pair_idx_end = n_pairs; // non-inclusive
         // if (hemi == 1) { // left

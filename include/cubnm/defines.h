@@ -1,25 +1,11 @@
-// Using floats vs doubles in the simulations, pass -D USE_FLOATS=1 to compiler to use floats
-// Note that this does not affect FIC, CMAES and GOF calculations (always using doubles)
-// as well as the noise array (always generated as floats, but then casted to u_real)
-#ifdef USE_FLOATS
-    typedef float u_real;
-    #define EXP expf
-    #define POW powf
-    #define SQRT sqrtf
-    #define SIN sinf
-    #define FMOD fmodf
-    #define CUDA_MAX fmaxf
-    #define CUDA_MIN fminf
-#else
-    typedef double u_real;
-    #define EXP exp
-    #define POW pow
-    #define SQRT sqrt
-    #define SIN sin
-    #define FMOD fmod
-    #define CUDA_MAX max
-    #define CUDA_MIN min
-#endif
+#define EXP exp
+#define POW pow
+#define SQRT sqrt
+#define SIN sin
+#define FMOD fmod
+#define CUDA_MAX max
+#define CUDA_MIN min
+
 #define PI 3.14159265358979323846
 
 #ifndef MAX_NODES_REG

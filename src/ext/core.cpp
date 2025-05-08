@@ -57,15 +57,15 @@ BaseModel *model;
 char *last_model_name;
 
 
-u_real ** np_to_array_2d(PyArrayObject * np_arr) {
-    // converts a 2d numpy array to a 2d array of type u_real
+double ** np_to_array_2d(PyArrayObject * np_arr) {
+    // converts a 2d numpy array to a 2d array of type double
     int rows = PyArray_DIM(np_arr, 0);
     int cols = PyArray_DIM(np_arr, 1);
     double* data = (double*)PyArray_DATA(np_arr);
 
-    u_real** arr = (u_real**)malloc(rows * sizeof(u_real*));
+    double** arr = (double**)malloc(rows * sizeof(double*));
     for (int i = 0; i < rows; i++) {
-        arr[i] = (u_real*)malloc(cols * sizeof(u_real));
+        arr[i] = (double*)malloc(cols * sizeof(double));
         for (int j = 0; j < cols; j++) {
             arr[i][j] = data[i*cols + j];
         }
@@ -231,9 +231,9 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     py_SC = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_SC, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     if ((py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL)) return NULL;
 
-    u_real ** global_params = np_to_array_2d(py_global_params);
-    u_real ** regional_params = np_to_array_2d(py_regional_params);
-    u_real ** SC = np_to_array_2d(py_SC);
+    double ** global_params = np_to_array_2d(py_global_params);
+    double ** regional_params = np_to_array_2d(py_regional_params);
+    double ** SC = np_to_array_2d(py_SC);
     // calcualte number of SCs as the max value of py_SC_idx
     int N_SCs = *std::max_element(
         (int*)PyArray_DATA(py_SC_indices), 
@@ -401,7 +401,6 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     // Run simulations
     std::cout << "Running " << N_SIMS << " simulations..." << std::endl;
     start = std::chrono::system_clock::now();
-    // TODO: cast the arrays to double if u_real is float
     if (use_cpu) {
         model->run_simulations_cpu(
             BOLD_ex_out, fc_trils_out, fcd_trils_out,
@@ -436,12 +435,12 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
 
     // Copy the output C arrays to NumPy arrays
     if (ext_out) {
-        array_to_np_3d<u_real>(model->states_out, py_states_out);
+        array_to_np_3d<double>(model->states_out, py_states_out);
         array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
         array_to_np_2d<int>(model->global_out_int, py_global_ints_out);
     }
     if (noise_out) {
-        array_to_np_1d<u_real>(model->noise, py_noise_out);
+        array_to_np_1d<double>(model->noise, py_noise_out);
         #ifdef NOISE_SEGMENT
         array_to_np_1d<int>(model->shuffled_nodes, py_shuffled_nodes_out);
         array_to_np_1d<int>(model->shuffled_ts, py_shuffled_ts_out);

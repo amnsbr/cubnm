@@ -2,8 +2,8 @@
 #include "cubnm/defines.h"
 #include "cubnm/models/rww.cuh"
 __device__ __NOINLINE__ void rWWModel::init(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -21,8 +21,8 @@ __device__ __NOINLINE__ void rWWModel::init(
 }
 
 __device__ __NOINLINE__ void rWWModel::restart(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -36,10 +36,10 @@ __device__ __NOINLINE__ void rWWModel::restart(
 }
 
 __device__ void rWWModel::step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
+        double* _state_vars, double* _intermediate_vars,
+        double* _global_params, double* _regional_params,
+        double& tmp_globalinput,
+        double* noise, long& noise_idx
         ) {
     _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _state_vars[4] + tmp_globalinput * _global_params[0] * d_rWWc.J_NMDA - _regional_params[2] * _state_vars[5];
     // *tmp_I_E = d_rWWc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
@@ -49,11 +49,6 @@ __device__ void rWWModel::step(
     // *tmp_aIb_E = d_rWWc.a_E * (*tmp_I_E) - d_rWWc.b_E;
     _intermediate_vars[1] = d_rWWc.a_I * _state_vars[1] - d_rWWc.b_I;
     // *tmp_aIb_I = d_rWWc.a_I * (*tmp_I_I) - d_rWWc.b_I;
-    #ifdef USE_FLOATS
-    // to avoid firing rate approaching infinity near I = b/a
-    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
-    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
-    #endif
     _state_vars[2] = _intermediate_vars[0] / (1 - EXP(-d_rWWc.d_E * _intermediate_vars[0]));
     // *tmp_r_E = *tmp_aIb_E / (1 - exp(-d_rWWc.d_E * (*tmp_aIb_E)));
     _state_vars[3] = _intermediate_vars[1] / (1 - EXP(-d_rWWc.d_I * _intermediate_vars[1]));
@@ -74,11 +69,11 @@ __device__ void rWWModel::step(
 }
 
 __device__ __NOINLINE__ void rWWModel::post_bw_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
+        double* _state_vars, double* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, 
         int* _ext_int_shared, bool* _ext_bool_shared,
         bool& restart,
-        u_real* _global_params, u_real* _regional_params,
+        double* _global_params, double* _regional_params,
         int& bw_i
         ) {
     if (_ext_bool_shared[0]) {
@@ -129,13 +124,13 @@ __device__ __NOINLINE__ void rWWModel::post_bw_step(
 }
 
 __device__ __NOINLINE__ void rWWModel::post_integration(
-        u_real ***state_vars_out, 
+        double ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real* _state_vars, u_real* _intermediate_vars, 
+        double* _state_vars, double* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool,
         int* _ext_int_shared, bool* _ext_bool_shared,
-        u_real** global_params, u_real** regional_params,
-        u_real* _global_params, u_real* _regional_params,
+        double** global_params, double** regional_params,
+        double* _global_params, double* _regional_params,
         int& sim_idx, const int& nodes, int& j
     ) {
     if (this->conf.do_fic) {

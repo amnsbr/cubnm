@@ -1,12 +1,6 @@
 #include "cubnm/includes.cuh"
 #include "cubnm/defines.h"
 #include "cubnm/utils.cuh"
-__global__ void float2double(double **dst, float **src, size_t rows, size_t cols) {
-    int row = blockIdx.x;
-    int col = blockIdx.y;
-    if ((row > rows) | (col > cols)) return;
-    dst[row][col] = (float)(src[row][col]);
-}
 
 cudaDeviceProp get_device_prop(int verbose) {
     /*

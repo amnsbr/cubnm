@@ -24,6 +24,5 @@ inline void checkReturn(cudaError_t value, const char* const file, const int lin
 #define CUDA_CHECK_RETURN(value) checkReturn(value, __FILE__, __LINE__)
 #define CUDA_CHECK_LAST_ERROR() checkLast(__FILE__, __LINE__)
 
-__global__ void float2double(double **dst, float **src, size_t rows, size_t cols);
 cudaDeviceProp get_device_prop(int verbose = 1);
 #endif

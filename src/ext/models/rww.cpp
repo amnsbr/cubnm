@@ -2,7 +2,7 @@
 
 rWWModel::Constants rWWModel::mc;
 
-void rWWModel::init_constants(u_real dt) {
+void rWWModel::init_constants(double dt) {
     mc.dt  = dt; // Time-step of synaptic activity model (msec)
     mc.sqrt_dt = SQRT(mc.dt); 
     mc.J_NMDA  = 0.15;
@@ -12,8 +12,8 @@ void rWWModel::init_constants(u_real dt) {
     mc.a_I = 615; // (n/C)
     mc.b_I = 177; // (Hz)
     mc.d_I = 0.087; // (s)
-    mc.gamma_E = (u_real)0.641/(u_real)1000.0; // factor 1000 for expressing everything in ms
-    mc.gamma_I = (u_real)1.0/(u_real)1000.0; // factor 1000 for expressing everything in ms
+    mc.gamma_E = (double)0.641/(double)1000.0; // factor 1000 for expressing everything in ms
+    mc.gamma_I = (double)1.0/(double)1000.0; // factor 1000 for expressing everything in ms
     mc.tau_E = 100; // (ms) Time constant of NMDA (excitatory)
     mc.tau_I = 10; // (ms) Time constant of GABA (inhibitory)
     mc.sigma_model = 0.01; // (nA) Noise amplitude (named sigma_model to avoid confusion with CMAES sigma)
@@ -73,8 +73,8 @@ void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
 }
 
 void rWWModel::prep_params(
-        u_real ** global_params, u_real ** regional_params, u_real * v_list,
-        u_real ** SC, int * SC_indices, u_real * SC_dist,
+        double ** global_params, double ** regional_params, double * v_list,
+        double ** SC, int * SC_indices, double * SC_dist,
         bool ** global_out_bool, int ** global_out_int
         ) {
     // Set wIE to output of analytical FIC
@@ -124,7 +124,7 @@ void rWWModel::prep_params(
         } else {
             // copy to w_IE_fic which will be passed on to the device
             for (int j=0; j<this->nodes; j++) {
-                regional_params[2][sim_idx*this->nodes+j] = (u_real)gsl_vector_get(curr_w_IE, j);
+                regional_params[2][sim_idx*this->nodes+j] = (double)gsl_vector_get(curr_w_IE, j);
             }
         }
     }
@@ -141,8 +141,8 @@ void rWWModel::prep_params(
 }
 
 void rWWModel::h_init(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -160,8 +160,8 @@ void rWWModel::h_init(
 }
 
 void rWWModel::_j_restart(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -175,10 +175,10 @@ void rWWModel::_j_restart(
 }
 
 void rWWModel::h_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
+        double* _state_vars, double* _intermediate_vars,
+        double* _global_params, double* _regional_params,
+        double& tmp_globalinput,
+        double* noise, long& noise_idx
         ) {
     _state_vars[0] = rWWModel::mc.w_E__I_0 + _regional_params[0] * _state_vars[4] + tmp_globalinput * _global_params[0] * rWWModel::mc.J_NMDA - _regional_params[2] * _state_vars[5];
     // *tmp_I_E = rWWModel::mc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*tmp_globalinput) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
@@ -188,11 +188,6 @@ void rWWModel::h_step(
     // *tmp_aIb_E = rWWModel::mc.a_E * (*tmp_I_E) - rWWModel::mc.b_E;
     _intermediate_vars[1] = rWWModel::mc.a_I * _state_vars[1] - rWWModel::mc.b_I;
     // *tmp_aIb_I = rWWModel::mc.a_I * (*tmp_I_I) - rWWModel::mc.b_I;
-    #ifdef USE_FLOATS
-    // to avoid firing rate approaching infinity near I = b/a
-    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
-    if (abs(_intermediate_vars[0]) < 1e-4) _intermediate_vars[0] = 1e-4;
-    #endif
     _state_vars[2] = _intermediate_vars[0] / (1 - EXP(-rWWModel::mc.d_E * _intermediate_vars[0]));
     // *tmp_r_E = *tmp_aIb_E / (1 - exp(-rWWModel::mc.d_E * (*tmp_aIb_E)));
     _state_vars[3] = _intermediate_vars[1] / (1 - EXP(-rWWModel::mc.d_I * _intermediate_vars[1]));
@@ -213,11 +208,11 @@ void rWWModel::h_step(
 }
 
 void rWWModel::_j_post_bw_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
+        double* _state_vars, double* _intermediate_vars,
         int* _ext_int, bool* _ext_bool, 
         int* _ext_int_shared, bool* _ext_bool_shared,
         bool& restart,
-        u_real* _global_params, u_real* _regional_params,
+        double* _global_params, double* _regional_params,
         int& bw_i
         ) {
     if (_ext_bool_shared[0]) {
@@ -247,11 +242,11 @@ void rWWModel::_j_post_bw_step(
     }
 }
 
-void rWWModel::h_post_bw_step(u_real** _state_vars, u_real** _intermediate_vars,
+void rWWModel::h_post_bw_step(double** _state_vars, double** _intermediate_vars,
         int** _ext_int, bool** _ext_bool, 
         int* _ext_int_shared, bool* _ext_bool_shared,
         bool& restart,
-        u_real* _global_params, u_real** _regional_params,
+        double* _global_params, double** _regional_params,
         int& bw_i) {
     BaseModel::h_post_bw_step(
         _state_vars, _intermediate_vars, 
@@ -283,13 +278,13 @@ void rWWModel::h_post_bw_step(u_real** _state_vars, u_real** _intermediate_vars,
 
 
 void rWWModel::h_post_integration(
-        u_real ***state_vars_out, 
+        double ***state_vars_out, 
         int **global_out_int, bool **global_out_bool,
-        u_real* _state_vars, u_real* _intermediate_vars, 
+        double* _state_vars, double* _intermediate_vars, 
         int* _ext_int, bool* _ext_bool, 
         int* _ext_int_shared, bool* _ext_bool_shared,
-        u_real** global_params, u_real** regional_params,
-        u_real* _global_params, u_real* _regional_params,
+        double** global_params, double** regional_params,
+        double* _global_params, double* _regional_params,
         int& sim_idx, const int& nodes, int& j
     ) {
     if (this->conf.do_fic) {
