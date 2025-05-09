@@ -329,7 +329,7 @@ class SimGroup:
     def TR(self, TR):
         self._TR = TR
         self.TR_msec = int(TR * 1000)
-        if hasattr(self, "_states_sampling") and ((self.states_sampling == None) | (self.states_sampling == self.TR)):
+        if hasattr(self, "_states_sampling") and ((self.states_sampling is None) | (self.states_sampling == self.TR)):
             self.states_sampling = self.TR
         if hasattr(self, "_window_size"):
             self.window_size_TRs = int(np.round(self.window_size / (self.TR*2))) * 2
@@ -466,6 +466,14 @@ class SimGroup:
             raise ValueError("Cannot calculate FCD goodness-of-fit terms without FCD."
                                 " Set do_fcd to True or remove FCD-related goodness-of-fit"
                                 " terms.")
+
+    @property
+    def labels(self):
+        """
+        Labels of parameters and state variables
+        to use in plots and reports
+        """
+        return {}
 
     def _check_dt(self):
         """
@@ -731,6 +739,29 @@ class SimGroup:
                 self.sim_states[state_name] = self._sim_states[state_i, :, :]
                 if self.states_ts:
                     self.sim_states[state_name] = self.sim_states[state_name].reshape(self.N, -1, self.nodes)
+
+    def get_state_averages(self):
+        """
+        Get the averages of state variables across time and nodes
+        for each simulation.
+
+        Returns
+        -------
+        state_averages: :obj:`pd.DataFrame`
+            DataFrame of state averages with columns as state names
+            and rows as simulations
+        """
+        state_averages = {}
+        for state_var in self.state_names:
+            if self.states_ts:
+                state_averages[state_var] = (
+                    self.sim_states[state_var]
+                    [:, self.n_states_samples_remove:, :]
+                    .mean(axis=1).mean(axis=2)
+                )
+            else:
+                state_averages[state_var] = self.sim_states[state_var].mean(axis=1)
+        return pd.DataFrame(state_averages)
 
     def get_noise(self):
         """
@@ -1207,6 +1238,27 @@ class rWWSimGroup(SimGroup):
             'init_delta': str(self.fic_init_delta),
         })
         return model_config
+
+    @property
+    def labels(self):
+        """
+        Labels of parameters and state variables
+        to use in plots and reports
+        """
+        labels = super().labels
+        labels.update({
+            'G': 'G',
+            'wEE': r'$w^{EE}$',
+            'wEI': r'$w^{EI}$',
+            'wIE': r'$w^{IE}$',
+            'I_E': r'$I^E$',
+            'I_I': r'$I^I$',
+            'r_E': r'$r^E$',
+            'r_I': r'$r^I$',
+            'S_E': r'$S^E$',
+            'S_I': r'$S^I$',
+        })
+        return labels
     
     def _set_default_params(self):
         """
@@ -1661,7 +1713,7 @@ class MultiSimGroupMixin:
                 "_shuffled_nodes",
                 "_shuffled_ts",
             ]:
-                if not (k in out):
+                if k not in out:
                     continue
                 if k in ["init_time", "run_time", "_noise", "_shuffled_nodes", "_shuffled_ts"]:
                     # shared between all simulations

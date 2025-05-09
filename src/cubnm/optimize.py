@@ -10,6 +10,9 @@ import pickle
 import random
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from pymoo.core.problem import Problem
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -17,6 +20,17 @@ from pymoo.termination import get_termination
 import cma
 
 from cubnm import sim, utils
+
+# define evaluation metric labels used in plots
+METRIC_LABELS = {
+    'cost': 'Cost',
+    '-cost': '- Cost',
+    '+gof': 'Goodness-of-fit',
+    '+fc_corr': r'FC$_corr$',
+    '-fcd_ks': r'- FCD$_KS$',
+    '-fc_diff': r'- FC$_diff$',
+    '-fc_normec': r'- FC$_normEC'
+}
 
 class BNMProblem(Problem):
     def __init__(
@@ -514,6 +528,10 @@ class Optimizer(ABC):
             data of all simulations and therefore can be large file.
             Warning: this file is very large.
         """
+        assert self.is_fit, (
+            "Optimizer must be fitted before saving. "
+            "Call `optimize()` method to fit the optimizer."
+        )
         # specify the directory
         # TODO: avoid saving if an identical optimizer directory already exists
         # by checking the optimizer and problem jsons in previous directories
@@ -602,6 +620,428 @@ class Optimizer(ABC):
         # TODO: add optimizer-specific get_config funcitons
         return {"n_iter": self.n_iter, "popsize": self.popsize, "seed": self.seed}
 
+    def _plot_space_3d(
+            self, 
+            plot_df, 
+            measure, 
+            title='default', 
+            opt_params=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot 3D parameter space colored by `measure`
+        """
+        # set plotting options based on defaults
+        # and options provided by user
+        _config = dict(
+            figsize = (4.5, 4.5),
+            elev = 15,
+            azim = -15,
+            roll = None,
+            aspects = (1, 1, 1),
+            zoom = 0.85,
+            size = 30,
+            alpha = 0.4,
+            cmap = 'viridis',
+            vmin = None,
+            vmax = None,
+            color = 'red',
+            opt_facecolor = 'none',
+            opt_edgecolor = 'black',
+            full_lim = True,
+        )
+        _config.update(config)
+        if ax is None:
+            # create a figure with 3d projection
+            fig, ax = plt.subplots(figsize=_config['figsize'], subplot_kw={'projection': '3d'})
+        # plot grid
+        if measure is None:
+            c = _config['color']
+            cmap = None
+        else:
+            c = plot_df.loc[:, measure]
+            cmap = _config['cmap']
+        ax.scatter(
+            plot_df.loc[:, self.problem.free_params[0]],
+            plot_df.loc[:, self.problem.free_params[1]],
+            plot_df.loc[:, self.problem.free_params[2]],
+            s=_config['size'],
+            alpha=_config['alpha'],
+            c=c,
+            cmap=cmap,
+            vmin=_config['vmin'],
+            vmax=_config['vmax'],
+        )
+        # mark the optimum if indicated
+        if opt_params is not None:
+            ax.scatter(
+                *opt_params.values,
+                alpha=1.0,
+                s=_config['size'],
+                facecolors=_config['opt_facecolor'],
+                edgecolors=_config['opt_edgecolor'],
+            )
+        # set the x y z lim
+        if _config['full_lim']:
+            ax.set_xlim(self.problem.lb[0], self.problem.ub[0])
+            ax.set_ylim(self.problem.lb[1], self.problem.ub[1])
+            ax.set_zlim(self.problem.lb[2], self.problem.ub[2])
+        # aesthetics
+        labels = [self.problem.sim_group.labels.get(p, p) for p in self.problem.free_params]
+        ax.set_xlabel(labels[0])
+        ax.set_ylabel(labels[1])
+        ax.set_zlabel(labels[2])
+        ax.view_init(elev=_config['elev'], azim=_config['azim'], roll=_config['roll'])
+        ax.set_box_aspect(_config['aspects'], zoom=_config['zoom'])
+        if title == 'default':
+            if measure in self.problem.sim_group.state_names:
+                title = self.problem.sim_group.labels.get(measure, measure)
+            else:
+                title = METRIC_LABELS.get(measure, measure)
+        if title is not None:
+            ax.set_title(title)
+        return ax
+
+    def _plot_space_2d(
+            self, 
+            plot_df, 
+            measure, 
+            title='default', 
+            opt_params=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot 2D parameter space colored by `measure`
+        """
+        # set plotting options based on defaults
+        # and options provided by user
+        _config = dict(
+            figsize = (4.5, 4.5),
+            size = 30,
+            marker = 'o',
+            alpha = 1.0,
+            cmap = 'viridis',
+            vmin = None,
+            vmax = None,
+            color = 'red',
+            opt_facecolor = 'none',
+            opt_edgecolor = 'black',
+            full_lim = True,
+        )
+        _config.update(config)
+        # plot
+        if ax is None:
+            fig, ax = plt.subplots(figsize=_config['figsize'])
+        if measure is None:
+            c = _config['color']
+            cmap = None
+        else:
+            c = plot_df.loc[:, measure]
+            cmap = _config['cmap']
+        ax.scatter(
+            plot_df.loc[:, self.problem.free_params[0]],
+            plot_df.loc[:, self.problem.free_params[1]],
+            s=_config['size'],
+            marker=_config['marker'],
+            c=c,
+            cmap=cmap,
+            vmin=_config['vmin'],
+            vmax=_config['vmax'],
+        )
+        # mark the optimum if indicated
+        if opt_params is not None:
+            ax.scatter(
+                *opt_params.values,
+                alpha=1.0,
+                s=_config['size'],
+                marker=_config['marker'],
+                facecolors=_config['opt_facecolor'],
+                edgecolors=_config['opt_edgecolor'],
+            )
+        # set the x y lim
+        if _config['full_lim']:
+            # TODO: fix the edge simulations in grid which are cut
+            ax.set_xlim(self.problem.lb[0], self.problem.ub[0])
+            ax.set_ylim(self.problem.lb[1], self.problem.ub[1])
+        # aesthetics
+        labels = [self.problem.sim_group.labels.get(p, p) for p in self.problem.free_params]
+        ax.set_xlabel(labels[0])
+        ax.set_ylabel(labels[1])
+        sns.despine(ax=ax)
+        if title == 'default':
+            if measure in self.problem.sim_group.state_names:
+                title = self.problem.sim_group.labels.get(measure, measure)
+            else:
+                title = METRIC_LABELS.get(measure, measure)
+        if title is not None:
+            ax.set_title(title)
+        return ax
+
+    def _plot_space_1d(
+            self, 
+            plot_df, 
+            measure, 
+            title='default', 
+            opt_params=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot 1D parameter space colored by `measure`
+        """
+        # set plotting options based on defaults
+        # and options provided by user
+        _config = dict(
+            figsize = None,
+            size = 30,
+            marker = 'o',
+            alpha = 1.0,
+            color = 'red',
+            opt_facecolor = 'none',
+            opt_edgecolor = 'black',
+            full_lim = True,
+        )
+        _config.update(config)
+        # plot
+        if ax is None:
+            fig, ax = plt.subplots(figsize=_config['figsize'])
+        if measure is None:
+            y = 1
+            if opt_params is not None:
+                opt_y = 1
+        else:
+            y = plot_df.loc[:, measure]
+            if opt_params is not None:
+                opt_y = plot_df.loc[
+                    plot_df.loc[:,self.problem.free_params[0]]==\
+                    opt_params.values[0], measure
+                ]
+        ax.scatter(
+            plot_df.loc[:, self.problem.free_params[0]],
+            y,
+            s=_config['size'],
+            marker=_config['marker'],
+            c=_config['color'],
+        )
+        # mark the optimum if indicated
+        if opt_params is not None:
+            ax.scatter(
+                opt_params.values[0],
+                opt_y,
+                alpha=1.0,
+                s=_config['size'],
+                marker=_config['marker'],
+                facecolors=_config['opt_facecolor'],
+                edgecolors=_config['opt_edgecolor'],
+            )
+        # set the x lim
+        if _config['full_lim']:
+            # TODO: fix the edge simulations in grid which are cut
+            ax.set_xlim(self.problem.lb[0], self.problem.ub[0])
+        # aesthetics
+        labels = [self.problem.sim_group.labels.get(p, p) for p in self.problem.free_params]
+        ax.set_xlabel(labels[0])
+        sns.despine(ax=ax)
+        if title == 'default':
+            if measure in self.problem.sim_group.state_names:
+                title = self.problem.sim_group.labels.get(measure, measure)
+            else:
+                title = METRIC_LABELS.get(measure, measure)
+        if title is not None:
+            ax.set_ylabel(title)
+        return ax
+
+    def plot_space(
+            self, 
+            measure=None, 
+            title='default', 
+            opt=False, 
+            gen=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot parameter space colored by ``measure``. Can only be used
+        for 1D, 2D and 3D parameter spaces.
+
+        Parameters
+        ----------
+        measure: :obj:`str` or :obj:`None`
+            the measure to color the points by. If None, the points
+            will be colored by the ``config['color']`` parameter and
+            have the same color
+        title: :obj:`str`, optional
+            the title of the plot. If 'default', the title will be
+            set to the measure clean label. If None, no title will be set.
+        opt: :obj:`bool`
+            whether to mark the optimum in the plot. Will
+            be ignored if ``gen`` is provided.
+        gen: :obj:`int` or :obj:`None`
+            the generation to plot. If None, the entire history
+            will be plotted. When using a :class:`cubnm.optimize.GridOptimizer`
+            this is ignored.
+        config: :obj:`dict`, optional
+            plotting configuration. The following keys are available
+            with default values:
+            
+            - figsize: :obj:`tuple`, (4.5, 4.5) for 2D and 3D plots, None for 1D
+                figure size. Ignored if ``ax`` is provided
+            - size: :obj:`float`, 30
+                size of the sphere
+            - alpha: :obj:`float`, 0.2 
+                transparency of the sphere
+            - color: :obj:`str`, 'red'
+                color of the points if measure is None or space is 1D
+            - opt_facecolor: :obj:`str`, 'none'
+                face color of the optimum point
+            - opt_edgecolor: :obj:`str`, 'black'
+                edge color of the optimum point
+            - full_lim: :obj:`bool`, True
+                whether to set the axes limits to the full range
+                of the parameters defined by the problem
+
+            Specific to 2D and 3D plots:
+            
+            - cmap: :obj:`str`, 'viridis'
+                colormap to use for the measure
+            - vmin: :obj:`float`, None
+                minimum value of the color range
+            - vmax: :obj:`float`, None
+                maximum value of the color range
+
+            Specific to 1D and 2D plots:
+
+            - marker: :obj:`str`, 'o'
+            
+            Specific to 3D plots:
+
+            - elev: :obj:`float`, 15
+                elevation angle in degrees
+            - azim: :obj:`float`, -15
+                azimuth angle in degrees
+            - roll: :obj:`float` or :obj:`None`, None
+                roll angle in degrees
+            - aspects: :obj:`tuple`, (1, 1, 1)
+                aspect ratio of the axes
+            - zoom: :obj:`float`, 0.85
+                zoom level of the plot
+
+        ax: :obj:`matplotlib.axes.Axes`, optional
+            the axes to plot on. For 3D must have
+            `projection='3d'`.
+            If None, a new figure and axes will be created. 
+
+        Returns
+        -------
+        :obj:`tuple`
+            the axes of the plot
+        """
+        assert self.is_fit, (
+            "Cannot plot parameter space before the optimizer is fit. "
+            "Call `optimize` method first."
+        )
+        # check if measure can be plotted
+        if measure in self.problem.sim_group.state_names:
+            if not isinstance(self, GridOptimizer):
+                raise NotImplementedError(
+                    "Plotting state variables is not supported "
+                    "using evolutionary optimizaters"
+                )
+        ndim = len(self.problem.free_params)
+        if ndim > 3:
+            raise ValueError("Cannot plot samples in >3D parameter spaces")
+        # prepare plotting data
+        # (limit history to a given generation
+        # if indicated)
+        history = self.history
+        if (gen is not None) and (not isinstance(self, GridOptimizer)):
+            history = history.loc[history['gen']==gen]
+        if measure in self.problem.sim_group.state_names:
+            state_averages = self.problem.sim_group.get_state_averages()
+            plot_df = pd.concat([
+                history.loc[:,self.problem.free_params], 
+                state_averages.loc[:, measure]
+            ], axis=1)
+        elif measure == '-cost':
+            plot_df = history.set_index(self.problem.free_params)['cost'].reset_index()
+            plot_df.loc[:, '-cost'] = -plot_df.loc[:, 'cost']
+        elif measure is not None:
+            plot_df = history.set_index(self.problem.free_params)[measure].reset_index()
+        else:
+            plot_df = history.loc[:,self.problem.free_params]
+        if opt and (gen is None):
+            opt_params = self.opt[self.problem.free_params]
+        else:
+            opt_params = None
+        # plot based on the number of dimensions
+        if ndim == 3:
+            return self._plot_space_3d(plot_df, measure, title, opt_params, config, ax=ax)
+        elif ndim == 2:
+            return self._plot_space_2d(plot_df, measure, title, opt_params, config, ax=ax)
+        else:
+            return self._plot_space_1d(plot_df, measure, title, opt_params, config, ax=ax)
+
+    def plot_history(self, measure, legend=True, ax=None, line_kws={}, scatter_kws={}):
+        """
+        Plot the history of ``measure`` across the optimization generations.
+
+        Parameters
+        ----------
+        measure: :obj:`str`
+            the measure to plot
+        legend: :obj:`bool`, optional
+            whether to show the legend
+        ax: :obj:`matplotlib.axes.Axes`, optional
+            the axes to plot on. If None, a new figure and axes will be created.
+        line_kws: :obj:`dict`, optional
+            additional keyword arguments passed to the line plot
+            of the median across generations
+        scatter_kws: :obj:`dict`, optional
+            additional keyword arguments passed to the scatter plot
+            of the individual particles across generations
+        """
+        assert not isinstance(self, GridOptimizer), (
+            "Not applicable to GridOptimizer."
+        )
+        assert self.is_fit, (
+            "Cannot plot history before the optimizer is fit. "
+            "Call `optimize` method first."
+        )
+        # calculate negative cost
+        plot_data = self.history.copy()
+        if measure == '-cost':
+            plot_data['-cost'] = -plot_data['cost']
+        # calculate median in each generation
+        median = plot_data.groupby("gen")[measure].median()
+        # plot
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(6, 4))
+        # median
+        _line_kws = dict(
+            color = 'red',
+            alpha = 0.5,
+        )
+        _line_kws.update(line_kws)
+        ax.plot(median, label='Median', **_line_kws)
+        # individual particles
+        _scatter_kws = dict(
+            s = 4,
+            alpha = 0.5,
+            color = 'black',
+        )
+        _scatter_kws.update(scatter_kws)
+        # TODO: consider using matplotlib for all
+        # plotting to avoid dependency on seaborn
+        sns.scatterplot(data=plot_data, x='gen', y=measure, label='Particles', **_scatter_kws)
+        # aesthetics
+        ax.set_ylabel(METRIC_LABELS.get(measure, measure))
+        ax.set_xlabel('Generation')
+        if legend:
+            ax.legend()
+        return ax
+
 class GridOptimizer(Optimizer):
     def __init__(self, **kwargs):
         """
@@ -667,6 +1107,7 @@ class GridOptimizer(Optimizer):
         Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
         self.history = pd.concat([Xt, scores], axis=1)
         self.opt = self.history.loc[self.history["cost"].idxmin()]
+        self.is_fit = True
 
     def save(self, save_avg_states=True, **kwargs):
         """
@@ -685,14 +1126,8 @@ class GridOptimizer(Optimizer):
         optimizer_dir = super().save(**kwargs)
         # save the average states of the optimal simulation
         if save_avg_states:
-            state_averages = {}
-            for state_var in self.problem.sim_group.state_names:
-                if self.problem.sim_group.states_ts:
-                    state_avg = self.problem.sim_group.sim_states[state_var].mean(axis=2).mean(axis=1)
-                else:
-                    state_avg = self.problem.sim_group.sim_states[state_var].mean(axis=1)
-                state_averages[state_var] = state_avg
-            pd.DataFrame(state_averages).to_csv(os.path.join(optimizer_dir, "state_averages.csv"))
+            state_averages = self.problem.sim_group.get_state_averages()
+            state_averages.to_csv(os.path.join(optimizer_dir, "state_averages.csv"))
         return optimizer_dir
 
     def get_config(self):
@@ -822,6 +1257,7 @@ class PymooOptimizer(Optimizer):
             # a single optimum can be defined
             self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
             self.opt = self.history.loc[self.history["cost"].argmin()]
+        self.is_fit = True
 
 
 class CMAESOptimizer(PymooOptimizer):

@@ -15,6 +15,8 @@ dependencies = [
     "pandas",
     "pymoo==0.6",
     "tabulate",
+    "matplotlib",
+    "seaborn"
 ]
 requires-python = ">=3.7"
 description = "A toolbox for brain network modeling on GPUs "
