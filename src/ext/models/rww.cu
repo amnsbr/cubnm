@@ -42,9 +42,9 @@ __device__ void rWWModel::step(
         u_real* noise, long& noise_idx
         ) {
     _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _state_vars[4] + globalinput_ff * _global_params[0] * d_rWWc.J_NMDA - _regional_params[2] * _state_vars[5];
-    // *tmp_I_E = d_rWWc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*globalinput_ff) * (*G_J_NMDA) - (*w_IE) * (*S_i_I);
-    _state_vars[1] = d_rWWc.w_I__I_0 + _regional_params[1] * _state_vars[4] - _state_vars[5] + globalinput_fb * _global_params[0] * d_rWWc.J_NMDA;
-    // *tmp_I_I = d_rWWc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I) + (*globalinput_ff) * (*G_J_NMDA);
+    // *tmp_I_E = d_rWWc.w_E__I_0 + (*w_EE) * (*S_i_E) + (*globalinput_ff) * (*G * *J_NMDA) - (*w_IE) * (*S_i_I);
+    _state_vars[1] = d_rWWc.w_I__I_0 + _regional_params[1] * _state_vars[4] - _state_vars[5] + globalinput_fb * _global_params[1] * d_rWWc.J_NMDA;
+    // *tmp_I_I = d_rWWc.w_I__I_0 + (*w_EI) * (*S_i_E) - (*S_i_I) + (*globalinput_ff) * (*G_fb * *J_NMDA);
     _intermediate_vars[0] = d_rWWc.a_E * _state_vars[0] - d_rWWc.b_E;
     // *tmp_aIb_E = d_rWWc.a_E * (*tmp_I_E) - d_rWWc.b_E;
     _intermediate_vars[1] = d_rWWc.a_I * _state_vars[1] - d_rWWc.b_I;

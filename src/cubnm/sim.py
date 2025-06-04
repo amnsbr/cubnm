@@ -491,6 +491,15 @@ class SimGroup:
         }
         return model_config
 
+    def pre_run(self):
+        """
+        Pre-run hook to be called before running the simulations.
+        This is used to set default parameters and perform any
+        necessary checks or initializations.
+        By default it does nothing, but derived classes may override it.
+        """
+        pass
+
     def run(self, force_reinit=False):
         """
         Run the simulations in parallel (as possible) on GPU/CPU
@@ -506,6 +515,8 @@ class SimGroup:
             every run. Set this to True if you want to reinitialize
             these variables. This is rarely needed.
         """
+        # call model-specific pre-run hooks (normally doesn't do anything)
+        self.pre_run()
         # TODO: add assertions to make sure all the input data is complete
         # check if reinitialization is needed (user request, change of N,
         # of change of other config)
@@ -915,13 +926,14 @@ class SimGroup:
 
 class rWWSimGroup(SimGroup):
     model_name = "rWW"
-    global_param_names = ["G"]
+    global_param_names = ["G", "G_fb"]
     regional_param_names = ["wEE", "wEI", "wIE"]
     state_names = ["I_E", "I_I", "r_E", "r_I", "S_E", "S_I"]
     sel_state_var = "r_E" # TODO: use all states
     n_noise = 2
     def __init__(self, 
                  *args, 
+                 separate_G_fb = False,
                  do_fic = True,
                  max_fic_trials = 0,
                  fic_penalty = True,
@@ -935,6 +947,12 @@ class rWWSimGroup(SimGroup):
 
         Parameters
         ---------
+        separate_G_fb: :obj:`bool`, optional
+            if True, G_fb is a separate parameter than G
+            otherwise G_fb is set equal to G (default).
+            Note that from the model perspective there is
+            always two global couplings: G for feedforward
+            connections and G_fb for feedback connections.
         do_fic: :obj:`bool`, optional
             do analytical (Demirtas 2019) & numerical (Deco 2014) 
             Feedback Inhibition Control.
@@ -956,7 +974,8 @@ class rWWSimGroup(SimGroup):
         ----------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - 'G': global coupling. Shape: (N_SIMS,)
+                - 'G': global coupling of feedforward connections to excitatory neurons. Shape: (N_SIMS,)
+                - 'G_fb': global coupling of feedback connections to inhibitory neurons. Shape: (N_SIMS,)
                 - 'wEE': local excitatory self-connection strength. Shape: (N_SIMS, nodes)
                 - 'wEI': local inhibitory self-connection strength. Shape: (N_SIMS, nodes)
                 - 'wIE': local excitatory to inhibitory connection strength. Shape: (N_SIMS, nodes)
@@ -993,6 +1012,14 @@ class rWWSimGroup(SimGroup):
         # it sets .last_config which may include some
         # model-specific attributes (e.g. self.do_fic)
         super().__init__(*args, **kwargs)
+        if self.input_pFF is None:
+            if separate_G_fb:
+                print(
+                    "Ignoring `separate_G_fb` as no pFF is provided."
+                )
+            self.separate_G_fb = False
+        else:
+            self.separate_G_fb = separate_G_fb
         self.ext_out = self.ext_out | self.do_fic
         if self.serial_nodes and (self.max_fic_trials > 0):
             print(
@@ -1008,7 +1035,6 @@ class rWWSimGroup(SimGroup):
                 " case by settign max_fic_trials > 0 (higher is better"
                 " but slower)."
             )
-
 
     @SimGroup.N.setter
     def N(self, N):
@@ -1027,6 +1053,14 @@ class rWWSimGroup(SimGroup):
             fic_init_delta=self.fic_init_delta,
         )
         return config
+
+    def pre_run(self):
+        """
+        Pre-run hook: Set G_fb to G if separate_G_fb is False
+        """
+        super().pre_run()
+        if not self.separate_G_fb:
+            self.param_lists["G_fb"] = self.param_lists["G"].copy()
     
     @property
     def _model_config(self):
@@ -1050,6 +1084,10 @@ class rWWSimGroup(SimGroup):
         """
         super()._set_default_params()
         self.param_lists["G"] = np.repeat(0.5, self.N)
+        if self.separate_G_fb:
+            self.param_lists["G_fb"] = np.repeat(0.25, self.N)
+        else:
+            self.param_lists["G_fb"] = np.repeat(0.5, self.N)
         self.param_lists["wEE"] = np.full((self.N, self.nodes), 0.21)
         self.param_lists["wEI"] = np.full((self.N, self.nodes), 0.15)
         if not self.do_fic:
@@ -1411,6 +1449,9 @@ class MultiSimGroupMixin:
         # concatenate SCs while allowing variable SCs
         # across children
         for child_i, child in enumerate(self.children):
+            # pre-run hook
+            # e.g. setting G_fb to G for rWW
+            child.pre_run()
             # make a copy of current child's SCs
             child_scs = child.sc.copy()
             # make scs 3D (n_scs, nodes, nodes)

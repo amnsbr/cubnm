@@ -78,6 +78,36 @@ def run_sim_group_pFF_two_nodes(N_SIMS=2, force_cpu=False):
     sim_group.run()
     return sim_group
 
+def run_sim_group_pFF_separate_G(N_SIMS=2, force_cpu=False):
+    nodes = 100
+    # create a random proportion of FF matrix
+    np.random.seed(0)
+    pFF_tril = np.random.rand((nodes*(nodes-1))//2)
+    pFF = np.zeros((nodes, nodes))
+    pFF[np.tril_indices(nodes, -1)] = pFF_tril
+    pFF[np.triu_indices(nodes, 1)] = (1 - pFF.T)[np.triu_indices(100, 1)]
+    sim_group = sim.rWWSimGroup(
+        duration=60,
+        TR=1,
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        pFF=pFF,
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        states_ts=False,
+        states_sampling=1,
+        separate_G_fb=True
+    )
+    sim_group.N = N_SIMS
+    sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
+    sim_group.param_lists['G_fb'] = np.repeat(0.25, N_SIMS)
+    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
+    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.run()
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
+    sim_group.score(emp_fc_tril, emp_fcd_tril)
+    return sim_group
+
 def run_sim_group_co(nodes, N_SIMS=1):
     sc = np.ones((nodes, nodes), dtype=float)
     sc[np.diag_indices(nodes)] = 0
@@ -349,6 +379,47 @@ def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1, 
                                     use_bound_penalty=use_bound_penalty,
+                                    algorithm_kws=dict(tolfun=5e-3))
+    cmaes.setup_problem(problem)
+    cmaes.optimize()
+    return cmaes
+
+def run_cmaes_optimizer_pFF(separate_G_fb=True):
+    nodes = 100
+    # create a random proportion of FF matrix
+    np.random.seed(0)
+    pFF_tril = np.random.rand((nodes*(nodes-1))//2)
+    pFF = np.zeros((nodes, nodes))
+    pFF[np.tril_indices(nodes, -1)] = pFF_tril
+    pFF[np.triu_indices(nodes, 1)] = (1 - pFF.T)[np.triu_indices(100, 1)]
+
+    emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
+    emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
+    
+    params = {
+        'G': (1.0, 3.0),
+        'wEE': (0.05, 0.5),
+        'wEI': 0.15,
+    }
+    if separate_G_fb:
+        params['G_fb'] = (1.0, 3.0)
+    problem = optimize.BNMProblem(
+        model = 'rWW',
+        params = params,
+        emp_fc_tril = emp_fc_tril,
+        emp_fcd_tril = emp_fcd_tril,
+        het_params = ['wEE', 'wEI'],
+        maps = datasets.load_maps(
+            ['myelinmap', 'fcgradient01'],
+            'schaefer-100', norm='minmax'
+        ),
+        duration = 60,
+        TR = 1,
+        sc = datasets.load_sc('strength', 'schaefer-100'),
+        pFF = pFF,
+        separate_G_fb = separate_G_fb,
+    )
+    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1, 
                                     algorithm_kws=dict(tolfun=5e-3))
     cmaes.setup_problem(problem)
     cmaes.optimize()
