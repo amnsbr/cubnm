@@ -991,9 +991,9 @@ class SimGroup:
                 )
             elif column == "-fc_normec":
                 scores.loc[:, column] = -np.linalg.norm(
-                    self.sim_fc_trils.mean(axis=1) - emp_fc_tril.mean()
-                ) / (2 * np.sqrt(emp_fc_tril.shape[1]))
-
+                    self.sim_fc_trils - emp_fc_tril[None, :],
+                    axis=1,
+                ) / (2 * np.sqrt(emp_fc_tril.size))
         # calculation of fc_corr and fcd_ks per simulation on CPU
         # or in parallel batches on GPU (if available and CuPy is installled)
         if (self.use_cpu or force_cpu or (not has_cupy)):
