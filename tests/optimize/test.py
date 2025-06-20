@@ -15,26 +15,28 @@ from cubnm import optimize, datasets
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'optimize')
 
 # define problem arguments
+emp_bold = datasets.load_bold('schaefer-100')
 problem_args = dict(
     model = 'rWW',
     params = {
-        'G': (1.0, 3.0),
-        'wEE': (0.05, 0.5),
-        'wEI': 0.15,
+        'G': (0.001, 5.0),
+        'wEE': (0.001, 3.0),
+        'wEI': (0.001, 3.0),
     },
-    emp_bold = datasets.load_bold('schaefer-100'),
+    emp_bold = emp_bold,
     het_params = ['wEE', 'wEI'],
     maps = datasets.load_maps(
         ['myelinmap', 'fcgradient01'],
         'schaefer-100', norm='minmax'
     ),
+    maps_coef_range = (-3, 3),
     duration = 60,
     TR = 1,
     window_size = 10,
     window_step = 2,
     sc = datasets.load_sc('strength', 'schaefer-100'),
 )
-# modify problem args for grid search
+# for grid search use a smaller number of free parameters
 grid_problem_args = problem_args.copy()
 grid_problem_args.update({
     'maps': datasets.load_maps(
@@ -43,7 +45,6 @@ grid_problem_args.update({
     ),
     'het_params': ['wEE']
 })
-
 
 def get_test_params(for_batch=False):
     """
@@ -105,7 +106,7 @@ def test_opt(optimizer_name):
     # run optimization
     if optimizer_name == 'Grid':
         optimizer = Optimizer()
-        optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEEscale0': 2})
+        optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEI': 2, 'wEEscale0': 2})
     else:    
         optimizer = Optimizer(popsize=10, n_iter=2, seed=1)
         optimizer.setup_problem(problem)

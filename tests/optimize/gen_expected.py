@@ -14,9 +14,9 @@ emp_bold = datasets.load_bold('schaefer-100')
 problem_args = dict(
     model = 'rWW',
     params = {
-        'G': (1.0, 3.0),
-        'wEE': (0.05, 0.5),
-        'wEI': 0.15,
+        'G': (0.001, 5.0),
+        'wEE': (0.001, 3.0),
+        'wEI': (0.001, 3.0),
     },
     emp_bold = emp_bold,
     het_params = ['wEE', 'wEI'],
@@ -24,6 +24,7 @@ problem_args = dict(
         ['myelinmap', 'fcgradient01'],
         'schaefer-100', norm='minmax'
     ),
+    maps_coef_range = (-3, 3),
     duration = 60,
     TR = 1,
     window_size = 10,
@@ -54,7 +55,7 @@ def gen_expected(optimizer_name):
     problem = optimize.BNMProblem(**p_args)
     if optimizer_name == 'Grid':
         optimizer = Optimizer()
-        optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEEscale0': 2})
+        optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEI': 2, 'wEEscale0': 2})
     else:
         # initialize optimizer and register problem
         optimizer = Optimizer(popsize=10, n_iter=2, seed=1)

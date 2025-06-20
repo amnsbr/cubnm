@@ -41,6 +41,7 @@ class BNMProblem(Problem):
         emp_fcd_tril=None,
         emp_bold=None,
         het_params=[],
+        het_params_range='same',
         maps=None,
         maps_coef_range='auto',
         node_grouping=None,
@@ -84,7 +85,19 @@ class BNMProblem(Problem):
               values (assuming they are z-scored) and (0, 1) otherwise
             - :obj:`tuple`: uses the same range for all maps
             - :obj:`list` of :obj:`tuple`: n-map element list specifying the range
-                of coefficients for each map
+              of coefficients for each map
+        het_params_range: 'same' or :obj:`dict` of :obj:`tuple` or None
+            Forced range of regional parameters (after map-based
+            heterogeneity is applied). The regional parameter values
+            across nodes will be normalized into this range (if out
+            of range).
+            - 'same': uses the same range as provided in `params`.
+            - :obj:`dict` of :obj:`tuple`: uses the specified range
+              for each regional parameter. The keys must be the all
+              `het_params` and the values must be tuples of (min, max).
+            - None: does not normalize the regional parameters.
+              This may lead to infeasible parameters, e.g. negative
+              values, with some combinations of maps and map coeficients.
         node_grouping: {None, 'node', 'sym', :obj:`str`, :obj:`np.ndarray`}, optional
             - None: does not use region-/group-specific parameters
             - 'node': each node has its own regional free parameters
@@ -100,6 +113,7 @@ class BNMProblem(Problem):
         **kwargs
             Keyword arguments passed to :class:`cubnm.sim.SimGroup`
         """
+        # TODO: break down __init__ into smaller methods
         # set opts
         self.model = model 
         self.params = params
@@ -109,7 +123,7 @@ class BNMProblem(Problem):
         self.het_params = kwargs.pop("het_params", het_params)
         self.input_maps = kwargs.pop("maps", maps)
         self.maps_coef_range = kwargs.pop("maps_coef_range", maps_coef_range)
-        self.reject_negative = False # not implemented yet
+        self.het_params_range = kwargs.pop("het_params_range", het_params_range)
         self.node_grouping = kwargs.pop("node_grouping", node_grouping)
         self.multiobj = kwargs.pop("multiobj", multiobj)
         # initialize sim_group (N not known yet)
@@ -158,16 +172,18 @@ class BNMProblem(Problem):
         # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")
+
         # identify free and fixed parameters
         self.free_params = []
         self.lb = []
         self.ub = []
         self.global_params = self.sim_group.global_param_names + ["v"]
         self.regional_params = self.sim_group.regional_param_names
+
         # decide if parameters can be variable across nodes/groups
         # note that this is different from map-based heterogeneity
-        self.is_regional = self.node_grouping is not None
-        if self.is_regional:
+        self.is_node_based = self.node_grouping is not None
+        if self.is_node_based:
             for param in self.het_params:
                 if not isinstance(params[param], tuple):
                     raise ValueError(
@@ -175,7 +191,7 @@ class BNMProblem(Problem):
                     )
         # set up node_groups (ordered index of all unique groups)
         # and memberships (from node i to N, which group they belong to)
-        if self.is_regional:
+        if self.is_node_based:
             if self.node_grouping == "node":
                 # each node gets its own regional free parameters
                 # therefore each node has its own group and
@@ -198,11 +214,12 @@ class BNMProblem(Problem):
                 else:
                     self.memberships = self.node_grouping.astype("int")
                 self.node_groups = np.unique(self.memberships)
+
         # set up global and regional (incl. bias) free parameters
         for param, v in params.items():
             if isinstance(v, tuple):
                 if (
-                    self.is_regional
+                    self.is_node_based
                     & (param in self.regional_params)
                     & (param in self.het_params)
                 ):
@@ -218,10 +235,12 @@ class BNMProblem(Problem):
                     self.lb.append(v[0])
                     self.ub.append(v[1])
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
+
         # set up map scaler parameters
-        self.is_heterogeneous = False
+        self.is_map_based = False
         if self.input_maps is not None:
-            self.is_heterogeneous = True
+            self.is_map_based = True
+            # load maps
             if isinstance(self.input_maps, (str, os.PathLike)):
                 self.maps = np.loadtxt(self.input_maps)
             else:
@@ -229,6 +248,8 @@ class BNMProblem(Problem):
             assert (
                 self.maps.shape[1] == self.sim_group.nodes
             ), f"Maps second dimension {self.maps.shape[1]} != nodes {self.sim_group.nodes}"
+
+            # define map coefficients as free parameter
             for param in self.het_params:
                 for map_idx in range(self.maps.shape[0]):
                     if self.maps_coef_range == 'auto':
@@ -255,6 +276,34 @@ class BNMProblem(Problem):
                     self.free_params.append(scaler_name)
                     self.lb.append(scale_min)
                     self.ub.append(scale_max)
+
+            # define regional ranges
+            if self.het_params_range == "same":
+                self._het_params_range = {}
+                for param in self.het_params:
+                    # use the same range as provided in params
+                    if param in self.params:
+                        if isinstance(self.params[param], tuple):
+                            self._het_params_range[param] = self.params[param]
+                        else:
+                            raise ValueError(
+                                f"Parameter {param} baseline cannot be fixed"
+                                " when map-based heterogeneity is applied and"
+                                " het_params_range is set to 'same'"
+                            )
+                    else:
+                        raise ValueError(
+                            f"Parameter {param} is not defined in params"
+                        )
+            elif isinstance(self.het_params_range, dict):
+                assert all(
+                    p in self.het_params_range for p in self.het_params
+                ), "All het_params must be defined in het_params_range"
+                self._het_params_range = self.het_params_range
+            elif self.het_params_range is None:
+                # do not normalize the regional parameters
+                self._het_params_range = None
+
         # convert bounds to arrays
         self.lb = np.array(self.lb)
         self.ub = np.array(self.ub)
@@ -311,6 +360,8 @@ class BNMProblem(Problem):
             "het_params": self.het_params,
             "maps": self.input_maps,
             "node_grouping": self.node_grouping,
+            "maps_coef_range": self.maps_coef_range,
+            "het_params_range": self.het_params_range,
             "emp_fc_tril": self.emp_fc_tril,
             "emp_fcd_tril": self.emp_fcd_tril,
             "emp_bold": self.emp_bold,
@@ -358,6 +409,104 @@ class BNMProblem(Problem):
         """
         return (Xt - self.lb) / (self.ub - self.lb)
 
+    def _get_sim_params(self, X):
+        """
+        Gets the global and regional parameters of the problem's 
+        :class:`cubnm.sim.SimGroup` based on the
+        problem free and fixed parameters and type of regional parameter
+        heterogeneity (map-based, group-based or none).
+
+        Parameters
+        ----------
+        X: :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        Returns
+        -------
+        :obj:`dict` of :obj:`np.ndarray`
+            keys correspond to model parameters
+        """
+        param_lists = {}
+        N = X.shape[0]
+        # transform X from [0, 1] range to the actual
+        # parameter range and label them
+        Xt = pd.DataFrame(self._get_Xt(X), columns=self.free_params, dtype=float)
+        # set fixed parameter lists
+        # these are not going to vary across iterations
+        # but must be specified here as in elsewhere N is unknown
+        for param in self.fixed_params:
+            if param in self.global_params:
+                param_lists[param] = np.repeat(
+                    self.params[param], N
+                )
+            else:
+                param_lists[param] = np.tile(
+                    self.params[param], (N, self.sim_group.nodes)
+                )
+        # first determine the global parameters and bias terms
+        for param in self.free_params:
+            if param in self.global_params:
+                param_lists[param] = Xt.loc[:, param].values
+            elif param in self.regional_params:
+                param_lists[param] = np.tile(
+                    Xt.loc[:, param].values[:, np.newaxis], self.sim_group.nodes
+                )
+        # then multiply the regional parameters by their map-based scalers
+        if self.is_map_based:
+            for param in self.het_params:
+                for sim_idx in range(Xt.shape[0]):
+                    # not doing this vectorized for better code readability
+                    # determine scaler map of current simulation-param
+                    param_scalers = np.ones(self.sim_group.nodes)
+                    for map_idx in range(self.maps.shape[0]):
+                        scaler_name = f"{param}scale{map_idx}"
+                        param_scalers += (
+                            self.maps[map_idx, :] * Xt.iloc[sim_idx].loc[scaler_name]
+                        )
+                    # multiply it by the bias which is already put in param_lists
+                    param_lists[param][sim_idx, :] *= param_scalers
+                    # fix out-of-range parameter values if indicated
+                    if self._het_params_range is not None:
+                        # min-max normalize regional parameters to the
+                        # provided range, if the map-based heterogeneity
+                        # has led to out-of-range values (in either end)
+                        min_lim, max_lim = self._het_params_range[param]
+                        uncorr_min = param_lists[param][sim_idx, :].min()
+                        uncorr_max = param_lists[param][sim_idx, :].max()
+                        # Note that if one end is within range we want
+                        # to keep it as is, therefore we define the target
+                        # min and max to be the limits, or the within-range
+                        # min or max values (whichever is smaller or larger)
+                        # We also make sure that the target min is not larger than
+                        # the target max and vice versa. As a result, 
+                        # if both ends are outside the range, the parameter
+                        # map will effecitvely be homogeneously set to the
+                        # target min or max
+                        target_min = min(max(min_lim, uncorr_min), max_lim)
+                        target_max = max(min(max_lim, uncorr_max), min_lim)
+                        # normalization done only if at least one of the ends is out of range
+                        if ((uncorr_min < target_min) or 
+                            (uncorr_max > target_max)):
+                            # normalize the regional parameters to the provided range
+                            # by first min-max normalizing them to [0, 1]
+                            # and then scaling to the target range
+                            param_lists[param][sim_idx, :] = (
+                                (param_lists[param][sim_idx, :] - uncorr_min)
+                                / (uncorr_max - uncorr_min)
+                            ) * (target_max - target_min) + target_min
+
+        # determine regional parameters that are variable based on groups
+        if self.is_node_based:
+            for param in self.het_params:
+                curr_param_maps = np.zeros((Xt.shape[0], self.sim_group.nodes))
+                for group in self.node_groups:
+                    param_name = f"{param}{group}"
+                    curr_param_maps[:, self.memberships == group] = Xt.loc[
+                        :, param_name
+                    ].values[:, np.newaxis]
+                param_lists[param] = curr_param_maps
+        return param_lists
+
     def _set_sim_params(self, X):
         """
         Sets the global and regional parameters of the problem's 
@@ -371,65 +520,7 @@ class BNMProblem(Problem):
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
         """
-        # transform X from [0, 1] range to the actual
-        # parameter range and label them
-        Xt = pd.DataFrame(self._get_Xt(X), columns=self.free_params, dtype=float)
-        # set fixed parameter lists
-        # these are not going to vary across iterations
-        # but must be specified here as in elsewhere N is unknown
-        for param in self.fixed_params:
-            if param in self.global_params:
-                self.sim_group.param_lists[param] = np.repeat(
-                    self.params[param], self.sim_group.N
-                )
-            else:
-                self.sim_group.param_lists[param] = np.tile(
-                    self.params[param], (self.sim_group.N, self.sim_group.nodes)
-                )
-        # first determine the global parameters and bias terms
-        for param in self.free_params:
-            if param in self.global_params:
-                self.sim_group.param_lists[param] = Xt.loc[:, param].values
-            elif param in self.regional_params:
-                self.sim_group.param_lists[param] = np.tile(
-                    Xt.loc[:, param].values[:, np.newaxis], self.sim_group.nodes
-                )
-        # then multiply the regional parameters by their map-based scalers
-        if self.is_heterogeneous:
-            for param in self.het_params:
-                for sim_idx in range(Xt.shape[0]):
-                    # not doing this vectorized for better code readability
-                    # determine scaler map of current simulation-param
-                    param_scalers = np.ones(self.sim_group.nodes)
-                    for map_idx in range(self.maps.shape[0]):
-                        scaler_name = f"{param}scale{map_idx}"
-                        param_scalers += (
-                            self.maps[map_idx, :] * Xt.iloc[sim_idx].loc[scaler_name]
-                        )
-                    # multiply it by the bias which is already put in param_lists
-                    self.sim_group.param_lists[param][sim_idx, :] *= param_scalers
-                    # fix/reject negatives
-                    if self.sim_group.param_lists[param][sim_idx, :].min() < 0.001:
-                        if self.reject_negative:
-                            # TODO
-                            raise NotImplementedError(
-                                "Rejecting particles due to negative regional parameter is not implemented"
-                            )
-                        else:
-                            self.sim_group.param_lists[param][sim_idx, :] -= (
-                                self.sim_group.param_lists[param][sim_idx, :].min()
-                                - 0.001
-                            )
-        # determine regional parameters that are variable based on groups
-        if self.is_regional:
-            for param in self.het_params:
-                curr_param_maps = np.zeros((Xt.shape[0], self.sim_group.nodes))
-                for group in self.node_groups:
-                    param_name = f"{param}{group}"
-                    curr_param_maps[:, self.memberships == group] = Xt.loc[
-                        :, param_name
-                    ].values[:, np.newaxis]
-                self.sim_group.param_lists[param] = curr_param_maps
+        self.sim_group.param_lists.update(self._get_sim_params(X))
 
     def _evaluate(self, X, out, *args, **kwargs):
         """
@@ -1579,13 +1670,15 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
         # clear and delete MultiSimGroup instance created for this iteration
         msg.clear()
         del msg
-    # organize history and assign optima
+
     for optimizer in optimizers:
         optimizer.history = pd.concat(optimizer.history, axis=0).reset_index(drop=False)
         if optimizer.problem.n_obj == 1:
             # a single optimum can be defined
             optimizer.opt_history = pd.DataFrame(optimizer.opt_history).reset_index(drop=True)
             optimizer.opt = optimizer.history.loc[optimizer.history["cost"].argmin()]
+        optimizer.is_fit = True
+
     if save:
         print("Rerunning and saving the optimal simulation(s)")
         # create a multi-sim group by concatenating the sim groups of the optimizers
