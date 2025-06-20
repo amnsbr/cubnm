@@ -129,7 +129,7 @@ def run_sim_group_many_nodes(nodes=9684, force_cpu=False):
     return sim_group
 
 def run_grid():
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (0.5, 2.5),
@@ -144,12 +144,12 @@ def run_grid():
         emp_bold = datasets.load_bold('schaefer-100'),
         out_dir = './grid_optimizer',
     )
-    go = optimize.GridOptimizer()
+    go = optimize.grid.GridOptimizer()
     go.optimize(problem, grid_shape={'G': 4, 'wEI': 2})
     return go
 
 def run_grid_het():
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (0.5, 2.5),
@@ -169,12 +169,12 @@ def run_grid_het():
         ),
         out_dir = './grid_optimizer',
     )
-    go = optimize.GridOptimizer()
+    go = optimize.grid.GridOptimizer()
     go.optimize(problem, grid_shape={'G': 2, 'wEI': 2, 'wEIscale0': 2})
     return go
 
 def run_grid_delay():
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (0.5, 2.5),
@@ -192,13 +192,13 @@ def run_grid_delay():
         emp_bold = datasets.load_bold('schaefer-100'),
         out_dir = './grid_optimizer',
     )
-    go = optimize.GridOptimizer()
+    go = optimize.grid.GridOptimizer()
     go.optimize(problem, grid_shape={'G': 2, 'wEI': 2, 'v': 2})
     return go
 
 def run_problem():
     emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (1.0, 3.0),
@@ -223,7 +223,7 @@ def run_problem():
 
 def run_cmaes_optimizer():
     emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (1.0, 3.0),
@@ -237,14 +237,14 @@ def run_cmaes_optimizer():
         window_step=2,
         sc = datasets.load_sc('strength', 'schaefer-100'),
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes = optimize.pymoo.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
     cmaes.optimize()
     return cmaes
 
 def run_cmaes_optimizer_rWWEx():
     emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWWEx',
         params = {
             'G': (1.0, 3.0),
@@ -259,14 +259,14 @@ def run_cmaes_optimizer_rWWEx():
         window_step=2,
         sc = datasets.load_sc('strength', 'schaefer-100'),
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes = optimize.pymoo.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
     cmaes.optimize()
     return cmaes
 
 def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
     emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (1.0, 3.0),
@@ -288,7 +288,7 @@ def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
         sc_dist = datasets.load_sc('length', 'schaefer-100'),
         force_cpu = force_cpu,
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1, 
+    cmaes = optimize.pymoo.CMAESOptimizer(popsize=10, n_iter=2, seed=1, 
                                     use_bound_penalty=use_bound_penalty,
                                     algorithm_kws=dict(tolfun=5e-3))
     cmaes.setup_problem(problem)
@@ -299,7 +299,7 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
     if node_grouping == 'yeo':
         node_grouping = datasets.load_maps('yeo7', 'schaefer-100', norm=None)
     emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (1.0, 3.0),
@@ -315,7 +315,7 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
         window_step=2,
         sc = datasets.load_sc('strength', 'schaefer-100'),
     )
-    cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
+    cmaes = optimize.pymoo.CMAESOptimizer(popsize=10, n_iter=2, seed=1)
     cmaes.setup_problem(problem)
     cmaes.optimize()
     cmaes.save()
@@ -323,7 +323,7 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
 
 def run_nsga2_optimizer_het(force_cpu=False):
     emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         model = 'rWW',
         params = {
             'G': (1.0, 3.0),
@@ -346,7 +346,7 @@ def run_nsga2_optimizer_het(force_cpu=False):
         gof_terms = ['-fc_normec', '-fcd_ks'],
         multiobj = True,
     )
-    optimizer = optimize.NSGA2Optimizer(popsize=10, n_iter=3, seed=1)
+    optimizer = optimize.pymoo.NSGA2Optimizer(popsize=10, n_iter=3, seed=1)
     optimizer.setup_problem(problem)
     optimizer.optimize()
     return optimizer
@@ -370,23 +370,23 @@ def run_batch_optimize_diff_sub():
         window_step=2,
     )
     # problem for subject 1
-    p_sub1 = optimize.BNMProblem(
+    p_sub1 = optimize.base.BNMProblem(
         sc = sc_sub1,
         emp_bold = bold_sub1,
         out_dir = tempfile.mkdtemp(),
         **problem_kwargs
     )
     # problem for subject 2
-    p_sub2 = optimize.BNMProblem(
+    p_sub2 = optimize.base.BNMProblem(
         sc = sc_sub2,
         emp_bold = bold_sub2,
         out_dir = tempfile.mkdtemp(),
         **problem_kwargs
     )
     # optimizers
-    cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
+    cmaes = optimize.pymoo.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
     # batch optimization
-    optimizers = optimize.batch_optimize(cmaes, [p_sub1, p_sub2])
+    optimizers = optimize.pymoo.batch_optimize(cmaes, [p_sub1, p_sub2])
     # print optima
     print(optimizers[0].opt)
     print(optimizers[1].opt)
@@ -411,18 +411,18 @@ def run_batch_optimize_identical():
         emp_bold = bold,
         out_dir = tempfile.mkdtemp(),
     )
-    problem = optimize.BNMProblem(
+    problem = optimize.base.BNMProblem(
         **problem_kwargs
     )
     # optimizer
-    cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
+    cmaes = optimize.pymoo.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
     # batch optimization
-    optimizers = optimize.batch_optimize([cmaes, cmaes], [problem, problem])
+    optimizers = optimize.pymoo.batch_optimize([cmaes, cmaes], [problem, problem])
     # print optima
     print(optimizers[0].opt)
     print(optimizers[1].opt)
     # serial optimizer
-    cmaes_ind = optimize.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
+    cmaes_ind = optimize.pymoo.CMAESOptimizer(popsize=20, n_iter=2, seed=1)
     cmaes_ind.setup_problem(problem)
     cmaes_ind.optimize()
     print(cmaes_ind.opt)
