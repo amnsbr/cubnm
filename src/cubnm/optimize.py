@@ -156,19 +156,21 @@ class BNMProblem(Problem):
         else:
             # when BOLD is not provided but empirical FC/FCD are
             # set do_fc and do_fcd based on the provided data
-            self.sim_group.do_fc = False
-            self.sim_group.do_fcd = False
             if (self.emp_fc_tril is not None):
                 self.sim_group.do_fc = True
                 if (self.emp_fcd_tril is not None):
                     self.sim_group.do_fcd = True
-            elif (self.emp_fcd_tril is not None):
+            else:
+                self.sim_group.do_fc = False
+            if (self.emp_fcd_tril is not None):
                 # note: as separate fc and fcd calculation is not
                 # supported on simulation side, if fcd is provided
                 # set do_fc to true as well (but then simulated fc
                 # will be ignored)
                 self.sim_group.do_fc = True
                 self.sim_group.do_fcd = True
+            else:
+                self.sim_group.do_fcd = False
         # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")
@@ -192,28 +194,30 @@ class BNMProblem(Problem):
         # set up node_groups (ordered index of all unique groups)
         # and memberships (from node i to N, which group they belong to)
         if self.is_node_based:
-            if self.node_grouping == "node":
-                # each node gets its own regional free parameters
-                # therefore each node has its own group and
-                # is the only member of it
-                self.node_groups = np.arange(self.sim_group.nodes)
-                self.memberships = np.arange(self.sim_group.nodes)
-            elif self.node_grouping == "sym":
-                print(
-                    "Warning: `sym` node grouping assumes symmetry of parcels between L and R hemispheres"
-                )
-                # nodes i & rh_idx+i belong to the same group
-                # and will have similar parameters
-                assert self.sim_group.nodes % 2 == 0, "Number of nodes must be even"
-                rh_idx = int(self.sim_group.nodes / 2)
-                self.node_groups = np.arange(rh_idx)
-                self.memberships = np.tile(np.arange(rh_idx), 2)
-            else:
-                if isinstance(self.node_grouping, (str, os.PathLike)):
-                    self.memberships = np.loadtxt(self.node_grouping).astype("int")
+            if isinstance(self.node_grouping, (str, os.PathLike)):
+                if self.node_grouping == "node":
+                    # each node gets its own regional free parameters
+                    # therefore each node has its own group and
+                    # is the only member of it
+                    self.memberships = np.arange(self.sim_group.nodes)
+                elif self.node_grouping == "sym":
+                    print(
+                        "Warning: `sym` node grouping assumes symmetry of parcels between L and R hemispheres"
+                    )
+                    # nodes i & rh_idx+i belong to the same group
+                    # and will have similar parameters
+                    assert self.sim_group.nodes % 2 == 0, "Number of nodes must be even"
+                    rh_idx = int(self.sim_group.nodes / 2)
+                    self.memberships = np.tile(np.arange(rh_idx), 2)
                 else:
-                    self.memberships = self.node_grouping.astype("int")
-                self.node_groups = np.unique(self.memberships)
+                    self.memberships = np.loadtxt(self.node_grouping).astype("int")
+            elif isinstance(self.node_grouping, np.ndarray):
+                self.memberships = self.node_grouping.astype("int")
+            else:
+                raise ValueError(
+                    "Invalid node_grouping provided."
+                )
+            self.node_groups = np.unique(self.memberships)
 
         # set up global and regional (incl. bias) free parameters
         for param, v in params.items():
