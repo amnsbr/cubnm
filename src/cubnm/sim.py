@@ -816,6 +816,98 @@ class SimGroup:
         # transpose to (n_noise, nodes, time_steps, 10)
         return noise_all.transpose(3, 2, 0, 1)
 
+    def get_sim_fc(self, idx):
+        """
+        Get the simulated FC of a given simulation ``idx``
+        as a square matrix.
+
+        Parameters
+        ----------
+        idx: :obj:`int`
+            index of the simulation to get the FC for
+
+        Returns
+        -------
+        fc: :obj:`np.ndarray`
+            simulated FC matrix of shape (nodes, nodes)
+            for the simulation with index ``idx``
+        """
+        if not self.do_fc:
+            raise ValueError("FC is not calculated in this simulation group")
+        if idx >= self.N:
+            raise IndexError("Index out of range")
+        # get the FC lower triangle
+        fc_tril = self.sim_fc_trils[idx].copy()
+        # convert it to a square matrix
+        sim_fc = np.zeros((self.nodes, self.nodes), dtype=float)
+        if self.exc_interhemispheric:
+            # when interhemispheric connections are excluded
+            # the FC matrix is split into two halves
+            # and the lower triangle is filled in each half
+            half_nodes = self.nodes // 2
+            sim_fc[:half_nodes, :half_nodes][
+                np.tril_indices(half_nodes,-1)
+            ] = fc_tril[:fc_tril.shape[0] // 2]
+            sim_fc[half_nodes:, half_nodes:][
+                np.tril_indices(half_nodes,-1)
+            ] = fc_tril[fc_tril.shape[0] // 2:]
+            # set the rest to NaNs
+            sim_fc[:half_nodes, half_nodes:] = np.NaN
+            sim_fc[half_nodes:, :half_nodes] = np.NaN
+        else:
+            # fill the lower triangle of the square matrix
+            sim_fc[np.tril_indices(self.nodes,-1)] = fc_tril
+        # make the matrix symmetric
+        sim_fc += sim_fc.T
+        # fill the diagonal with 1s
+        np.fill_diagonal(sim_fc, 1.0)
+        return sim_fc
+
+    def get_sim_fcd(self, idx):
+        """
+        Get the simulated FCD of a given simulation ``idx``
+        as a square matrix.
+
+        Parameters
+        ----------
+        idx: :obj:`int`
+            index of the simulation to get the FC for
+        
+        Returns
+        -------
+        fcd: :obj:`np.ndarray`
+            simulated FC matrix of shape (n_windows, n_windows)
+            for the simulation with index ``idx``
+        """
+        if not self.do_fcd:
+            raise ValueError("FCD is not calculated in this simulation group")
+        if idx >= self.N:
+            raise IndexError("Index out of range")
+        # get the FCD lower triangle
+        fcd_tril = self.sim_fcd_trils[idx].copy()
+        n_pairs = fcd_tril.shape[0]
+        # determine number of windows
+        # this is not returned from the core
+        # and its direct calculation without using
+        # a loop isn't trivial (because of different
+        # conditions etc.; or at least I don't know
+        # how to do it).
+        # therefore, we use the (known) number of pairs
+        # and solve for n_pairs = n_windows * (n_windows - 1) / 2
+        # aka:
+        n_windows = (1 + np.sqrt(1 + 8 * n_pairs)) / 2
+        assert n_windows.is_integer() # just a sanity check
+        n_windows = int(n_windows)
+        # convert it to a square matrix
+        sim_fcd = np.zeros((n_windows, n_windows), dtype=float)
+        # fill the lower triangle of the square matrix
+        sim_fcd[np.tril_indices(n_windows,-1)] = fcd_tril
+        # make the matrix symmetric
+        sim_fcd += sim_fcd.T
+        # fill the diagonal with 1s
+        np.fill_diagonal(sim_fcd, 1.0)
+        return sim_fcd
+
     def slice(self, key, inplace=False):
         """
         Slice the simulation group to a single simulation
