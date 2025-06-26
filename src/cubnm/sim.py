@@ -1227,7 +1227,7 @@ class rWWSimGroup(SimGroup):
                  *args, 
                  do_fic = True,
                  max_fic_trials = 0,
-                 fic_penalty = True,
+                 fic_penalty_scale = 1.0,
                  fic_i_sampling_start = 1000,
                  fic_i_sampling_end = 10000,
                  fic_init_delta = 0.02,
@@ -1245,8 +1245,9 @@ class rWWSimGroup(SimGroup):
         max_fic_trials: :obj:`int`, optional
             maximum number of trials for FIC numerical adjustment.
             If set to 0, FIC will be done only analytically
-        fic_penalty: :obj:`bool`, optional
-            penalize deviation from FIC target mean rE of 3 Hz
+        fic_penalty_scale: :obj:`bool`, optional
+            how much deviation from FIC target mean rE of 3 Hz
+            is penalized. Set to 0 to disable FIC penalty.
         fic_i_sampling_start: :obj:`int`, optional
             starting time of numerical FIC I_E sampling (msec)
         fic_i_sampling_end: :obj:`int`, optional
@@ -1288,7 +1289,7 @@ class rWWSimGroup(SimGroup):
         """
         self.do_fic = do_fic
         self.max_fic_trials = max_fic_trials
-        self.fic_penalty = fic_penalty
+        self.fic_penalty_scale = fic_penalty_scale
         self.fic_i_sampling_start = fic_i_sampling_start
         self.fic_i_sampling_end = fic_i_sampling_end
         self.fic_init_delta = fic_init_delta
@@ -1309,7 +1310,7 @@ class rWWSimGroup(SimGroup):
         config.update(
             do_fic=self.do_fic, 
             max_fic_trials=self.max_fic_trials,
-            fic_penalty=self.fic_penalty,
+            fic_penalty_scale=self.fic_penalty_scale,
             fic_i_sampling_start=self.fic_i_sampling_start,
             fic_i_sampling_end=self.fic_i_sampling_end,
             fic_init_delta=self.fic_init_delta,
@@ -1374,10 +1375,12 @@ class rWWSimGroup(SimGroup):
             # write FIC (+ numerical adjusted) wIE to param_lists
             self.param_lists["wIE"] = self._regional_params[2].reshape(self.N, -1)
     
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, fic_penalty_scale=2, **kwargs):
+    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, **kwargs):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
-        In FIC models also calculates fic_penalty.
+        In FIC models also calculates fic_penalty. Note that while 
+        FIC penalty is included in the cost function of optimizer, 
+        it is not included in the aggregate GOF.
 
         Parameters
         --------
@@ -1390,11 +1393,6 @@ class rWWSimGroup(SimGroup):
             Motion outliers should either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
-        fic_penalty_scale: :obj:`float`, optional
-            scale of the FIC penalty term.
-            Set to 0 to disable the FIC penalty term.
-            Note that while it is included in the cost function of
-            optimizer, it is not included in the aggregate GOF
         **kwargs:
             keyword arguments passed to `cubnm.sim.SimGroup.score`
 
@@ -1405,18 +1403,29 @@ class rWWSimGroup(SimGroup):
         """
         scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold, **kwargs)
         # calculate FIC penalty
-        if self.do_fic & self.fic_penalty:
+        if self.do_fic & (self.fic_penalty_scale > 0):
+            # calculate time-averaged r_E in each simulation-node
             if self.states_ts:
                 mean_r_E = self.sim_states["r_E"][:, self.n_states_samples_remove:].mean(axis=1)
             else:
                 mean_r_E = self.sim_states["r_E"]
             for idx in range(self.N):
+                # absolute deviation from target of 3 Hz
                 diff_r_E = np.abs(mean_r_E[idx, :] - 3)
                 if (diff_r_E > 1).sum() > 0:
+                    # at least one node has a deviation greater than 1
+                    # only consider deviations greater than 1
+                    # in the penalty
                     diff_r_E[diff_r_E <= 1] = np.NaN
+                    # within each node the FIC penalty decreases
+                    # exponentially as the deviations gets smaller
+                    # the penalty max value in each node is 1
+                    # which is then scaled by fic_penalty_scale
+                    # and averaged across nodes (with 0s/NaNs)
+                    # in node with no deviation > 1 Hz
                     scores.loc[idx, "-fic_penalty"] = (
                         -np.nansum(1 - np.exp(-0.05 * (diff_r_E - 1)))
-                        * fic_penalty_scale / self.nodes
+                        * self.fic_penalty_scale / self.nodes
                     )
                 else:
                     scores.loc[idx, "-fic_penalty"] = 0
@@ -1465,7 +1474,7 @@ class rWWSimGroup(SimGroup):
                 "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
             )
         if problem.multiobj:
-            if self.do_fic & self.fic_penalty:
+            if self.do_fic & (self.fic_penalty_scale > 0):
                 problem.obj_names.append("+fic_penalty")
                 problem.n_obj += 1
 
@@ -1487,7 +1496,7 @@ class rWWSimGroup(SimGroup):
         # Note: scores (inidividual GOF measures) is passed on in kwargs 
         # in the internal mechanism of pymoo evaluation function
         scores = kwargs["scores"][-1]
-        if self.do_fic & self.fic_penalty:
+        if self.do_fic & (self.fic_penalty_scale > 0):
             if problem.multiobj:
                 out["F"] = np.concatenate(
                     [out["F"], -scores.loc[:, ["-fic_penalty"]].values], axis=1
