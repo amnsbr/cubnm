@@ -9,19 +9,20 @@ public:
     struct Constants {
         double dt; // time step in seconds
         double sqrt_dt; // square root of time step
-        double a; // inverse of the characteristic time constant for EPSPs (1/sec)
-        double ad; // inverse of the characteristic time constant for long-range EPSPs (1/sec)
-        double b; // inverse of the characteristic time constant for IPSPs (1/sec)
-        double p; // basal input to pyramidal population
-        double A; // amplitude of EPSPs
-        double B; // amplitude of IPSPs
-        double e0; // half of the maximum firing rate
-        double v0; // V1/2
-        double r0, r1, r2; // slopes of sigmoid functions
-        // derived
-        double a2; // a squared
-        double b2; // b squared
-        double ad2; // ad squared
+        double A; // max amplitude of EPSPs (mV)
+        double B; // max amplitude of IPSPs (mV)
+        double a; // inverse of the time constant for EPSPs (1/msec)
+        double b; // inverse of the time constant for IPSPs (1/msec)
+        double v0; // Firing threshold (PSP) resulting in 50% firing rate (mV)
+        double nu_max; // maximum firing rate (1/msec)
+        double r; // steepness of the sigmoidal transformation (1/mV)
+        double p_min; // minimum input firing rate
+        double p_max; // maximum input firing rate
+        double mu; // mean input firing rate
+        // sigmoidal coupling constants
+        double cmin; // minimum of sigmoid function
+        double cmax; // maximum of sigmoid function
+        double midpoint; // midpoint of the linear portion of the sigmoid function
     };
     struct Config {
     };
@@ -31,13 +32,13 @@ public:
     DEFINE_DERIVED_MODEL(
         JRModel, // CLASS_NAME
         "JR", // NAME
-        9, // STATE_VARS
-        13, // INTER_VARS
+        8, // STATE_VARS
+        9, // INTER_VARS
         1, // NOISE
         1, // GLOBAL_PARAMS
         6, // REGIONAL_PARAMS
-        3, // CONN_STATE_VAR_IDX
-        8, // BOLD_STATE_VAR_IDX
+        7, // CONN_STATE_VAR_IDX
+        6, // BOLD_STATE_VAR_IDX
         false, // HAS_POST_BW
         false, // HAS_POST_INT
         false, // IS_OSC

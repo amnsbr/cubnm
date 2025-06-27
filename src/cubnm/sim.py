@@ -1747,9 +1747,9 @@ class JRSimGroup(SimGroup):
     # and parameters
     model_name = "JR"
     global_param_names = ["G"]
-    regional_param_names = ["C", "C1c", "C2c", "C3c", "C4c", "sigma"]
-    state_names = ["x0", "x1", "x2", "x3", "y0", "y1", "y2", "y3", "r_E"]
-    sel_state_var = "r_E"
+    regional_param_names = ["J", "a_1", "a_2", "a_3", "a_4", "sigma"]
+    state_names = ["y0", "y1", "y2", "y3", "y4", "y5", "y1_y2", "s_y1_y2"]
+    sel_state_var = "y1_y2"
     noise_elements = 1
     def __init__(self, *args, **kwargs):
         """
@@ -1765,19 +1765,18 @@ class JRSimGroup(SimGroup):
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
                 - 'G': global coupling. Shape: (N_SIMS,)
-                - 'C': global synaptic connectivity in a node. Shape: (N_SIMS, nodes)
-                - 'C1c': pyramidal to excitatory connection coefficient. Shape: (N_SIMS, nodes)
-                - 'C2c': excitatory to pyramidal connection coefficient. Shape: (N_SIMS, nodes)
-                - 'C3c': pyramidal to inhibitory connection coefficient. Shape: (N_SIMS, nodes)
-                - 'C4c': inhibitory to pyramidal connection coefficient. Shape: (N_SIMS, nodes)
+                - 'J': average number of synapses. Shape: (N_SIMS, nodes)
+                - 'a_1': average probability of synapses in feedback excitatory loop. Shape: (N_SIMS, nodes)
+                - 'a_2': average probability of synapses in slow feedback excitatory loop. Shape: (N_SIMS, nodes)
+                - 'a_3': average probability of synapses in feedback inhibitory loop. Shape: (N_SIMS, nodes)
+                - 'a_4': average probability of synapses in slow feedback inhibitory loop. Shape: (N_SIMS, nodes)
+                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
                 - 'v': conduction velocity. Shape: (N_SIMS,)
-            The coefficients are internally multiplied by 'C' to get the
-            actual connection strengths, i.e. 'C1', 'C2', 'C3', 'C4'.
         
         Note
         ----
-        The implementation and default values are based on  
-        Coronel-Oliveros et al. 2023 Neuroimage
+        The implementation and default values are based on TVB's
+        ``JansenRit`` model.
         """
         super().__init__(*args, **kwargs)
 
@@ -1792,13 +1791,15 @@ class JRSimGroup(SimGroup):
             in self.param_lists. If False, overwrites all listed defaults.
         """
         super()._set_default_params(missing=missing)
+        # except G and sigma, defaults are based on TVB, but sigma is based on
         DEFAULTS = {
             "G": 0.5,
-            "C": 135.0,
-            "C1c": 1,
-            "C2c": 0.8,
-            "C3c": 0.25,
-            "sigma": 0.032,
+            "J": 135.0,
+            "a_1": 1.0,
+            "a_2": 0.8,
+            "a_3": 0.25,
+            "a_4": 0.25,
+            "sigma": 0.0001, 
         }
         for param, v in DEFAULTS.items():
             if (not missing) or (self.param_lists[param] is None):
@@ -1806,11 +1807,6 @@ class JRSimGroup(SimGroup):
                     self.param_lists[param] = np.repeat(v, self.N)
                 else:
                     self.param_lists[param] = np.full((self.N, self.nodes), v)
-        # C4 default is dependent on G
-        if (not missing) or (self.param_lists.get("C4c") is None):
-            self.param_lists["C4c"] = \
-                np.full((self.N, self.nodes), 1) \
-                * (0.3 + 0.6 * self.param_lists["G"])[:, None]
 
 class MultiSimGroupMixin:
     def __init__(self, sim_groups):

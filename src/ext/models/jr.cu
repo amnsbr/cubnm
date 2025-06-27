@@ -7,17 +7,10 @@ __device__ __NOINLINE__ void JRModel::init(
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
-    // based on 
-    // https://github.com/vandal-uv/Nicotine-Whole-Brain/blob/main/JansenRitModel.py
-    _state_vars[0] = 0.131; // x0
-    _state_vars[1] = 0.171; // x1
-    _state_vars[2] = 0.343; // x2
-    _state_vars[3] = 0.21;  // x3
-    _state_vars[4] = 3.07;  // y1
-    _state_vars[5] = 2.96;  // y2
-    _state_vars[6] = 25.36; // z1
-    _state_vars[7] = 2.42;  // z2
-
+    // set all to 0.0
+    for (int i = 0; i < JRModel::n_state_vars; ++i) {
+        _state_vars[i] = 0.0;
+    }
 }
 
 __device__ __NOINLINE__ void JRModel::restart(
@@ -35,11 +28,6 @@ __device__ __NOINLINE__ void JRModel::restart(
     );
 }
 
-__device__ __FORCEINLINE__ double d_JR_sigmoid(const double& v, const double& r) {
-    // Sigmoid function
-    return (2.0 * d_JRc.e0) / (1.0 + EXP(r * (d_JRc.v0 - v)));
-}
-
 __device__ void JRModel::step(
         double* _state_vars, double* _intermediate_vars,
         double* _global_params, double* _regional_params,
@@ -47,7 +35,7 @@ __device__ void JRModel::step(
         double* noise, long& noise_idx
         ) {
     /* 
-    Based on Coronel-Oliveros et al. (2023)
+    Based on TVB's JansenRit._numpy_dfun()
     ---
     Look-up table:
     (these are not assigned as variables
@@ -55,146 +43,96 @@ __device__ void JRModel::step(
      use more registers, hence reducing 
      performance)
     G: _global_params[0]
-    C: _regional_params[0]
-    C1c: _regional_params[1]
-    C2c: _regional_params[2]
-    C3c: _regional_params[3]
-    C4c: _regional_params[4]
+    J: _regional_params[0]
+    a_1: _regional_params[1]
+    a_2: _regional_params[2]
+    a_3: _regional_params[3]
+    a_4: _regional_params[4]
     sigma: _regional_params[5]
-    x0: _state_vars[0]
-    x1: _state_vars[1]
-    x2: _state_vars[2]
-    x3: _state_vars[3]
-    y0: _state_vars[4]
-    y1: _state_vars[5]
-    y2: _state_vars[6]
-    y3: _state_vars[7]
-    r_E: _state_vars[8]
-    x0_dot: _intermediate_vars[0]
-    y0_dot_sigmoid: _intermediate_vars[1]
-    y0_dot: _intermediate_vars[2]
-    x1_dot: _intermediate_vars[3]
-    y1_dot_sigmoid: _intermediate_vars[4]
-    y1_dot: _intermediate_vars[5]
-    x2_dot: _intermediate_vars[6]
-    y2_dot_sigmoid: _intermediate_vars[7]
-    y2_dot: _intermediate_vars[8]
-    x3_dot: _intermediate_vars[9]
-    y3_dot_sigmoid: _intermediate_vars[10]
-    y3_dot: _intermediate_vars[11]
-    noise_term: _intermediate_vars[12]
-    ---
-    Variations in the equations:
-    C1 = C1c * C
-    C2 = C2c * C
-    C3 = C3c * C
-    C4 = C4c * C
-    alpha = G
+    y0: _state_vars[0]
+    y1: _state_vars[1]
+    y2: _state_vars[2]
+    y3: _state_vars[3]
+    y4: _state_vars[4]
+    y5: _state_vars[5]
+    y1_y2: _state_vars[6] (aka PSP)
+    s_y1_y2: _state_vars[7] (only needed for connectivity)
     */
-
-    // Calculate derivatives
-    // Eq1
-    // x0_dot = y0
-    _intermediate_vars[0] = _state_vars[4];
-    // Eq2
-    // y0_dot = A * a * (sigmoid(C2c * C * x1 - C4c * C * x2 + C * G * x3, r0)) - \
-    //          2 * a * y0 - a**2 * x0
-    // first calculating the term inside the sigmoid() function
-    _intermediate_vars[1] = d_JR_sigmoid(
-        _regional_params[2] * _regional_params[0] * _state_vars[1] - 
-        _regional_params[4] * _regional_params[0] * _state_vars[2] + 
-        _regional_params[0] * _global_params[0] * _state_vars[3],
-        d_JRc.r0
-    );
-    // then calculating y0_dot
+    // Calculate sigmoid terms
+    // sigm_y1_y2 = 2.0 * self.nu_max / (1.0 + exp(self.r * (self.v0 - (y1 - y2))))
+    _intermediate_vars[0] = 
+        2.0 * d_JRc.nu_max /
+        (1.0 + EXP(
+            d_JRc.r * (d_JRc.v0 - (_state_vars[1] - _state_vars[2]))
+        ));
+    // sigm_y0_1  = 2.0 * self.nu_max / (1.0 + exp(self.r * (self.v0 - (self.a_1 * self.J * y0))))
+    _intermediate_vars[1] = 
+        2.0 * d_JRc.nu_max /
+        (1.0 + EXP(
+            d_JRc.r * (d_JRc.v0 - (_regional_params[1] * _regional_params[0] * _state_vars[0]))
+        ));
+    // sigm_y0_3  = 2.0 * self.nu_max / (1.0 + exp(self.r * (self.v0 - (self.a_3 * self.J * y0))))
     _intermediate_vars[2] = 
-        d_JRc.A * d_JRc.a * _intermediate_vars[1] - 
+        2.0 * d_JRc.nu_max /
+        (1.0 + EXP(
+            d_JRc.r * (d_JRc.v0 - (_regional_params[3] * _regional_params[0] * _state_vars[0]))
+        ));
+
+    // Calculate derivatives (dX/dt)
+    // y0_dot = y3
+    _intermediate_vars[3] = _state_vars[3];
+    // y1_dot = y4
+    _intermediate_vars[4] = _state_vars[4];
+    // y2_dot = y5
+    _intermediate_vars[5] = _state_vars[5];
+    // y3_dot = self.A * self.a * sigm_y1_y2 - 2.0 * self.a * y3 - self.a ** 2 * y0
+    _intermediate_vars[6] = 
+        d_JRc.A * d_JRc.a * _intermediate_vars[0] - 
+        2.0 * d_JRc.a * _state_vars[3] - 
+        d_JRc.a * d_JRc.a * _state_vars[0];
+    // y4_dot = self.A * self.a * (self.mu + self.a_2 * self.J * sigm_y0_1 + lrc + short_range_coupling)
+    //            - 2.0 * self.a * y4 - self.a ** 2 * y1
+    _intermediate_vars[7] = 
+        d_JRc.A * d_JRc.a * (
+            d_JRc.mu + 
+            _regional_params[2] * _regional_params[0] * _intermediate_vars[1] + 
+            tmp_globalinput
+        ) - 
         2.0 * d_JRc.a * _state_vars[4] - 
-        d_JRc.a2 * _state_vars[0];
-    // Eq3
-    // x1_dot = y1
-    _intermediate_vars[3] = _state_vars[5];
-    // Eq4
-    // y1_dot = A * a * (p + sigmoid(C1c * C * x0, r1)) - \
-    //          2 * a * y1 - a**2 * x1
-    // first calculating the term inside the sigmoid() function
-    _intermediate_vars[4] = d_JR_sigmoid(
-        _regional_params[1] * _regional_params[0] * _state_vars[0],
-        d_JRc.r1
-    );
-    // then calculating y1_dot
-    _intermediate_vars[5] = 
-        d_JRc.A * d_JRc.a * (d_JRc.p + _intermediate_vars[4]) - 
-        2.0 * d_JRc.a * _state_vars[5] - 
-        d_JRc.a2 * _state_vars[1];
-    // Eq5
-    // x2_dot = y2
-    _intermediate_vars[6] = _state_vars[6];
-    // Eq6
-    // y2_dot = B * b * (sigmoid(C3c * C * x0, r2)) - \
-    //          2 * b * y2 - b**2 * x2
-    // first calculating the term inside the sigmoid() function
-    _intermediate_vars[7] = d_JR_sigmoid(
-        _regional_params[3] * _regional_params[0] * _state_vars[0],
-        d_JRc.r2
-    );
-    // then calculating y2_dot
+        d_JRc.a * d_JRc.a * _state_vars[1];
+    // y5_dot = self.B * self.b * (self.a_4 * self.J * sigm_y0_3) - 2.0 * self.b * y5 - self.b ** 2 * y2
     _intermediate_vars[8] = 
-        d_JRc.B * d_JRc.b * _intermediate_vars[7] - 
-        2.0 * d_JRc.b * _state_vars[6] - 
-        d_JRc.b2 * _state_vars[2];
-    // Eq7
-    // x3_dot = y3
-    _intermediate_vars[9] = _state_vars[7];
-    // Eq8
-    // y3_dot = A * ad * (M / norm @ sigmoid(C2c * C * x1 - C4c * C * x2 + C * G * x3, r0)) - \
-    //          2 * ad * y3 - ad**2 * x3
-    // where M / norm is already calculated and is available as tmp_globalinput
-    // first calculating the term inside the sigmoid() function
-    _intermediate_vars[10] = d_JR_sigmoid(
-        _regional_params[2] * _regional_params[0] * _state_vars[1] - 
-        _regional_params[4] * _regional_params[0] * _state_vars[2] + 
-        _regional_params[0] * _global_params[0] * _state_vars[3],
-        d_JRc.r0
-    );
-    // then calculating y3_dot
-    _intermediate_vars[11] = 
-        d_JRc.A * d_JRc.ad * (tmp_globalinput * _intermediate_vars[10]) - 
-        2.0 * d_JRc.ad * _state_vars[7] - 
-        d_JRc.ad2 * _state_vars[3];
+        d_JRc.B * d_JRc.b * (_regional_params[4] * _regional_params[0] * _intermediate_vars[2]) - 
+        2.0 * d_JRc.b * _state_vars[5] - 
+        d_JRc.b * d_JRc.b * _state_vars[2];
 
-    // noise term to be injected into y1
-    // noise_term = sqrt(dt) * A * a * sigma * noise[noise_idx]
-    _intermediate_vars[12] = d_JRc.sqrt_dt * d_JRc.A * d_JRc.a * 
-        _regional_params[5] * noise[noise_idx];
-
-    // Integration step
-    // x0
-    _state_vars[0] += d_JRc.dt * _intermediate_vars[0];
-    // x1
-    _state_vars[1] += d_JRc.dt * _intermediate_vars[3];
-    // x2
-    _state_vars[2] += d_JRc.dt * _intermediate_vars[6];
-    // x3
-    _state_vars[3] += d_JRc.dt * _intermediate_vars[9];
+    // Integration step (X = X + dX/dt * dt [+ noise_term])
     // y0
-    _state_vars[4] += d_JRc.dt * _intermediate_vars[2];
-    // y1 + noise
-    _state_vars[5] += d_JRc.dt * _intermediate_vars[5] + 
-        _intermediate_vars[12];
+    _state_vars[0] += d_JRc.dt * _intermediate_vars[3];
+    // y1
+    _state_vars[1] += d_JRc.dt * _intermediate_vars[4];
     // y2
-    _state_vars[6] += d_JRc.dt * _intermediate_vars[8];
-    // y3
-    _state_vars[7] += d_JRc.dt * _intermediate_vars[11];
+    _state_vars[2] += d_JRc.dt * _intermediate_vars[5];
+    // y3 + sigma * noise * sqrt(dt)
+    _state_vars[3] += d_JRc.dt * _intermediate_vars[6] + 
+        d_JRc.sqrt_dt * _regional_params[5] * noise[noise_idx];
+    // y4
+    _state_vars[4] += d_JRc.dt * _intermediate_vars[7];
+    // y5
+    _state_vars[5] += d_JRc.dt * _intermediate_vars[8];
 
-    // Calculate r_E
-    // pyrm = C2c * C * x1 - C4c * x2 + C * G * x3
-    // r_E = sigmoid(pyrm, r0)
-    _state_vars[8] = 
-        d_JR_sigmoid(
-            _regional_params[2] * _regional_params[0] * _state_vars[1] - 
-            _regional_params[4] * _regional_params[0] * _state_vars[2] + 
-            _regional_params[0] * _global_params[0] * _state_vars[3],
-            d_JRc.r0
-        );
+    // Calculate y1_y2 and s(y1_y2) which
+    // are the non-integrated state variables
+    // needed for BOLD and connectivity
+    // y1_y2 = y1 - y2
+    _state_vars[6] = _state_vars[1] - _state_vars[2];
+    // s_y1_y2 is the sigmoid of y1_y2 which will be the
+    // connectivity state variable, i.e., the output to
+    // the other connected nodes. This is calculated based
+    // on SigmoidalJansenRit.pre() method in TVB
+    // s_y1_y2 = self.cmin +
+    //         (self.cmax - self.cmin) / (1.0 + numpy.exp(self.r * (self.midpoint - (y1 - y2))))
+    _state_vars[7] = d_JRc.cmin + 
+        (d_JRc.cmax - d_JRc.cmin) / 
+        (1.0 + EXP(d_JRc.r * (d_JRc.midpoint - _state_vars[6])));
 }

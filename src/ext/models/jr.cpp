@@ -3,25 +3,22 @@
 JRModel::Constants JRModel::mc;
 
 void JRModel::init_constants(double dt) {
-    // Note that the time step passed from the core is in milliseconds,
-    // but in this model we need it in seconds.
-    mc.dt = dt / (double)1000.0;
-    mc.sqrt_dt = SQRT(mc.dt); 
-    mc.a = 100.0;
-    mc.ad = 50.0;
-    mc.b = 50.0;
-    mc.p = 5.4;
+    mc.dt = dt;
+    mc.sqrt_dt = SQRT(mc.dt);
     mc.A = 3.25;
     mc.B = 22.0;
-    mc.e0 = 2.5;
+    mc.a = 0.1;
+    mc.b = 0.05;
     mc.v0 = 6.0;
-    mc.r0 = 0.56;
-    mc.r1 = 0.56;
-    mc.r2 = 0.56;
-    // derived constants
-    mc.a2 = mc.a * mc.a;
-    mc.b2 = mc.b * mc.b;
-    mc.ad2 = mc.ad * mc.ad;
+    mc.nu_max = 0.0025;
+    mc.r = 0.56;
+    mc.p_min = 0.12;
+    mc.p_max = 0.32;
+    mc.mu = 0.22;
+    // sigmoidal coupling constants
+    mc.cmin = 0.0;
+    mc.cmax = 0.005;
+    mc.midpoint = 6.0;
 }
 
 void JRModel::h_init(
