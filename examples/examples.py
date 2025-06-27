@@ -97,6 +97,26 @@ def run_sim_group_kuramoto(N_SIMS=2, force_cpu=False):
     sim_group.save()
     return sim_group
 
+def run_sim_group_jr(N_SIMS=2, force_cpu=False):
+    nodes = 100
+    sim_group = sim.JRSimGroup(
+        duration=60,
+        TR=1,
+        window_size=10,
+        window_step=2,
+        sc=datasets.load_sc('strength', 'schaefer-100'),
+        sim_verbose=True,
+        force_cpu=force_cpu,
+        states_ts=False,
+        states_sampling=1,
+    )
+    sim_group.N = N_SIMS
+    sim_group._set_default_params()
+    sim_group.run()
+    emp_bold = datasets.load_bold('schaefer-100')
+    sim_group.score(emp_bold=emp_bold)
+    return sim_group
+
 def run_sim_group_many_nodes(nodes=9684, force_cpu=False):
     # generate reproducible random sc
     np.random.seed(0)

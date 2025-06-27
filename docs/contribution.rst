@@ -68,8 +68,10 @@ Define the ``{Model}SimGroup`` class in Python
 2.  The ``rWWExSimGroup`` class must define a method called ``_set_default_params`` which as
     its name implies, sets the default values for the model free parameters. This method
     should populate the dictionary ``self.param_lists`` with the default values for each
-    simulation (and in the case of regional parameters, each node in the simulation). Note
-    that it must also call the parent class method to set the default values for the other
+    simulation (and in the case of regional parameters, each node in the simulation). 
+    It accepts a parameter ``missing`` which if set to True (default), only should set
+    parameters that are currently None in ``self.param_lists``. 
+    Note that it must also call the parent class method to set the default values for the other
     parameters shared between different types of models (currently only ``v``, conduction
     velocity, is shared between all models, and is used when conduction delays are applied
     which is not the default). The method should look like this:
@@ -78,12 +80,29 @@ Define the ``{Model}SimGroup`` class in Python
 
         class rWWExSimGroup(SimGroup):
             ...
-            def _set_default_params(self):
-                super()._set_default_params()
-                self.param_lists["G"] = np.repeat(0.5, self.N)
-                self.param_lists["w"] = np.full((self.N, self.nodes), 0.9)
-                self.param_lists["I0"] = np.full((self.N, self.nodes), 0.3)
-                self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.001)
+            def _set_default_params(self, missing=True):
+                """
+                Set default parameters for the simulations.
+                
+                Parameters
+                ----------
+                missing: :obj:`bool`, optional
+                    If True (default), only sets parameters that are currently None
+                    in self.param_lists. If False, overwrites all listed defaults.
+                """
+                super()._set_default_params(missing=missing)
+                DEFAULTS = {
+                    "G": 0.5,
+                    "w": 0.9,
+                    "I0": 0.3,
+                    "sigma": 0.001,
+                }
+                for param, v in DEFAULTS.items():
+                    if (not missing) or (self.param_lists[param] is None):
+                        if param in self.global_param_names:
+                            self.param_lists[param] = np.repeat(v, self.N)
+                        else:
+                            self.param_lists[param] = np.full((self.N, self.nodes), v)
 
 
     Notice that the default values for the regional parameters are set as 2D arrays, where the first
