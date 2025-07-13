@@ -80,13 +80,3 @@ html_sourcelink_suffix = ''
 # -- Options for nbsphinx
 nbsphinx_execute = "never"
 # TODO: add nbsphinx_prolog to launch on Kaggle
-nbsphinx_epilog = r"""
-{% set docname = env.doc2path(env.docname) %}
-
-.. role:: raw-html(raw)
-    :format: html
-
-.. nbinfo::
-
-    This page was generated from `this Jupyter Notebook <{{docname}}>`_.
-"""
