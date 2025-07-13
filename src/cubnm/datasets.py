@@ -11,289 +11,282 @@ if sys.version_info >= (3, 9):
 else:
     from importlib_resources import files
 
-def _get_lut_full(parc):
-    """
-    Load the full (cortical+subcortical) lookup table for the given parcellation
+from cubnm import utils
 
-    Parameters
-    ----------
-    parc: {'schaefer-[100, 200, ... 1000]', 'aparc', 'glasser-360'}
-        Parcellation
-
-    Returns
-    -------
-    :obj:`pandas.DataFrame`
-        Full lookup table
-    """
-    parcs_dir = files("cubnm.data").joinpath("parcellations").as_posix()
-    lut_sctx_mics = pd.read_csv(os.path.join(parcs_dir, 'lut', 'lut_subcortical-cerebellum_mics.csv'))
-    lut_parc_mics = pd.read_csv(os.path.join(parcs_dir, 'lut', f'lut_{parc}_mics.csv'))
-    # order them similar to  micapipe/functions/connectome_slicer.R 
-    # (which is the order of parcels in full_sc)
-    lut_full = pd.concat([lut_parc_mics, lut_sctx_mics], axis=0).sort_values(by='mics')
-    # in micamics the subcortical+cortical SC is published and cerebellum parcels are excluded
-    # from the SC file => they should also be excluded from lut_full (which later determines
-    # labels of full_SC dataframe)
-    lut_full = lut_full.loc[~((lut_full['mics'] >= 100) & (lut_full['mics'] < 1000))]
-    return lut_full
-
-def _clean_micamics_sc(
-        micamics_dir, measure, parc, sub, exc_subcortex=True, 
-        norm='mean001', out_dir=None
+def load_sc(
+        measure, 
+        parc="schaefer-100", 
+        sub="group-train706", 
+        norm="mean",
     ):
     """
-    Clean SC matrix of the given subject and parcellation
-
-    Parameters
-    ----------
-    micamics_dir: :obj:`str`
-        Path to the directory containing the micapipe outputs of micamics
-        (https://osf.io/x7qr2 unzipped)
-    measure: {'strength', 'length'}
-        - 'strength': SC strength (normalized tract counts)
-        - 'length': SC tracts length
-    parc: {'schaefer-[100, 200, ... 1000]', 'aparc', 'glasser-360'}
-        Parcellation
-    sub: :obj:`str`
-        Subject ID, e.g. "sub-HC001"
-    exc_subcortex: :obj:`bool`, optional
-        Whether to exclude subcortical regions. Default: True
-    norm: {'mean001', 'none'}
-        SC strength normalization method
-        - 'mean001': normalize to mean 0.01. Default
-        - 'none': no normalization
-    out_dir: :obj:`str`, optional
-        Path to save the cleaned SC matrix
-
-    Returns
-    -------
-    :obj:`np.ndarray`
-        Structural connectivity (strength/length) matrix. Shape: (nodes, nodes)
-    """
-    sc_file_prefix = os.path.join(
-        micamics_dir, sub, 'ses-01', 'dwi', 
-        f'{sub}_ses-01_space-dwinative_atlas-{parc.replace("-", "")}_desc'
-    )
-    if measure == 'strength':
-        sc_file_path = sc_file_prefix + '-sc'
-    elif measure == 'length':
-        sc_file_path = sc_file_prefix + '-edgeLength'
-    full_sc = np.loadtxt(sc_file_path+'.txt', delimiter=',')
-    # label it and select indicated parcels
-    lut_full = _get_lut_full(parc)
-    # specify parcels to exclude
-    ## midline
-    exc_parcels = [1000, 2000]
-    ## for glasser-360 exclude the parcel L_H and R_H (hippocampus)
-    if parc == 'glasser-360':
-        exc_parcels += [1120, 2120]
-    ## for aparc remove L/R_corpuscallosum
-    elif parc == 'aparc':
-        exc_parcels += [1004, 2004]
-    ## exclude subcortex (mics 10-100) if indicated
-    if exc_subcortex:
-        exc_parcels += lut_full.loc[(lut_full['mics']) < 100, 'mics'].values.tolist()
-    exc_parcels = list(set(exc_parcels)) # drops duplicates
-    # exclude specified parcles and label
-    full_sc = pd.DataFrame(full_sc, index=lut_full['mics'], columns=lut_full['mics'])
-    sc = full_sc.drop(index=exc_parcels, columns=exc_parcels)
-    # make symmetric
-    sym_sc = (sc + sc.T)
-    # remove diagonal
-    sym_sc.values[np.diag_indices_from(sym_sc)] = 0
-    # order by hemispheres
-    all_hemi_parcs = {
-        'L': lut_full.loc[
-                ((lut_full['mics']>1000) & (lut_full['mics']<2000)) | (lut_full['mics']<49)
-                ,'mics'].values.tolist(),
-        'R': lut_full.loc[
-                (lut_full['mics']>2000) | ((lut_full['mics']>=49) & (lut_full['mics']<100))
-                ,'mics'].values.tolist()
-    }
-    hemi_parcs = {
-        'L': sym_sc.index.intersection(lut_full.loc[lut_full['mics'].isin(all_hemi_parcs['L']), 'mics']),
-        'R': sym_sc.index.intersection(lut_full.loc[lut_full['mics'].isin(all_hemi_parcs['R']), 'mics']),
-    }
-    if not exc_subcortex:
-        # order L -> R (instead of ctx -> sctx)
-        ordered_parcs = hemi_parcs['L'].tolist() + hemi_parcs['R'].tolist()
-        sym_sc = sym_sc.loc[ordered_parcs, ordered_parcs]
-    if measure == 'strength':
-        if norm == 'mean001':
-            # normalize to mean 0.01
-            sym_sc = (sym_sc / sym_sc.values.mean()) * 0.01
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-        out_fname = f'{sub}_ses-01_space-dwinative_atlas-{parc.replace("-", "")}'
-        if not exc_subcortex:
-            out_fname += '_sctx'
-        if measure == 'strength':
-            out_fname += f'_norm-{norm}'
-        out_fname += f'_desc-{measure}.npz'
-        np.savez_compressed(os.path.join(out_dir, out_fname), sym_sc.values)
-    return sym_sc.values
-
-def _clean_micamics_bold(micamics_dir, parc, sub, exc_subcortex=True, out_dir=None):
-    """
-    Clean BOLD time series of the given subject and parcellation
-
-    Parameters
-    ----------
-    micamics_dir: :obj:`str`
-        Path to the directory containing the micapipe outputs of micamics
-        (https://osf.io/x7qr2 unzipped)
-    parc: {'schaefer-[100, 200, ... 1000]', 'aparc', 'glasser-360'}
-        Parcellation
-    sub: :obj:`str`
-        Subject ID, e.g. "sub-HC001"
-    exc_subcortex: :obj:`bool`, optional
-        Whether to exclude subcortical regions. Default: True
-    out_dir: :obj:`str`, optional
-        Path to save the cleaned BOLD time series
-
-    Returns
-    -------
-    :obj:`np.ndarray`
-        BOLD time series. Shape: (nodes, volumes)
-    """
-    bold_file_path = os.path.join(
-        micamics_dir, sub, 'ses-01', 'func', 
-        f'{sub}_ses-01_space-fsnative_atlas-{parc.replace("-", "")}_desc-timeseries.txt'
-    )
-    bold = np.loadtxt(bold_file_path, delimiter=',')
-    # label it and select indicated parcels
-    lut_full = _get_lut_full(parc)
-    # specify parcels to exclude
-    ## midline
-    exc_parcels = [1000, 2000]
-    ## for glasser-360 exclude the parcel L_H and R_H (hippocampus)
-    if parc == 'glasser-360':
-        exc_parcels += [1120, 2120]
-    ## for aparc remove L/R_corpuscallosum
-    elif parc == 'aparc':
-        exc_parcels += [1004, 2004]
-    ## exclude subcortex (mics 10-100) if indicated
-    if exc_subcortex:
-        exc_parcels += lut_full.loc[(lut_full['mics']) < 100, 'mics'].values.tolist()
-    exc_parcels = list(set(exc_parcels)) # drops duplicates
-    # transpose to (nodes,time), exclude specified parcles and label
-    bold = pd.DataFrame(bold.T, index=lut_full['mics'])
-    bold = bold.drop(index=exc_parcels)
-    # order by hemispheres
-    all_hemi_parcs = {
-        'L': lut_full.loc[
-                ((lut_full['mics']>1000) & (lut_full['mics']<2000)) | (lut_full['mics']<49)
-                ,'mics'].values.tolist(),
-        'R': lut_full.loc[
-                (lut_full['mics']>2000) | ((lut_full['mics']>=49) & (lut_full['mics']<100))
-                ,'mics'].values.tolist()
-    }
-    hemi_parcs = {
-        'L': bold.index.intersection(lut_full.loc[lut_full['mics'].isin(all_hemi_parcs['L']), 'mics']),
-        'R': bold.index.intersection(lut_full.loc[lut_full['mics'].isin(all_hemi_parcs['R']), 'mics']),
-    }
-    if not exc_subcortex:
-        # order L -> R (instead of ctx -> sctx)
-        ordered_parcs = hemi_parcs['L'].tolist() + hemi_parcs['R'].tolist()
-        bold = bold.loc[ordered_parcs]
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-        out_fname = f'{sub}_ses-01_space-fsnative_atlas-{parc.replace("-", "")}'
-        if not exc_subcortex:
-            out_fname += '_sctx'
-        out_fname += '_desc-bold.npz'
-        np.savez_compressed(os.path.join(out_dir, out_fname), bold.values)
-    return bold.values
-
-def load_sc(measure, parc, sub="sub-HC001", exc_subcortex=True, 
-        norm="mean001", micamics_dir=None):
-    """
-    Load example structural connectivity matrix from MICA-MICs dataset
-    (https://www.nature.com/articles/s41597-022-01682-y)
+    Load example structural connectivity matrix from HCP-YA dataset
 
     Parameters
     ----------
     measure: {'strength', 'length'}
-        - 'strength': SC strength (normalized tract counts)
-        - 'length': SC tracts length
-    parc: {'schaefer-[100, 200, ... 1000]', 'aparc', 'glasser-360'}
-        Parcellation
+        Structural connectivity measure.
+
+        - ``'strength'``: SC strength (tract counts)
+        - ``'length'``: SC tracts length
+
+    parc: :obj:`str`
+        Parcellation. Currently only ``'schaefer-100'`` is supported.
     sub: :obj:`str`
-        Subject ID, e.g. "sub-HC001"
-    exc_subcortex: :obj:`bool`, optional
-        Whether to exclude subcortical regions. Default: True
-    norm: {'mean001', 'none'}
-        SC strength normalization method
-        - 'mean001': normalize to mean 0.01. Default
-        - 'none': no normalization
-    micamics_dir: :obj:`str`, optional
-        Path to the directory containing the micapipe outputs of micamics
-        (https://osf.io/x7qr2 unzipped). Required if subjects other than 
-        'sub-HC001' are requested and/or exc_subcortex is False and/or
-        norm is 'none'.
+        Subject or group ID. Two subjects and two group-averaged 
+        matrices are currently included:
+
+        - ``'100206'``
+        - ``'100307'``
+        - ``'group-train706'``
+        - ``'group-test303'``
+
+    norm: {'mean', None}
+        SC strength normalization method.
+        Only used when ``measure`` is ``'strength'``.
+
+        - ``'mean'``: normalize to mean 0.01. Default
+        - ``None``: no normalization
 
     Returns
     -------
-    :obj:`np.ndarray` or :obj:`str`
-        Structural connectivity matrix or path to its
-        text file. Shape: (nodes, nodes)
+    :obj:`np.ndarray`
+        Structural connectivity matrix. Shape: (nodes, nodes)
     """
-    if (sub != "sub-HC001") | (not exc_subcortex) | (norm == 'none'):
-        if not micamics_dir:
-            raise ValueError("micamics_dir is required")
-        return _clean_micamics_sc(
-            micamics_dir, measure, parc, sub, exc_subcortex=exc_subcortex, out_dir=None
-        )
-    fname = f'{sub}_ses-01_space-dwinative_atlas-{parc.replace("-", "")}'
-    if not exc_subcortex:
-        fname += '_sctx'
+    path = (
+        files("cubnm.data").joinpath('hcp')
+        .joinpath('sc').joinpath(sub)
+        .joinpath(f'ctx_parc-{parc}_desc-{measure}.npz')
+    ).as_posix()
+    try:
+        mat = np.load(path)['arr_0']
+    except FileNotFoundError as e:
+        raise ValueError(
+            f"Structural connectivity {measure} matrix in {parc} "
+            f"for {sub} is not included in the toolbox."
+        ) from e
+    # normalization
     if measure == 'strength':
-        fname += f'_norm-{norm}'
-    fname += f'_desc-{measure}.npz'
-    path = files("cubnm.data").joinpath('micamics').joinpath('sc').joinpath(fname).as_posix()
-    mat = np.load(path)['arr_0']
+        if norm == 'mean':
+            mat /= (mat.mean() * 100)
     return mat
 
-
-def load_bold(parc, sub="sub-HC001", exc_subcortex=True, micamics_dir=None):
+def load_bold(parc="schaefer-100", sub="100206", ses="REST1_LR"):
     """
-    Load example BOLD data from the MICA-MICs dataset
-    (https://www.nature.com/articles/s41597-022-01682-y)
+    Load example BOLD data from the HCP-YA dataset
 
     Parameters
     --------
-    parc: 'schaefer-100'
-        parcellation
+    parc: :obj:`str`
+        Parcellation. Currently only ``'schaefer-100'`` is available.
     sub: :obj:`str`
-        Subject ID, e.g. "sub-HC001"
-    exc_subcortex: :obj:`bool`, optional
-        Whether to exclude subcortical regions. Default: True
-    micamics_dir: :obj:`str`, optional
-        Path to the directory containing the micapipe outputs of micamics
-        (https://osf.io/x7qr2 unzipped). Required if subjects other than 
-        'sub-HC001' are requested and/or exc_subcortex is False.
+        Subject ID. Currently two subjects are included:
+
+        - ``'100206'``
+        - ``'100307'``
+
+    ses: {'REST1_LR', 'REST2_LR'}
+        Imaging session.
 
     Returns
     --------
-    :obj:`np.ndarray` or :obj:`str`
-        Path to a text file or numpy array including
-        the BOLD signal. Shape: (nodes, volumes)
+    :obj:`np.ndarray`
+        The BOLD signal. Shape: (nodes, volumes)
     """
-    if (sub != "sub-HC001") | (not exc_subcortex):
-        if not micamics_dir:
-            raise ValueError("micamics_dir is required")
-        return _clean_micamics_bold(
-            micamics_dir, parc, sub, exc_subcortex=exc_subcortex, out_dir=None
-        )
-    fname = f'{sub}_ses-01_space-fsnative_atlas-{parc.replace("-", "")}'
-    if not exc_subcortex:
-        fname += '_sctx'
-    fname += '_desc-bold.npz'
-    path = files("cubnm.data").joinpath('micamics').joinpath('bold').joinpath(fname).as_posix()
-    out = np.load(path)['arr_0']
+    path = (
+        files("cubnm.data").joinpath('hcp').joinpath('bold')
+        .joinpath(sub).joinpath(ses)
+        .joinpath(f'ctx_parc-{parc}_desc-bold.npz')
+    ).as_posix()
+    try:
+        out = np.load(path)['arr_0']
+    except FileNotFoundError as e:
+        raise ValueError(
+            f"BOLD data for {parc} and {sub} in session {ses} "
+            f"is not included in the toolbox."
+        ) from e
     return out
 
-def load_maps(names, parc, norm="minmax"):
+def load_fc(
+        parc="schaefer-100", 
+        sub="group-train706", 
+        ses="REST",
+        exc_interhemispheric=False,
+        return_tril=True,
+    ):
+    """
+    Load example FC from the HCP-YA dataset
+
+    Parameters
+    --------
+    parc: :obj:`str`
+        Parcellation. Currently only ``'schaefer-100'`` is available.
+    sub: :obj:`str`
+        Subject or group ID. Two subjects and two group-averaged 
+        matrices are currently included:
+
+        - ``'100206'``
+        - ``'100307'``
+        - ``'group-train706'``
+        - ``'group-test303'``
+
+    ses: {'REST1_LR', 'REST2_LR', 'REST'}
+        Imaging session. For subject-level data currently
+        only ``'REST1_LR'``, and ``'REST2_LR'`` are included and
+        for group-level data only ``'REST'`` is included.
+        ``'REST'`` includes the data averaged across
+        all sessions.
+    exc_interhemispheric: :obj:`bool`
+        Whether to exclude interhemispheric connections. Default: False
+    return_tril: :obj:`bool`
+        Whether to return the lower triangular part of the FC matrix.
+
+    Returns
+    --------
+    :obj:`np.ndarray`
+        Functional connectivity matrix or its lower triangular part.
+        Shape: (nodes, nodes) or (node_pairs,)
+    """
+    if "group-" in sub:
+        if exc_interhemispheric:
+            tags = '_exc-inter'
+        else:
+            tags = ''
+        path = (
+            files("cubnm.data").joinpath('hcp').joinpath('fc')
+            .joinpath(sub).joinpath(ses)
+            .joinpath(f'ctx_parc-{parc}{tags}_desc-fc.npz')
+        ).as_posix()
+        try:
+            fc = np.load(path)['arr_0']
+        except FileNotFoundError as e:
+            raise ValueError(
+                f"Functional connectivity matrix for {parc} "
+                f"and {sub} in session {ses} is not included in the toolbox."
+            ) from e
+        if return_tril:
+            fc = fc[np.tril_indices(fc.shape[0], -1)]
+            if exc_interhemispheric:
+                fc = fc[~np.isnan(fc)]
+        return fc
+    else:
+        # load bold
+        bold = load_bold(
+            parc=parc, 
+            sub=sub,
+            ses=ses, 
+        )
+        # calculate FC
+        fc = utils.calculate_fc(
+            bold, 
+            exc_interhemispheric=exc_interhemispheric,
+            return_tril=return_tril
+        )
+        return fc
+
+def load_fcd(
+        parc="schaefer-100", 
+        sub="group-train706",
+        ses="REST", 
+        window_size=30,
+        window_step=5,
+        drop_edges=True,
+        exc_interhemispheric=False,
+        return_tril=True,
+    ):
+    """
+    Load example FCD from the HCP-YA dataset
+
+    Parameters
+    --------
+    parc: :obj:`str`
+        Parcellation. Currently only ``'schaefer-100'`` is available.
+    sub: :obj:`str`
+        Subject or group ID. Two subjects and two group-averaged 
+        matrices are currently included:
+
+        - ``'100206'``
+        - ``'100307'``
+        - ``'group-train706'``
+        - ``'group-test303'``
+
+    ses: {'REST1_LR', 'REST2_LR', 'REST'}
+        Imaging session. For subject-level data currently
+        only ``'REST1_LR'``, and ``'REST2_LR'`` are included and
+        for group-level data only ``'REST'`` is included.
+        ``'REST'`` includes the data pooled across
+        all sessions.
+    window_size: :obj:`int`
+        dynamic FC window size (in seconds)
+        will be converted to N TRs (nearest even number)
+        The actual window size is number of TRs + 1 (including center)
+    window_step: :obj:`int`
+        dynamic FC window step (in seconds)
+        will be converted to N TRs
+    drop_edges: :obj:`bool`
+        drop edge windows which have less than window_size volumes
+    exc_interhemispheric: :obj:`bool`
+        Whether to exclude interhemispheric connections. Default: False
+    return_tril: :obj:`bool`
+        Whether to return the lower triangular part of the FCD matrix.
+        Ignored when ``sub`` is a group (in this case
+        the return matrix is pooled from FCD lower triangles of
+        individual subjects).
+
+    Returns
+    --------
+    :obj:`np.ndarray`
+        Functional connectivity dynamics matrix or its lower triangular part.
+        Shape: (nodes, nodes) or (node_pairs,)
+    """
+    if "group-" in sub:
+        if not return_tril:
+            print(
+                "Warning: return_tril is ignored when sub='group-all'. "
+                "Returning lower triangle."
+            )
+        if exc_interhemispheric:
+            tags = '_exc-inter'
+        else:
+            tags = ''
+        tags += f'_window-{window_size}_step-{window_step}'
+        path = (
+            files("cubnm.data").joinpath('hcp').joinpath('fcd')
+            .joinpath(sub).joinpath(ses)
+            .joinpath(f'ctx_parc-{parc}{tags}_desc-fcdtril.npz')
+        ).as_posix()
+        try:
+            fcd = np.load(path)['arr_0']
+        except FileNotFoundError as e:
+            raise ValueError(
+                f"Functional connectivity dynamics for {parc} "
+                f"and {sub} in session {ses} using window size {window_size} "
+                f"and step {window_step} is not included in the toolbox."
+            ) from e
+        return fcd
+    else:
+        # create it from bold
+        bold = load_bold(
+            parc=parc, 
+            sub=sub, 
+            ses=ses
+        )
+        # convert window size and step to TRs
+        TR = 0.72
+        window_size_TRs = int(np.round(window_size / (TR*2))) * 2
+        window_step_TRs = int(np.round(window_step / TR))
+        # calculate FCD
+        fcd = utils.calculate_fcd(
+            bold, 
+            window_size=window_size_TRs, 
+            window_step=window_step_TRs,
+            drop_edges=drop_edges,
+            exc_interhemispheric=exc_interhemispheric,
+            return_tril=return_tril
+        )
+        return fcd
+
+def load_maps(names, parc="schaefer-100", norm="minmax"):
     """
     Loads example heterogeneity maps
 
@@ -301,18 +294,23 @@ def load_maps(names, parc, norm="minmax"):
     ----------
     names: :obj:`str` or :obj:`list`
         One or more maps selected from this list:
-        - 'myelinmap'
-        - 'thickness'
-        - 'fcgradient01'
-        - 'genepc1'
-        - 'nmda'
-        - 'gabaa'
-        - 'yeo7'
-    parc: {'schaefer-100'}
-        parcellation
+
+        - ``'myelinmap'``
+        - ``'thickness'``
+        - ``'fcgradient01'``
+        - ``'genepc1'``
+        - ``'nmda'``
+        - ``'gabaa'``
+        - ``'yeo7'``
+
+    parc: :obj:`str`
+        Parcellation. Currently only ``'schaefer-100'`` is supported.
     norm: {'zscore', 'minmax', None}
-        - 'zscore': maps are z-score normalized
-        - 'minmax': maps are min-max normalized to [0, 1]
+        Map normalization method applied across nodes.
+
+        - ``'zscore'``: maps are z-score normalized
+        - ``'minmax'``: maps are min-max normalized to [0, 1]
+        - ``None``: no normalization
 
     Returns
     --------
@@ -323,10 +321,10 @@ def load_maps(names, parc, norm="minmax"):
     Notes
     -----
     For more information and code on how these maps were
-    obtained and parcellated see `utils.datasets.load_maps`
+    obtained and parcellated see ``utils.datasets.load_maps``
     in https://github.com/amnsbr/eidev. The set of maps included
     here are limited and provided just as examples. We recommend 
-    users to use `neuromaps` and similar tools to obtain and 
+    users to use ``neuromaps`` and similar tools to obtain and 
     parcellate further maps.
     """
     # TODO: Add other parcellations

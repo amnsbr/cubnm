@@ -26,10 +26,10 @@ METRIC_LABELS = {
     'cost': 'Cost',
     '-cost': '- Cost',
     '+gof': 'Goodness-of-fit',
-    '+fc_corr': r'FC$_corr$',
-    '-fcd_ks': r'- FCD$_KS$',
-    '-fc_diff': r'- FC$_diff$',
-    '-fc_normec': r'- FC$_normEC'
+    '+fc_corr': r'FC$_{corr}$',
+    '-fcd_ks': r'- FCD$_{KS}$',
+    '-fc_diff': r'- FC$_{diff}$',
+    '-fc_normec': r'- FC$_{normEC}'
 }
 
 class BNMProblem(Problem):
@@ -73,40 +73,50 @@ class BNMProblem(Problem):
             Motion outliers can either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
-        het_params: :obj:`list` of :obj:`str`, optional
+        het_params: :obj:`list` of :obj:`str`
             which regional parameters are heterogeneous across nodes
-        maps: :obj:`str`, optional
+        maps: :obj:`str`
             path to heterogeneity maps as a text file or a numpy array.
             Shape: (n_maps, nodes).
             If provided one free parameter per regional parameter per 
             each map will be added.
         maps_coef_range: 'auto' or :obj:`tuple` or :obj:`list` of :obj:`tuple`
-            - 'auto': uses (-1/max, -1/min) for maps with positive and negative
+            Range of coefficients for the maps in map-based heterogeneity 
+            (i.e., when ``maps`` is provided).
+
+            - ``'auto'``: uses (-1/max, -1/min) for maps with positive and negative
               values (assuming they are z-scored) and (0, 1) otherwise
             - :obj:`tuple`: uses the same range for all maps
             - :obj:`list` of :obj:`tuple`: n-map element list specifying the range
               of coefficients for each map
+
         het_params_range: 'same' or :obj:`dict` of :obj:`tuple` or None
             Forced range of regional parameters (after map-based
             heterogeneity is applied). The regional parameter values
             across nodes will be normalized into this range (if out
             of range).
-            - 'same': uses the same range as provided in `params`.
+
+            - ``'same'``: uses the same range as provided in `params`.
             - :obj:`dict` of :obj:`tuple`: uses the specified range
               for each regional parameter. The keys must be the all
-              `het_params` and the values must be tuples of (min, max).
-            - None: does not normalize the regional parameters.
+              ``het_params`` and the values must be tuples of (min, max).
+            - ``None``: does not normalize the regional parameters.
               This may lead to infeasible parameters, e.g. negative
               values, with some combinations of maps and map coeficients.
-        node_grouping: {None, 'node', 'sym', :obj:`str`, :obj:`np.ndarray`}, optional
-            - None: does not use region-/group-specific parameters
-            - 'node': each node has its own regional free parameters
-            - 'sym': uses the same regional free parameters for each pair of symmetric nodes
+
+        node_grouping: {None, 'node', 'sym', :obj:`str`, :obj:`np.ndarray`}
+            Defines groups of nodes which have the same regional
+            parameters.
+
+            - ``None``: does not use region-/group-specific parameters
+            - ``'node'``: each node has its own regional free parameters
+            - ``'sym'``: uses the same regional free parameters for each pair of symmetric nodes
               (e.g. L and R hemispheres). Assumes symmetry  of parcels between L and R
               hemispheres.
             - :obj:`str`: path to a text file including node grouping array. Shape: (nodes,)
             - :obj:`np.ndarray`: a numpy array. Shape: (nodes,)
-        multiobj: :obj:`bool`, optional
+
+        multiobj: :obj:`bool`
             instead of combining the objectives into a single objective function
             (via summation) defines each objective separately. This must not be used
             with single-objective optimizers
@@ -346,10 +356,10 @@ class BNMProblem(Problem):
 
         Parameters
         ----------
-        include_sim_group: :obj:`bool`, optional
+        include_sim_group: :obj:`bool`
             whether to include the configuration of the
             associated :class:`cubnm.sim.SimGroup`
-        include_N: :obj:`bool`, optional
+        include_N: :obj:`bool`
             whether to include the current population size
             in the configuration
 
@@ -538,15 +548,16 @@ class BNMProblem(Problem):
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
         out: :obj:`dict`
-            the output dictionary to store the results with keys 'F' and 'G'.
-            Currently only 'F' (cost) is used.
+            the output dictionary to store the results with keys ``'F'`` and ``'G'``.
+            Currently only ``'F'`` (cost) is used.
         *args, **kwargs
-            additional arguments passed to the evaluation function
-            kwargs may include:
+            additional arguments passed to the evaluation function,
+            which may include:
+
             - scores: :obj:`list`
                 an empty list passed on to evaluation function to store
                 the individual goodness of fit measures
-            - skip_run: :obj:`bool`, optional
+            - skip_run: :obj:`bool`
                 will only be true in batch optimization where the simulations
                 are already run and only the GOF calculation is needed
         """
@@ -571,7 +582,7 @@ class BNMProblem(Problem):
         X: :obj:`np.ndarray`
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
-        skip_run: :obj:`bool`, optional
+        skip_run: :obj:`bool`
             will only be true in batch optimization where the simulations
             are already run and only the GOF calculation is needed
 
@@ -616,9 +627,9 @@ class Optimizer(ABC):
 
         Parameters
         ---------
-        save_opt: :obj:`bool`, optional
+        save_opt: :obj:`bool`
             reruns and saves the optimal simulation(s) data
-        save_obj: :obj:`bool`, optional
+        save_obj: :obj:`bool`
             saves the optimizer object which also includes the simulation
             data of all simulations and therefore can be large file.
             Warning: this file is very large.
@@ -967,7 +978,7 @@ class Optimizer(ABC):
             the measure to color the points by. If None, the points
             will be colored by the ``config['color']`` parameter and
             have the same color
-        title: :obj:`str`, optional
+        title: :obj:`str`
             the title of the plot. If 'default', the title will be
             set to the measure clean label. If None, no title will be set.
         opt: :obj:`bool`
@@ -977,7 +988,7 @@ class Optimizer(ABC):
             the generation to plot. If None, the entire history
             will be plotted. When using a :class:`cubnm.optimize.GridOptimizer`
             this is ignored.
-        config: :obj:`dict`, optional
+        config: :obj:`dict`
             plotting configuration. The following keys are available
             with default values:
             
@@ -1023,9 +1034,9 @@ class Optimizer(ABC):
             - zoom: :obj:`float`, 0.85
                 zoom level of the plot
 
-        ax: :obj:`matplotlib.axes.Axes`, optional
+        ax: :obj:`matplotlib.axes.Axes`
             the axes to plot on. For 3D must have
-            `projection='3d'`.
+            ``projection='3d'``.
             If None, a new figure and axes will be created. 
 
         Returns
@@ -1086,14 +1097,14 @@ class Optimizer(ABC):
         ----------
         measure: :obj:`str`
             the measure to plot
-        legend: :obj:`bool`, optional
+        legend: :obj:`bool`
             whether to show the legend
-        ax: :obj:`matplotlib.axes.Axes`, optional
+        ax: :obj:`matplotlib.axes.Axes`
             the axes to plot on. If None, a new figure and axes will be created.
-        line_kws: :obj:`dict`, optional
+        line_kws: :obj:`dict`
             additional keyword arguments passed to the line plot
             of the median across generations
-        scatter_kws: :obj:`dict`, optional
+        scatter_kws: :obj:`dict`
             additional keyword arguments passed to the scatter plot
             of the individual particles across generations
         """
@@ -1129,7 +1140,7 @@ class Optimizer(ABC):
         _scatter_kws.update(scatter_kws)
         # TODO: consider using matplotlib for all
         # plotting to avoid dependency on seaborn
-        sns.scatterplot(data=plot_data, x='gen', y=measure, label='Particles', **_scatter_kws)
+        sns.scatterplot(data=plot_data, x='gen', y=measure, label='Particles', ax=ax, **_scatter_kws)
         # aesthetics
         ax.set_ylabel(METRIC_LABELS.get(measure, measure))
         ax.set_xlabel('Generation')
@@ -1213,7 +1224,7 @@ class GridOptimizer(Optimizer):
 
         Parameters
         ---------
-        save_avg_states: :obj:`bool`, optional
+        save_avg_states: :obj:`bool`
             saves the average states of all simulations
         **kwargs
             additional keyword arguments passed to the :meth:`cubnm.optimizer.Optimizer.save`
@@ -1246,20 +1257,20 @@ class PymooOptimizer(Optimizer):
 
         Parameters:
         ----------
-        termination: :obj:`pymoo.termination.Termination`, optional
+        termination: :obj:`pymoo.termination.Termination`
             The termination object that defines the stopping criteria for 
             the optimization process.
             If not provided, the termination criteria will be based on the 
             number of iterations (`n_iter`).
-        n_iter: :obj:`int`, optional
+        n_iter: :obj:`int`
             The maximum number of iterations for the optimization process.
             This parameter is only used if `termination` is not provided.
-        seed: :obj:`int`, optional
+        seed: :obj:`int`
             The seed value for the random number generator used by the optimizer.
-        print_history: :obj:`bool`, optional
+        print_history: :obj:`bool`
             Flag indicating whether to print the optimization history during the 
             optimization process.
-        save_history_sim: :obj:`bool`, optional
+        save_history_sim: :obj:`bool`
             Flag indicating whether to save the simulation data of each iteration.
             Default is False to avoid consuming too much memory across iterations.
         **kwargs
@@ -1289,7 +1300,7 @@ class PymooOptimizer(Optimizer):
         ----------
         problem: :obj:`cubnm.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
-        pymoo_verbose: :obj:`bool`, optional
+        pymoo_verbose: :obj:`bool`
             Flag indicating whether to enable verbose output from pymoo. Default is False.
         **kwargs
             Additional keyword arguments to be passed to the algorithm setup method.
@@ -1373,15 +1384,15 @@ class CMAESOptimizer(PymooOptimizer):
         ----------
         popsize: :obj:`int`
             The population size for the optimizer
-        x0: array-like, optional
+        x0: array-like
             The initial guess for the optimization.
             If None (default), the initial guess will be estimated based on
             `popsize` random samples as the first generation
-        sigma: :obj:`float`, optional
+        sigma: :obj:`float`
             The initial step size for the optimization
-        use_bound_penalty: :obj:`bool`, optional
+        use_bound_penalty: :obj:`bool`
             Whether to use a bound penalty for the optimization
-        algorithm_kws: :obj:`dict`, optional
+        algorithm_kws: :obj:`dict`
             Additional keyword arguments for the CMAES algorithm
         **kwargs
             Additional keyword arguments
@@ -1466,7 +1477,7 @@ class NSGA2Optimizer(PymooOptimizer):
         ----------
         popsize: int
             The population size for the optimizer
-        algorithm_kws: dict, optional
+        algorithm_kws: dict
             Additional keyword arguments for the NSGA2 algorithm
         kwargs: dict
             Additional keyword arguments for the base class
@@ -1491,12 +1502,12 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
         Will be mapped one-to-one with the optimizers.
         If not a list, the same problem will be used in all optimizers
         and optimizers must be a list.
-    save: :obj:`bool`, optional
+    save: :obj:`bool`
         save the optimizers and their results. This is more efficient
         than saving each optimizer separately as saving involves
         rerunning the optimal simulations, which is done in a batch in
         this function.
-    setup_kwargs: :obj:`dict`, optional
+    setup_kwargs: :obj:`dict`
         kwargs passed on to :meth:`cubnm.optimize.PymooOptimizer.setup_problem`
         
     Returns

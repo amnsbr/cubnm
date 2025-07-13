@@ -28,11 +28,11 @@ if has_cupy:
 
         Parameters
         ----------
-        A_sorted : `obj`:cp.ndarray
+        A_sorted: :obj:`cp.ndarray`
             2D array of sorted values. Shape: (n_rows, m)
-        x_values : `obj`:cp.ndarray
+        x_values: :obj:`cp.ndarray`
             2D array of values to calculate CDF for. Shape: (n_rows, k)
-        out : `obj`:cp.ndarray
+        out: :obj:`cp.ndarray`
             2D array to store the CDF values. Shape: (n_rows, k)
         """
         # get current row and x_value index (col)
@@ -108,8 +108,9 @@ def is_jupyter():
     """
     This function checks if the current environment is a Jupyter notebook.
 
-    Returns:
-        bool: True if the current environment is a Jupyter notebook, False otherwise.
+    Returns
+    -------
+    :obj:`bool`
     """
     try:
         from IPython import get_ipython
@@ -127,8 +128,9 @@ def get_bw_params(src):
     Parameters
     ----------
     src: {'friston2003', 'heinzle2016-3T'}
-        - 'friston2003': Friston et al. 2003
-        - 'heinzle2016-3T': Heinzle et al. 2016, 3T parameters
+        Source of the Balloon-Windkessel model parameters.
+        - ``'friston2003'``: Friston et al. 2003
+        - ``'heinzle2016-3T'``: Heinzle et al. 2016, 3T parameters
 
     Returns
     -------
@@ -164,17 +166,17 @@ def calculate_fc(
     bold: :obj:`np.ndarray`
         cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
         Motion outliers should either be excluded or replaced with zeros.
-    exc_interhemispheric: :obj:`bool`, optional
+    exc_interhemispheric: :obj:`bool`
         exclude interhemispheric connections
-    return_tril: :obj:`bool`, optional
+    return_tril: :obj:`bool`
         return only the lower triangular part of the FCD matrix
 
     Returns
     -------
-    fc: :obj:`np.ndarray`
+    :obj:`np.ndarray`
         FC dynamics matrix. 
         Shape: (nodes, nodes) or (n_node_pairs,)
-        if return_tril is True
+        if ``return_tril`` is ``True``
     """
     # z-score non-zero volumes in each node
     outlier_vols = bold.sum(axis=0) == 0
@@ -213,32 +215,32 @@ def calculate_fcd(
         cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
         Motion outliers should either be excluded (not recommended as it disrupts
         the temporal structure) or replaced with zeros.
-    window_size: :obj:`int`, optional
+    window_size: :obj:`int`
         dynamic FC window size (in TR)
         Must be even. The actual window size is +1 (including center).
-    window_step: :obj:`int`, optional
+    window_step: :obj:`int`
         dynamic FC window step (in TR)
-    drop_edges: :obj:`bool`, optional
+    drop_edges: :obj:`bool`
         drop edge windows which have less than window_size volumes
-    outlier_threshold: :obj:`float`, optional
+    outlier_threshold: :obj:`float`
         threshold for the proportion of motion outliers in a window
         that would lead to discarding the window
-    exc_interhemispheric: :obj:`bool`, optional
+    exc_interhemispheric: :obj:`bool`
         exclude interhemispheric connections
-    return_tril: :obj:`bool`, optional
+    return_tril: :obj:`bool`
         return only the lower triangular part of the FCD matrix
-    return_dfc: :obj:`bool`, optional
+    return_dfc: :obj:`bool`
         return dynamic FCs as well
 
     Returns
     -------
-    fcd_matrix: :obj:`np.ndarray`
+    :obj:`np.ndarray`
         FC dynamics matrix. 
         Shape: (n_windows, n_windows) or (n_window_pairs,)
-        if return_tril is True
-    window_fcs: :obj:`np.ndarray`
+        if ``return_tril`` is ``True``
+    :obj:`np.ndarray`
         dynamic FCs. Shape: (nodes, nodes, n_windows)
-        Returned only if return_dfc is True
+        Returned only if ``return_dfc`` is ``True``
     """
     # TODO: make non-even window size work
     assert window_size % 2 == 0, "Window size must be even"
@@ -304,17 +306,17 @@ def fcd_ks_device(sim_fcd_trils, emp_fcd_tril, usable_mem=None):
 
     Parameters
     ----------
-    sim_fcd_trils : :obj:`cp.ndarray`
+    sim_fcd_trils: :obj:`cp.ndarray`
         2D array of simulated FCDs. Shape: (n_simulations, m1)
-    emp_fcd_tril : :obj:`cp.ndarray`
+    emp_fcd_tril: :obj:`cp.ndarray`
         1D array of empirical FCD. Shape: (m2)
-    usable_mem : :obj:`int`, optional
+    usable_mem: :obj:`int`
         available GPU memory in bytes
         If not provided, 80% of the free GPU memory will be used.
     
     Returns
     -------
-    ks : :obj:`np.ndarray`
+    :obj:`np.ndarray`
         Kolmogorov-Smirnov distances. Shape: (n_simulations,)
     """
     if not has_cupy:
@@ -413,17 +415,17 @@ def fc_corr_device(sim_fc_trils, emp_fc_tril, usable_mem=None):
 
     Parameters
     ----------
-    sim_fc_trils : :obj:`cp.ndarray`
+    sim_fc_trils: :obj:`cp.ndarray`
         2D array of simulated FCs. Shape: (n_simulations, n_pairs)
-    emp_fc_tril : :obj:`cp.ndarray`
+    emp_fc_tril: :obj:`cp.ndarray`
         1D array of empirical FC. Shape: (n_pairs)
-    usable_mem : :obj:`int`, optional
+    usable_mem: :obj:`int`
         available GPU memory in bytes
         If not provided, 80% of the free GPU memory will be used.
     
     Returns
     -------
-    fc_corr : :obj:`np.ndarray`
+    :obj:`np.ndarray`
         Pearson correlation coefficients. Shape: (n_simulations,)
     """
     if not has_cupy:

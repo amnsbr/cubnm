@@ -81,76 +81,79 @@ class SimGroup:
             BOLD TR (in seconds)
         sc: :obj:`str` or :obj:`np.ndarray`
             path to structural connectome strengths (as an unlabled .txt/.npy)
-            or a numpy array
-            Shape: (nodes, nodes)
+            or a numpy array. Shape: (nodes, nodes)
             If asymmetric, rows are sources and columns are targets.
-        sc_dist: :obj:`str` or :obj:`np.ndarray`, optional
+        sc_dist: :obj:`str` or :obj:`np.ndarray`
             path to structural connectome distances (as an unlabled .txt)
-            or a numpy array
-            Shape: (nodes, nodes)
-            If provided v (velocity) will be a free parameter and there
-            will be delay in inter-regional connections
+            or a numpy array. Shape: (nodes, nodes)
+            If provided ``'v'`` (velocity) will be a free parameter and there
+            will be delay in inter-regional connections.
             If asymmetric, rows are sources and columns are targets.
-        out_dir: {:obj:`str` or 'same' or None}, optional
+        out_dir: {:obj:`str` or 'same' or None}
+            output directory
+
             - :obj:`str`: will create a directory in the provided path
-            - 'same': will create a directory named based on sc
+            - ``'same'``: will create a directory named based on sc
                 (only should be used when sc is a path and not a numpy array)
-            - None: will not have an output directory (and cannot save outputs)
-        dt: :obj:`decimal.Decimal` or :obj:`str`, optional
+            - ``None``: will not have an output directory (and cannot save outputs)
+
+        dt: :obj:`decimal.Decimal` or :obj:`str`
             model integration time step (in msec)
-        bw_dt: :obj:`decimal.Decimal` or :obj:`str`, optional
+        bw_dt: :obj:`decimal.Decimal` or :obj:`str`
             Ballon-Windkessel integration time step (in msec)
-        ext_out: :obj:`bool`, optional
+        ext_out: :obj:`bool`
             return model state variables to self.sim_states
-        states_ts: :obj:`bool`, optional
+        states_ts: :obj:`bool`
             return time series of model states to self.sim_states
             Note that this will increase the memory usage and is not
             recommended for large number of simulations (e.g. in a grid search)
-        states_sampling: :obj:`float`, optional
+        states_sampling: :obj:`float`
             sampling rate of model states in seconds.
             Default is None, which uses BOLD TR as the sampling rate.
-        noise_out: :obj:`bool`, optional
+        noise_out: :obj:`bool`
             return noise time series
-        do_fc: :obj:`bool`, optional
+        do_fc: :obj:`bool`
             calculate simulated functional connectivity (FC)
-        do_fcd: :obj:`bool`, optional
+        do_fcd: :obj:`bool`
             calculate simulated functional connectivity dynamics (FCD)
-        window_size: :obj:`int`, optional
+        window_size: :obj:`int`
             dynamic FC window size (in seconds)
             will be converted to N TRs (nearest even number)
             The actual window size is number of TRs + 1 (including center)
-        window_step: :obj:`int`, optional
+        window_step: :obj:`int`
             dynamic FC window step (in seconds)
             will be converted to N TRs
-        sim_seed: :obj:`int`, optional
+        sim_seed: :obj:`int`
             seed used for the noise simulation
-        exc_interhemispheric: :obj:`bool`, optional
+        exc_interhemispheric: :obj:`bool`
             excluded interhemispheric connections from sim FC and FCD calculations
-        force_cpu: :obj:`bool`, optional
+        force_cpu: :obj:`bool`
             use CPU for the simulations (even if GPU is available). If set
             to False the program might use GPU or CPU depending on GPU
             availability
-        force_gpu: :obj:`bool`, optional
+        force_gpu: :obj:`bool`
             on some HPC/HTC systems occasionally GPUtil might not detect an 
             available GPU device. Use this if there is a GPU available but
             is not being used for the simulation. If set to True but a GPU
             is not available will lead to errors.
-        gof_terms: :obj:`list` of :obj:`str`, optional
+        gof_terms: :obj:`list` of :obj:`str`
             list of goodness-of-fit terms to be used for scoring. May include:
-            - '-fcd_ks': negative Kolmogorov-Smirnov distance of FCDs
-            - '+fc_corr': Pearson correlation of FCs
-            - '-fc_diff': negative absolute difference of FC means
-            - '-fc_normec': negative Euclidean distance of FCs \
+
+            - ``'-fcd_ks'``: negative Kolmogorov-Smirnov distance of FCDs
+            - ``'+fc_corr'``: Pearson correlation of FCs
+            - ``'-fc_diff'``: negative absolute difference of FC means
+            - ``'-fc_normec'``: negative Euclidean distance of FCs \
                 divided by max EC [sqrt(n_pairs*4)]
-        bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}, optional
+
+        bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}
             see :func:`cubnm.utils.get_bw_params` for details
-        bold_remove_s: :obj:`float`, optional
+        bold_remove_s: :obj:`float`
             remove the first bold_remove_s seconds from the simulated BOLD
             in FC, FCD and mean state calculations (but the entire BOLD will
             be returned to .sim_bold)
-        fcd_drop_edges: :obj:`bool`, optional
+        fcd_drop_edges: :obj:`bool`
             drop the edge windows in FCD calculations
-        noise_segment_length: :obj:`float` or None, optional
+        noise_segment_length: :obj:`float` or None
             in seconds, length of the noise segments in the simulations
             The noise segment will be repeated after shuffling
             of nodes and time points. To generate noise for the entire
@@ -159,21 +162,22 @@ class SimGroup:
             in a different noise array even if seed is fixed (but
             fixed combination of seed and noise_segment_length will
             result in reproducible noise)
-        sim_verbose: :obj:`bool`, optional
+        sim_verbose: :obj:`bool`
             verbose output of the simulation including details of
-            simulations and a progress bar. This may slightly make
-            the simulations slower.
-        progress_interval: :obj:`int`, optional
+            simulations and a progress bar.
+        progress_interval: :obj:`int`
             msec; interval of progress updates in the simulation
-            Only used if sim_verbose is True
+            Only used if ``sim_verbose`` is ``True``
 
         Attributes
         ---------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - global parameters with shape (N_SIMS,)
-                - regional parameters with shape (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+
+            - global parameters with shape (N_SIMS,)
+            - regional parameters with shape (N_SIMS, nodes)
+            - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
         Additional attributes will be added after running the simulations.
         See :func:`cubnm.sim.SimGroup._process_out` for details.
 
@@ -505,10 +509,10 @@ class SimGroup:
 
         Parameters
         ----------
-        include_N: :obj:`bool`, optional
+        include_N: :obj:`bool`
             include N in the output config
             is ignored when for_reinit is True
-        for_reinit: :obj:`bool`, optional
+        for_reinit: :obj:`bool`
             include the parameters that need reinitialization of the
             simulation core session if changed
 
@@ -560,7 +564,7 @@ class SimGroup:
 
         Returns
         -------
-        model_config : :obj:`dict`
+        model_config: :obj:`dict`
             Dictionary of internal model configurations
         """
         model_config = {
@@ -599,7 +603,7 @@ class SimGroup:
 
         Parameters
         ----------
-        force_reinit: :obj:`bool`, optional
+        force_reinit: :obj:`bool`
             force reinitialization of the session.
             At the beginning of each session (when `cubnm` is imported)
             some variables are initialized on CPU/GPU and reused in
@@ -699,29 +703,36 @@ class SimGroup:
         Parameters
         ----------
         out: :obj:`tuple`
-            output of `run_simulations` function
+            output of ``cubnm._core.run_simulations`` function
 
         Notes
         -----
         The simulation outputs are assigned to the following object attributes:
-            - init_time: :obj:`float`
-                initialization time of the simulations
-            - run_time: :obj:`float`
-                run time of the simulations
-            - sim_bold : :obj:`np.ndarray`
-                simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
-        If `do_fc` is True, additionally includes:
-            - sim_fc_trils : :obj:`np.ndarray`
-                simulated FC lower triangle. Shape: (N_SIMS, n_pairs)
-        If `do_fcd` is True, additionally includes:
-            - sim_fcd_trils : :obj:`np.ndarray`
-                simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
-        If `ext_out` is True, additionally includes:
-            - sim_states: :obj:`dict` of :obj:`np.ndarray`
-                simulated state variables with keys as state names
-                and values as arrays with the shape (N_SIMS, nodes)
-                when `states_ts` is False, and (N_SIMS, duration/TR, nodes)
-                when `states_ts` is True
+
+        - init_time: :obj:`float`
+            initialization time of the simulations
+        - run_time: :obj:`float`
+            run time of the simulations
+        - sim_bold: :obj:`np.ndarray`
+            simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
+
+        If ``do_fc`` is ``True``, additionally includes:
+
+        - sim_fc_trils: :obj:`np.ndarray`
+            simulated FC lower triangle. Shape: (N_SIMS, n_pairs)
+
+        If ``do_fcd`` is ``True``, additionally includes:
+
+        - sim_fcd_trils: :obj:`np.ndarray`
+            simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
+
+        If ``ext_out`` is True, additionally includes:
+
+        - sim_states: :obj:`dict` of :obj:`np.ndarray`
+            simulated state variables with keys as state names
+            and values as arrays with the shape (N_SIMS, nodes)
+            when ``states_ts`` is False, and (N_SIMS, duration/TR, nodes)
+            when ``states_ts`` is True
         """
         # assign the output to object attributes
         self.__dict__.update(out)
@@ -916,7 +927,7 @@ class SimGroup:
         ----------
         key: :obj:`int`
             index of the simulation to slice
-        inplace: :obj:`bool`, optional
+        inplace: :obj:`bool`
             the object will be sliced in place
             and therefore the data of other simulations
             will be removed. Otherwise a new object
@@ -986,10 +997,10 @@ class SimGroup:
 
         Parameters
         ----------
-        X : :obj:`np.ndarray`
+        X: :obj:`np.ndarray`
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
-        out : :obj:`dict`
+        out: :obj:`dict`
             the output dictionary to store the results with keys 'F' and 'G'.
             Currently only 'F' (cost) is used.
         *args, **kwargs
@@ -1028,11 +1039,11 @@ class SimGroup:
             Motion outliers should either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
-        force_cpu: :obj:`bool`, optional
+        force_cpu: :obj:`bool`
             force CPU for the calculations. Otherwise if GPU is available
             some of the scores (including "+fc_corr", "-fcd_ks") 
             will be calculated on GPU.
-        usable_mem: :obj:`int`, optional
+        usable_mem: :obj:`int`
             amount of available GPU memory to be used in bytes.
             If None, 80% of the free memory will be used.
 
@@ -1161,7 +1172,7 @@ class SimGroup:
 
         Parameters
         ----------
-        cpu_gpu_identity: :obj:`bool`, optional
+        cpu_gpu_identity: :obj:`bool`
             indicates whether configs are for CPU/GPU identity tests
             in which case force_cpu is not included in the configs
             since tests will be done on both CPU and GPU
@@ -1227,7 +1238,7 @@ class rWWSimGroup(SimGroup):
                  *args, 
                  do_fic = True,
                  max_fic_trials = 0,
-                 fic_penalty_scale = 1.0,
+                 fic_penalty_scale = 0.5,
                  fic_i_sampling_start = 1000,
                  fic_i_sampling_end = 10000,
                  fic_init_delta = 0.02,
@@ -1238,21 +1249,22 @@ class rWWSimGroup(SimGroup):
 
         Parameters
         ---------
-        do_fic: :obj:`bool`, optional
+        do_fic: :obj:`bool`
             do analytical (Demirtas 2019) & numerical (Deco 2014) 
             Feedback Inhibition Control.
             If provided wIE parameters will be ignored
-        max_fic_trials: :obj:`int`, optional
+        max_fic_trials: :obj:`int`
             maximum number of trials for FIC numerical adjustment.
             If set to 0, FIC will be done only analytically
-        fic_penalty_scale: :obj:`bool`, optional
+        fic_penalty_scale: :obj:`bool`
             how much deviation from FIC target mean rE of 3 Hz
             is penalized. Set to 0 to disable FIC penalty.
-        fic_i_sampling_start: :obj:`int`, optional
+        fic_i_sampling_start: :obj:`int`
             starting time of numerical FIC I_E sampling (msec)
-        fic_i_sampling_end: :obj:`int`, optional
+        fic_i_sampling_end: :obj:`int`
             end time of numerical FIC I_E sampling (msec)
-        fic_init_delta: :obj:`float`, optional
+        fic_init_delta: :obj:`float`
+            initial delta for numerical FIC adjustment.
         *args, **kwargs:
             see :class:`cubnm.sim.SimGroup` for details
 
@@ -1260,11 +1272,11 @@ class rWWSimGroup(SimGroup):
         ----------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - 'G': global coupling. Shape: (N_SIMS,)
-                - 'wEE': local excitatory self-connection strength. Shape: (N_SIMS, nodes)
-                - 'wEI': local inhibitory self-connection strength. Shape: (N_SIMS, nodes)
-                - 'wIE': local excitatory to inhibitory connection strength. Shape: (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+                - ``'G'``: global coupling. Shape: (N_SIMS,)
+                - ``'wEE'``: local excitatory self-connection strength. Shape: (N_SIMS, nodes)
+                - ``'wEI'``: local inhibitory self-connection strength. Shape: (N_SIMS, nodes)
+                - ``'wIE'``: local excitatory to inhibitory connection strength. Shape: (N_SIMS, nodes)
+                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
         -------
@@ -1485,12 +1497,12 @@ class rWWSimGroup(SimGroup):
 
         Parameters
         ----------
-        X : :obj:`np.ndarray`
+        X: :obj:`np.ndarray`
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
-        out : :obj:`dict`
-            the output dictionary to store the results with keys 'F' and 'G'.
-            Currently only 'F' (cost) is used.
+        out: :obj:`dict`
+            the output dictionary to store the results with keys ``'F'`` and ``'G'``.
+            Currently only ``'F'`` (cost) is used.
         *args, **kwargs
         """
         # Note: scores (inidividual GOF measures) is passed on in kwargs 
@@ -1512,7 +1524,7 @@ class rWWSimGroup(SimGroup):
 
         Parameters
         ----------
-        cpu_gpu_identity: :obj:`bool`, optional
+        cpu_gpu_identity: :obj:`bool`
             indicates whether configs are for CPU/GPU identity tests
             in which case force_cpu is not included in the configs
             since tests will be done on both CPU and GPU
@@ -1575,11 +1587,11 @@ class rWWExSimGroup(SimGroup):
         ----------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - 'G': global coupling. Shape: (N_SIMS,)
-                - 'w': local excitatory self-connection strength. Shape: (N_SIMS, nodes)
-                - 'I0': local external input current. Shape: (N_SIMS, nodes)
-                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+                - ``'G'``: global coupling. Shape: (N_SIMS,)
+                - ``'w'``: local excitatory self-connection strength. Shape: (N_SIMS, nodes)
+                - ``'I0'``: local external input current. Shape: (N_SIMS, nodes)
+                - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
+                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
         -------
@@ -1634,7 +1646,7 @@ class KuramotoSimGroup(SimGroup):
         ---------
         *args, **kwargs:
             see :class:`cubnm.sim.SimGroup` for details
-        random_init_theta : :obj:`bool`, optional
+        random_init_theta: :obj:`bool`
             Set initial theta by randomly sampling from a uniform distribution 
             [0, 2*pi].
 
@@ -1642,12 +1654,12 @@ class KuramotoSimGroup(SimGroup):
         ----------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - 'G': global coupling. Shape: (N_SIMS,)
-                - 'init_theta': initial theta. Randomly sampled from a uniform distribution 
-                    [0, 2*pi] by default. Shape: (N_SIMS, nodes)
-                - 'omega': intrinsic frequency. Shape: (N_SIMS, nodes)
-                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+                - ``'G'``: global coupling. Shape: (N_SIMS,)
+                - ``'init_theta'``: initial theta. Randomly sampled from a uniform distribution 
+                  [0, 2*pi] by default. Shape: (N_SIMS, nodes)
+                - ``'omega'``: intrinsic frequency. Shape: (N_SIMS, nodes)
+                - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
+                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
         -------
@@ -1783,7 +1795,7 @@ class MultiSimGroupMixin:
         Divides simulations outputs across individual
         children SimGroup objects which will respectively
         convert the output to attributes with correct shapes,
-        names and types. See `cubnm.sim.SimGroup._process_out`
+        names and types. See :func:`cubnm.sim.SimGroup._process_out`
         for details.
 
         Parameters
@@ -1836,18 +1848,19 @@ class MultiSimGroupMixin:
 def create_multi_sim_group(sim_group_cls):
     """
     Dynamically creates a MultiSimGroup class by combining
-    a model's specific <Model>SimGroup class with MultiSimGroupMixin,
+    a model's specific ``<Model>SimGroup`` class with 
+    :class:`cubnm.sim.MultiSimGroupMixin`,
     which can be used in batch optimization.
 
     Parameters
     ----------
     sim_group_cls: :obj:`type`
-        e.g. rWWSimGroup, rWWExSimGroup, KuramotoSimGroup
+        :class:`cubnm.sim.SimGroup` subclass, e.g. :class:`cubnm.sim.rWWSimGroup`
     
     Returns
     -------
     MultiSimGroup: :obj:`type`
-        MultiSimGroup class that can be used in batch optimization
+        :class:`MultiSimGroup` class that can be used in batch optimization
     """
     MultiSimGroup = type(
         'MultiSimGroup',
