@@ -768,7 +768,7 @@ class SimGroup:
                 state_averages[state_var] = (
                     self.sim_states[state_var]
                     [:, self.n_states_samples_remove:, :]
-                    .mean(axis=1).mean(axis=2)
+                    .mean(axis=1).mean(axis=1)
                 )
             else:
                 state_averages[state_var] = self.sim_states[state_var].mean(axis=1)
