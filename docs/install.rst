@@ -21,7 +21,7 @@ Install via:
     
 In addition to the numerical simulations and FC/FCD calculation supported in the core functions, the package also supports calculation of empirical to simulated
 FC correlation as well as FCD Kolmogorov-Smirnov distance on GPUs. This is especially useful when working with very large grids. 
-To use these additional features, `CuPy <https://docs.cupy.dev/en/stable/install.html#installing-cupy>`_ and `Numba <https://numba.readthedocs.io/en/stable/user/installing.html>` 
+To use these additional features, `CuPy <https://docs.cupy.dev/en/stable/install.html#installing-cupy>`_ and `Numba <https://numba.readthedocs.io/en/stable/user/installing.html>`_ 
 in addition to CUDA Toolkit must also be available. ``cupy`` and ``numba`` can be additionally installed with the package using:
 
 .. code-block:: bash

@@ -10,7 +10,6 @@
    :caption: Contents:
 
    install
-   quickstart
    tutorials
    cli
    API References <autoapi/cubnm/index>
