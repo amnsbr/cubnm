@@ -17,8 +17,8 @@ def run_sim_group(N_SIMS=2, force_cpu=False):
     )
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
-    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.param_lists['w_p'] = np.full((N_SIMS, nodes), 1.2)
+    sim_group.param_lists['J_N'] = np.full((N_SIMS, nodes), 0.15)
     sim_group.run()
     emp_bold = datasets.load_bold('schaefer-100')
     sim_group.score(emp_bold=emp_bold)
@@ -42,8 +42,8 @@ def run_sim_group_delay(N_SIMS=2, force_cpu=False):
     sim_group.N = N_SIMS
     sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
     sim_group.param_lists['v'] = np.repeat(0.5, N_SIMS)
-    sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
-    sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+    sim_group.param_lists['w_p'] = np.full((N_SIMS, nodes), 1.2)
+    sim_group.param_lists['J_N'] = np.full((N_SIMS, nodes), 0.15)
     sim_group.run()
     emp_bold = datasets.load_bold('schaefer-100')
     sim_group.score(emp_bold=emp_bold)
@@ -132,9 +132,9 @@ def run_grid():
     problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (0.5, 2.5),
-            'wEE': 0.15,
-            'wEI': (0.21, 0.22),
+            'G': (0.001, 10.0),
+            'w_p': 1.2,
+            'J_N': (0.001, 0.5),
         },
         duration = 60,
         TR = 1,
@@ -145,16 +145,16 @@ def run_grid():
         out_dir = './grid_optimizer',
     )
     go = optimize.GridOptimizer()
-    go.optimize(problem, grid_shape={'G': 4, 'wEI': 2})
+    go.optimize(problem, grid_shape={'G': 4, 'J_N': 2})
     return go
 
 def run_grid_het():
     problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (0.5, 2.5),
-            'wEE': 0.15,
-            'wEI': (0.21, 0.42),
+            'G': (0.001, 10.0),
+            'w_p': 1.2,
+            'J_N': (0.001, 0.5),
         },
         duration = 60,
         TR = 1,
@@ -162,7 +162,7 @@ def run_grid_het():
         window_step=2,
         sc = datasets.load_sc('strength', 'schaefer-100'),
         emp_bold = datasets.load_bold('schaefer-100'),
-        het_params = ['wEI'],
+        het_params = ['J_N'],
         maps = datasets.load_maps(
             ['myelinmap'],
             'schaefer-100', norm='minmax'
@@ -170,16 +170,16 @@ def run_grid_het():
         out_dir = './grid_optimizer',
     )
     go = optimize.GridOptimizer()
-    go.optimize(problem, grid_shape={'G': 2, 'wEI': 2, 'wEIscale0': 2})
+    go.optimize(problem, grid_shape={'G': 2, 'J_N': 2, 'J_Nscale0': 2})
     return go
 
 def run_grid_delay():
     problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (0.5, 2.5),
-            'wEE': 0.15,
-            'wEI': (0.21, 0.22),
+            'G': (0.001, 10.0),
+            'w_p': 1.2,
+            'J_N': (0.001, 0.5),
             'v': (0.5, 2.5),
         },
         duration = 60,
@@ -193,42 +193,17 @@ def run_grid_delay():
         out_dir = './grid_optimizer',
     )
     go = optimize.GridOptimizer()
-    go.optimize(problem, grid_shape={'G': 2, 'wEI': 2, 'v': 2})
+    go.optimize(problem, grid_shape={'G': 2, 'J_N': 2, 'v': 2})
     return go
-
-def run_problem():
-    emp_bold = datasets.load_bold('schaefer-100')
-    problem = optimize.BNMProblem(
-        model = 'rWW',
-        params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
-        },
-        emp_bold = emp_bold,
-        duration = 60,
-        TR = 1,
-        window_size=10,
-        window_step=2,
-        sc = datasets.load_sc('strength', 'schaefer-100'),
-    )
-    # assume that optimizer is using 10 particles
-    problem.sim_group.N = 10
-    # synthesize example X with dims (particles, free_params)
-    X = np.vstack([np.linspace(1.0, 3.0, 10), np.linspace(0.05, 0.5, 10)]).T
-    # synthesize out dictionary
-    out = {'F': None, 'G': None}
-    problem._evaluate(X, out)
-    return problem, out
 
 def run_cmaes_optimizer():
     emp_bold = datasets.load_bold('schaefer-100')
     problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
+            'G': (0.001, 10.0),
+            'w_p': (0, 2.0),
+            'J_N': (0.001, 0.5),
         },
         emp_bold = emp_bold,
         duration = 60,
@@ -269,13 +244,13 @@ def run_cmaes_optimizer_het(force_cpu=False, use_bound_penalty=False):
     problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
+            'G': (0.001, 10.0),
+            'w_p': (0, 2.0),
+            'J_N': (0.001, 0.5),
             'v': (0.5, 8.0)
         },
         emp_bold = emp_bold,
-        het_params = ['wEE', 'wEI'],
+        het_params = ['w_p', 'J_N'],
         maps = datasets.load_maps(
             ['myelinmap', 'fcgradient01'],
             'schaefer-100', norm='minmax'
@@ -302,12 +277,12 @@ def run_cmaes_optimizer_regional(node_grouping='sym'):
     problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': (0.05, 0.75),
+            'G': (0.001, 10.0),
+            'w_p': (0, 2.0),
+            'J_N': (0.001, 0.5),
         },
         emp_bold = emp_bold,
-        het_params = ['wEE', 'wEI'],
+        het_params = ['w_p', 'J_N'],
         node_grouping = node_grouping,
         duration = 60,
         TR = 1,
@@ -326,13 +301,13 @@ def run_nsga2_optimizer_het(force_cpu=False):
     problem = optimize.BNMProblem(
         model = 'rWW',
         params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
+            'G': (0.001, 10.0),
+            'w_p': (0, 2.0),
+            'J_N': (0.001, 0.5),
             'v': (0.5, 8.0)
         },
         emp_bold = emp_bold,
-        het_params = ['wEE', 'wEI'],
+        het_params = ['w_p', 'J_N'],
         maps = datasets.load_maps(
             ['myelinmap', 'fcgradient01'], 
             'schaefer-100', norm='minmax'),
@@ -360,9 +335,9 @@ def run_batch_optimize_diff_sub():
     problem_kwargs = dict(
         model = 'rWW',
         params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
+            'G': (0.001, 10.0),
+            'w_p': (0, 2.0),
+            'J_N': (0.001, 0.5),
         },
         duration = 60,
         TR = 1,
@@ -399,9 +374,9 @@ def run_batch_optimize_identical():
     problem_kwargs = dict(
         model = 'rWW',
         params = {
-            'G': (1.0, 3.0),
-            'wEE': (0.05, 0.5),
-            'wEI': 0.15,
+            'G': (0.001, 10.0),
+            'w_p': (0, 2.0),
+            'J_N': (0.001, 0.5),
         },
         duration = 60,
         TR = 1,

@@ -19,12 +19,12 @@ emp_bold = datasets.load_bold('schaefer-100')
 problem_args = dict(
     model = 'rWW',
     params = {
-        'G': (0.001, 5.0),
-        'wEE': (0.001, 3.0),
-        'wEI': (0.001, 3.0),
+        'G': (0.001, 10.0),
+        'w_p': (0, 2.0),
+        'J_N': (0.001, 0.5),
     },
     emp_bold = emp_bold,
-    het_params = ['wEE', 'wEI'],
+    het_params = ['w_p', 'J_N'],
     maps = datasets.load_maps(
         ['myelinmap', 'fcgradient01'],
         'schaefer-100', norm='minmax'
@@ -43,7 +43,7 @@ grid_problem_args.update({
         ['myelinmap'],
         'schaefer-100', norm='minmax'
     ),
-    'het_params': ['wEE']
+    'het_params': ['J_N']
 })
 
 def get_test_params(for_batch=False):
@@ -106,7 +106,7 @@ def test_opt(optimizer_name):
     # run optimization
     if optimizer_name == 'Grid':
         optimizer = Optimizer()
-        optimizer.optimize(problem, grid_shape={'G': 3, 'wEE': 2, 'wEI': 2, 'wEEscale0': 2})
+        optimizer.optimize(problem, grid_shape={'G': 3, 'w_p': 2, 'J_N': 2, 'J_Nscale0': 2})
     else:    
         optimizer = Optimizer(popsize=10, n_iter=2, seed=1)
         optimizer.setup_problem(problem)

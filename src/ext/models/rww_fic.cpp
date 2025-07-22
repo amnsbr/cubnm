@@ -123,7 +123,7 @@ void analytical_fic_het(
         gsl_vector * w_IE_out, bool * _unstable) {
     int nodes = sc->size1;
 
-    gsl_matrix *_K_EE, *_K_EI, *_w_EE_matrix;
+    gsl_matrix *_K_EE, *_w_EE_matrix;
     gsl_vector *_w_II, *_w_IE, *_w_EI, *_w_EE, *_I0, *_I_ext,
                 *_I0_E, *_I0_I, *_I_E_ss, *_I_I_ss, *_S_E_ss, *_S_I_ss,
                 *_r_I_ss, *_K_EE_row;
@@ -149,16 +149,20 @@ void analytical_fic_het(
     // repeat(&_r_E_ss, r_E_ss, nodes);
     repeat(&_r_I_ss, rWWModel::mc.r_I_ss, nodes);
     
-    // set K_EE and K_EI
+    // set K_EE which defines the scaled strength of
+    // incoming excitatory connections to every node (row)
+    // from itself (w_EE) and other nodes (via SC * G * J_N[i])
     _K_EE = gsl_matrix_alloc(nodes, nodes);
-
     gsl_matrix_memcpy(_K_EE, sc);
-    gsl_matrix_scale(_K_EE, G * rWWModel::mc.J_NMDA);
+    gsl_matrix_scale(_K_EE, G);
+    // scale each row (incoming connections to a node)
+    // by its J_N value (which may be homogeneous or heterogeneous across nodes).
+    // As w_EI happens to be equal to J_N, we use the _w_EI
+    // vector for this purpose
+    gsl_matrix_scale_rows(_K_EE, _w_EI);
+    // add self connections defined based on w_EE (which is w_p * J_N)
     make_diag(&_w_EE_matrix, _w_EE);
     gsl_matrix_add(_K_EE, _w_EE_matrix);
-    // gsl_matrix_free(_w_EE_matrix);
-    make_diag(&_K_EI, _w_EI);
-
 
     // analytic FIC
     gsl_function F;
@@ -202,7 +206,7 @@ void analytical_fic_het(
 
     gsl_vector_memcpy(w_IE_out, _w_IE);
 
-    gsl_matrix_free(_K_EE); gsl_matrix_free(_K_EI); gsl_matrix_free(_w_EE_matrix);
+    gsl_matrix_free(_K_EE); gsl_matrix_free(_w_EE_matrix);
     gsl_vector_free(_w_II); gsl_vector_free(_w_IE); gsl_vector_free(_w_EI); gsl_vector_free(_w_EE);
     gsl_vector_free(_I0); gsl_vector_free(_I_ext);
     gsl_vector_free(_I0_E); gsl_vector_free(_I0_I); gsl_vector_free(_I_E_ss); gsl_vector_free(_I_I_ss);

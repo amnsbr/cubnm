@@ -1155,17 +1155,17 @@ class GridOptimizer(Optimizer):
 
         Example
         -------
-        Run a grid search of rWW model with 10 G and 10 wEE values
-        with fixed wEI: ::
+        Run a grid search of rWW model with 100 simulations running
+        a 4 by 5 by 5 grid search of parameters G, w_p and J_N: ::
 
             from cubnm import datasets, optimize
 
             problem = optimize.BNMProblem(
                 model = 'rWW',
                 params = {
-                    'G': (0.5, 2.5),
-                    'wEE': (0.05, 0.75),
-                    'wEI': 0.21,
+                    'G': (0.001, 10.0),
+                    'w_p': (0, 2.0),
+                    'J_N': (0.001, 0.5),
                 },
                 duration = 60,
                 TR = 1,
@@ -1175,7 +1175,7 @@ class GridOptimizer(Optimizer):
                 emp_bold = datasets.load_bold('schaefer-100'),
             )
             go = optimize.GridOptimizer()
-            go.optimize(problem, grid_shape=10)
+            go.optimize(problem, grid_shape={'G': 4, 'w_p': 5, 'J_N': 5})
             go.save()
         """
         pass
@@ -1400,16 +1400,16 @@ class CMAESOptimizer(PymooOptimizer):
         Example
         -------
         Run a CMAES optimization for 10 iterations with 
-        a population size of 20: ::
+        a population size of 20 on a 3D model (rWW, homogeneous): ::
 
             from cubnm import datasets, optimize
 
             problem = optimize.BNMProblem(
                 model = 'rWW',
                 params = {
-                    'G': (0.5, 2.5),
-                    'wEE': (0.05, 0.75),
-                    'wEI': 0.15,
+                    'G': (0.001, 10.0),
+                    'w_p': (0, 2.0),
+                    'J_N': (0.001, 0.5),
                 },
                 emp_bold = datasets.load_bold('schaefer-100'),
                 duration = 60,
@@ -1529,9 +1529,9 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
         problem_kwargs = dict(
             model = 'rWW',
             params = {
-                'G': (1.0, 3.0),
-                'wEE': (0.05, 0.5),
-                'wEI': 0.15,
+                'G': (0.001, 10.0),
+                'w_p': (0, 2.0),
+                'J_N': (0.001, 0.5),
             },
             duration = 60,
             TR = 1,

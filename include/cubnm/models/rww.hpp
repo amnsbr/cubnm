@@ -14,7 +14,6 @@ public:
     struct Constants {
         double dt;
         double sqrt_dt;
-        double J_NMDA;
         double a_E;
         double b_E;
         double d_E;
