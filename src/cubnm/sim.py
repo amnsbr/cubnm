@@ -1297,7 +1297,7 @@ class rWWSimGroup(SimGroup):
             )
             sim_group.N = 1
             sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['w_p'] = np.full((N_SIMS, nodes), 1.2)
+            sim_group.param_lists['w_p'] = np.full((N_SIMS, nodes), 1.4)
             sim_group.param_lists['J_N'] = np.full((N_SIMS, nodes), 0.15)
             sim_group.run()
         """
@@ -1374,7 +1374,7 @@ class rWWSimGroup(SimGroup):
         """
         super()._set_default_params()
         self.param_lists["G"] = np.repeat(0.5, self.N)
-        self.param_lists["w_p"] = np.full((self.N, self.nodes), 1.2)
+        self.param_lists["w_p"] = np.full((self.N, self.nodes), 1.4)
         self.param_lists["J_N"] = np.full((self.N, self.nodes), 0.15)
         if not self.do_fic:
             self.param_lists["wIE"] = np.full((self.N, self.nodes), 1.0)
