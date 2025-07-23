@@ -236,6 +236,10 @@ class SimGroup:
         self.noise_out = noise_out
         self.sim_verbose = sim_verbose
         self.progress_interval = progress_interval
+        # get number of available hardware
+        self.avail_gpus = utils.avail_gpus()
+        self.avail_cpus = multiprocessing.cpu_count()
+        # set number of nodes
         self.nodes = self.sc.shape[0]
         # load sc distance if provided, and set delay flag accordingly
         self.input_sc_dist = sc_dist
@@ -265,9 +269,6 @@ class SimGroup:
             self.out_dir = self.input_sc.replace(".txt", "").replace(".npy", "")
         else:
             self.out_dir = self.input_out_dir
-        # get number of available hardware
-        self.avail_gpus = utils.avail_gpus()
-        self.avail_cpus = multiprocessing.cpu_count()
         # keep track of the last N and config to determine if force_reinit
         # is needed in the next run if any are changed
         self.last_N = 0
