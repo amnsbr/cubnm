@@ -981,8 +981,8 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
     // memory was allocated to later free them accordingly
     // (otherwise if changed in the next call, freeing memory
     // will be done incorrectly and may access invalid memory)
-    m->alloc_N_SCs = m->N_SCs; // keep track of allocated SCs for freeing later
-    m->alloc_N_SIMS = m->N_SIMS; // keep track of allocated number of simulations for freeing later
+    m->alloc_N_SCs = m->N_SCs;
+    m->alloc_N_SIMS = m->N_SIMS;
  
     // allocate device memory for simulation parameters
     // size of global_params is (n_global_params, N_SIMS)

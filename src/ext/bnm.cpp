@@ -591,6 +591,12 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
     // set up constants (based on dt)
     Model::init_constants(m->dt);
 
+    // keep track of number of simulations for which
+    // memory will be allocated to later free them accordingly
+    // (otherwise if changed in the next call, freeing memory
+    // will be done incorrectly and may access invalid memory)
+    m->alloc_N_SIMS = m->N_SIMS;
+
     // set up global int and bool outputs
     if (Model::n_global_out_int > 0) {
         m->global_out_int = (int**)malloc(Model::n_global_out_int * sizeof(int*));
@@ -729,7 +735,7 @@ void BaseModel::free_cpu() {
     }
     if (this->alloc_states_out) {
         for (int var_idx=0; var_idx<this->get_n_state_vars(); var_idx++) {
-            for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
+            for (int sim_idx=0; sim_idx<this->alloc_N_SIMS; sim_idx++) {
                 free(this->states_out[var_idx][sim_idx]);
             }
             free(this->states_out[var_idx]);
