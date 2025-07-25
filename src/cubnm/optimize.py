@@ -10,117 +10,27 @@ import pickle
 import random
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from pymoo.core.problem import Problem
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.termination import get_termination
 import cma
-import skopt
 
 from cubnm import sim, utils
 
-
-class GridSearch:
-    # TODO: GridSearch should also be an Optimizer
-    def __init__(self, model, params, **kwargs):
-        """
-        Grid search of model free parameters
-
-        Parameters
-        ---------
-        model: :obj:`str`, {'rWW', 'rWWEx', 'Kuramoto'}
-            model name
-        params: :obj:`dict` of :obj:`tuple` or :obj:`float`
-            a dictionary including parameter names as keys and their
-            fixed values (:obj:`float`) or discrete range of
-            values (:obj:`tuple` of (min, max, n)) as values.
-        **kwargs
-            Keyword arguments passed to :class:`cubnm.sim.SimGroup`
-
-        Example
-        -------
-        Run a grid search of rWW model with 10 G and 10 wEE values
-        with fixed wEI: ::
-
-            from cubnm import datasets, optimize
-        
-            gs = optimize.GridSearch(
-                model = 'rWW',
-                params = {
-                    'G': (0.5, 2.5, 10),
-                    'wEE': (0.05, 0.75, 10),
-                    'wEI': 0.21
-                },
-                duration = 60,
-                TR = 1,
-                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
-                states_ts = True
-            )
-            emp_fc_tril = datasets.load_functional('FC', 'schaefer-100')
-            emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100')
-            scores = gs.evaluate(emp_fc_tril, emp_fcd_tril)
-        """
-        self.model = model
-        sim_group_cls = getattr(sim, f"{self.model}SimGroup")
-        self.sim_group = sim_group_cls(**kwargs)
-        param_ranges = {}
-        for param, v in params.items():
-            if isinstance(v, tuple):
-                param_ranges[param] = np.linspace(v[0], v[1], v[2])
-            else:
-                param_ranges[param] = np.array([v])
-        self.param_combs = pd.DataFrame(
-            list(itertools.product(*param_ranges.values())),
-            columns=param_ranges.keys(),
-            dtype=float,
-        )
-        self.sim_group.N = self.param_combs.shape[0]
-        for param in params.keys():
-            self.sim_group.param_lists[param] = []
-            for sim_idx in range(self.sim_group.N):
-                if param in (self.sim_group.global_param_names+["v"]):
-                    # global parameters have (sims,) shape
-                    self.sim_group.param_lists[param].append(
-                        self.param_combs.iloc[sim_idx].loc[param]
-                    )
-                else:
-                    # regional parameters have (sims, nodes) shape
-                    # but the same value for each node is repeated
-                    self.sim_group.param_lists[param].append(
-                        np.repeat(
-                            self.param_combs.iloc[sim_idx].loc[param],
-                            self.sim_group.nodes,
-                        )
-                    )
-            self.sim_group.param_lists[param] = np.array(
-                self.sim_group.param_lists[param]
-            )
-
-    def evaluate(self, emp_fc_tril=None, emp_fcd_tril=None, bold=None):
-        """
-        Runs the grid simulations and evaluates their
-        goodness of fit to the empirical FC and FCD
-
-        Parameters
-        ----------
-        emp_fc_tril: :obj:`np.ndarray` or :obj:`None`
-            lower triangular part of empirical FC. Shape: (edges,)
-        emp_fcd_tril: :obj:`np.ndarray` or :obj:`None`
-            lower triangular part of empirical FCD. Shape: (window_pairs,)
-        emp_bold: :obj:`np.ndarray` or None
-            cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
-            Motion outliers should either be excluded (not recommended as it disrupts
-            the temporal structure) or replaced with zeros.
-            If provided emp_fc_tril and emp_fcd_tril will be ignored.
-            
-        Returns
-        -------
-        :obj:`pd.DataFrame`
-            The goodness of fit measures (columns) of each simulation (rows)
-        """
-        self.sim_group.run()
-        return self.sim_group.score(emp_fc_tril, emp_fcd_tril)
-
+# define evaluation metric labels used in plots
+METRIC_LABELS = {
+    'cost': 'Cost',
+    '-cost': '- Cost',
+    '+gof': 'Goodness-of-fit',
+    '+fc_corr': r'FC$_{corr}$',
+    '-fcd_ks': r'- FCD$_{KS}$',
+    '-fc_diff': r'- FC$_{diff}$',
+    '-fc_normec': r'- FC$_{normEC}'
+}
 
 class BNMProblem(Problem):
     def __init__(
@@ -131,6 +41,7 @@ class BNMProblem(Problem):
         emp_fcd_tril=None,
         emp_bold=None,
         het_params=[],
+        het_params_range='same',
         maps=None,
         maps_coef_range='auto',
         node_grouping=None,
@@ -159,37 +70,60 @@ class BNMProblem(Problem):
             lower triangular part of empirical FCD. Shape: (window_pairs,)
         emp_bold: :obj:`np.ndarray` or None
             cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
-            Motion outliers should either be excluded (not recommended as it disrupts
+            Motion outliers can either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
-        het_params: :obj:`list` of :obj:`str`, optional
+        het_params: :obj:`list` of :obj:`str`
             which regional parameters are heterogeneous across nodes
-        maps: :obj:`str`, optional
+        maps: :obj:`str`
             path to heterogeneity maps as a text file or a numpy array.
             Shape: (n_maps, nodes).
             If provided one free parameter per regional parameter per 
             each map will be added.
         maps_coef_range: 'auto' or :obj:`tuple` or :obj:`list` of :obj:`tuple`
-            - 'auto': uses (-1/max, -1/min) for maps with positive and negative
+            Range of coefficients for the maps in map-based heterogeneity 
+            (i.e., when ``maps`` is provided).
+
+            - ``'auto'``: uses (-1/max, -1/min) for maps with positive and negative
               values (assuming they are z-scored) and (0, 1) otherwise
             - :obj:`tuple`: uses the same range for all maps
             - :obj:`list` of :obj:`tuple`: n-map element list specifying the range
-                of coefficients for each map
-        node_grouping: {None, 'node', 'sym', :obj:`str`, :obj:`np.ndarray`}, optional
-            - None: does not use region-/group-specific parameters
-            - 'node': each node has its own regional free parameters
-            - 'sym': uses the same regional free parameters for each pair of symmetric nodes
+              of coefficients for each map
+
+        het_params_range: 'same' or :obj:`dict` of :obj:`tuple` or None
+            Forced range of regional parameters (after map-based
+            heterogeneity is applied). The regional parameter values
+            across nodes will be normalized into this range (if out
+            of range).
+
+            - ``'same'``: uses the same range as provided in `params`.
+            - :obj:`dict` of :obj:`tuple`: uses the specified range
+              for each regional parameter. The keys must be the all
+              ``het_params`` and the values must be tuples of (min, max).
+            - ``None``: does not normalize the regional parameters.
+              This may lead to infeasible parameters, e.g. negative
+              values, with some combinations of maps and map coeficients.
+
+        node_grouping: {None, 'node', 'sym', :obj:`str`, :obj:`np.ndarray`}
+            Defines groups of nodes which have the same regional
+            parameters.
+
+            - ``None``: does not use region-/group-specific parameters
+            - ``'node'``: each node has its own regional free parameters
+            - ``'sym'``: uses the same regional free parameters for each pair of symmetric nodes
               (e.g. L and R hemispheres). Assumes symmetry  of parcels between L and R
               hemispheres.
             - :obj:`str`: path to a text file including node grouping array. Shape: (nodes,)
             - :obj:`np.ndarray`: a numpy array. Shape: (nodes,)
-        multiobj: :obj:`bool`, optional
+
+        multiobj: :obj:`bool`
             instead of combining the objectives into a single objective function
             (via summation) defines each objective separately. This must not be used
             with single-objective optimizers
         **kwargs
             Keyword arguments passed to :class:`cubnm.sim.SimGroup`
         """
+        # TODO: break down __init__ into smaller methods
         # set opts
         self.model = model 
         self.params = params
@@ -199,7 +133,7 @@ class BNMProblem(Problem):
         self.het_params = kwargs.pop("het_params", het_params)
         self.input_maps = kwargs.pop("maps", maps)
         self.maps_coef_range = kwargs.pop("maps_coef_range", maps_coef_range)
-        self.reject_negative = False # not implemented yet
+        self.het_params_range = kwargs.pop("het_params_range", het_params_range)
         self.node_grouping = kwargs.pop("node_grouping", node_grouping)
         self.multiobj = kwargs.pop("multiobj", multiobj)
         # initialize sim_group (N not known yet)
@@ -222,8 +156,8 @@ class BNMProblem(Problem):
             if self.sim_group.do_fcd:
                 self.emp_fcd_tril = utils.calculate_fcd(
                     self.emp_bold, 
-                    self.sim_group.window_size, 
-                    self.sim_group.window_step, 
+                    self.sim_group.window_size_TRs, 
+                    self.sim_group.window_step_TRs, 
                     drop_edges=self.sim_group.fcd_drop_edges,
                     exc_interhemispheric=self.sim_group.exc_interhemispheric,
                     return_tril=True,
@@ -232,32 +166,36 @@ class BNMProblem(Problem):
         else:
             # when BOLD is not provided but empirical FC/FCD are
             # set do_fc and do_fcd based on the provided data
-            self.sim_group.do_fc = False
-            self.sim_group.do_fcd = False
             if (self.emp_fc_tril is not None):
                 self.sim_group.do_fc = True
                 if (self.emp_fcd_tril is not None):
                     self.sim_group.do_fcd = True
-            elif (self.emp_fcd_tril is not None):
+            else:
+                self.sim_group.do_fc = False
+            if (self.emp_fcd_tril is not None):
                 # note: as separate fc and fcd calculation is not
                 # supported on simulation side, if fcd is provided
                 # set do_fc to true as well (but then simulated fc
                 # will be ignored)
                 self.sim_group.do_fc = True
                 self.sim_group.do_fcd = True
+            else:
+                self.sim_group.do_fcd = False
         # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")
+
         # identify free and fixed parameters
         self.free_params = []
         self.lb = []
         self.ub = []
         self.global_params = self.sim_group.global_param_names + ["v"]
         self.regional_params = self.sim_group.regional_param_names
+
         # decide if parameters can be variable across nodes/groups
         # note that this is different from map-based heterogeneity
-        self.is_regional = self.node_grouping is not None
-        if self.is_regional:
+        self.is_node_based = self.node_grouping is not None
+        if self.is_node_based:
             for param in self.het_params:
                 if not isinstance(params[param], tuple):
                     raise ValueError(
@@ -265,34 +203,37 @@ class BNMProblem(Problem):
                     )
         # set up node_groups (ordered index of all unique groups)
         # and memberships (from node i to N, which group they belong to)
-        if self.is_regional:
-            if self.node_grouping == "node":
-                # each node gets its own regional free parameters
-                # therefore each node has its own group and
-                # is the only member of it
-                self.node_groups = np.arange(self.sim_group.nodes)
-                self.memberships = np.arange(self.sim_group.nodes)
-            elif self.node_grouping == "sym":
-                print(
-                    "Warning: `sym` node grouping assumes symmetry of parcels between L and R hemispheres"
-                )
-                # nodes i & rh_idx+i belong to the same group
-                # and will have similar parameters
-                assert self.sim_group.nodes % 2 == 0, "Number of nodes must be even"
-                rh_idx = int(self.sim_group.nodes / 2)
-                self.node_groups = np.arange(rh_idx)
-                self.memberships = np.tile(np.arange(rh_idx), 2)
-            else:
-                if isinstance(self.node_grouping, (str, os.PathLike)):
-                    self.memberships = np.loadtxt(self.node_grouping).astype("int")
+        if self.is_node_based:
+            if isinstance(self.node_grouping, (str, os.PathLike)):
+                if self.node_grouping == "node":
+                    # each node gets its own regional free parameters
+                    # therefore each node has its own group and
+                    # is the only member of it
+                    self.memberships = np.arange(self.sim_group.nodes)
+                elif self.node_grouping == "sym":
+                    print(
+                        "Warning: `sym` node grouping assumes symmetry of parcels between L and R hemispheres"
+                    )
+                    # nodes i & rh_idx+i belong to the same group
+                    # and will have similar parameters
+                    assert self.sim_group.nodes % 2 == 0, "Number of nodes must be even"
+                    rh_idx = int(self.sim_group.nodes / 2)
+                    self.memberships = np.tile(np.arange(rh_idx), 2)
                 else:
-                    self.memberships = self.node_grouping.astype("int")
-                self.node_groups = np.unique(self.memberships)
+                    self.memberships = np.loadtxt(self.node_grouping).astype("int")
+            elif isinstance(self.node_grouping, np.ndarray):
+                self.memberships = self.node_grouping.astype("int")
+            else:
+                raise ValueError(
+                    "Invalid node_grouping provided."
+                )
+            self.node_groups = np.unique(self.memberships)
+
         # set up global and regional (incl. bias) free parameters
         for param, v in params.items():
             if isinstance(v, tuple):
                 if (
-                    self.is_regional
+                    self.is_node_based
                     & (param in self.regional_params)
                     & (param in self.het_params)
                 ):
@@ -308,10 +249,12 @@ class BNMProblem(Problem):
                     self.lb.append(v[0])
                     self.ub.append(v[1])
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
+
         # set up map scaler parameters
-        self.is_heterogeneous = False
+        self.is_map_based = False
         if self.input_maps is not None:
-            self.is_heterogeneous = True
+            self.is_map_based = True
+            # load maps
             if isinstance(self.input_maps, (str, os.PathLike)):
                 self.maps = np.loadtxt(self.input_maps)
             else:
@@ -319,6 +262,8 @@ class BNMProblem(Problem):
             assert (
                 self.maps.shape[1] == self.sim_group.nodes
             ), f"Maps second dimension {self.maps.shape[1]} != nodes {self.sim_group.nodes}"
+
+            # define map coefficients as free parameter
             for param in self.het_params:
                 for map_idx in range(self.maps.shape[0]):
                     if self.maps_coef_range == 'auto':
@@ -345,6 +290,34 @@ class BNMProblem(Problem):
                     self.free_params.append(scaler_name)
                     self.lb.append(scale_min)
                     self.ub.append(scale_max)
+
+            # define regional ranges
+            if self.het_params_range == "same":
+                self._het_params_range = {}
+                for param in self.het_params:
+                    # use the same range as provided in params
+                    if param in self.params:
+                        if isinstance(self.params[param], tuple):
+                            self._het_params_range[param] = self.params[param]
+                        else:
+                            raise ValueError(
+                                f"Parameter {param} baseline cannot be fixed"
+                                " when map-based heterogeneity is applied and"
+                                " het_params_range is set to 'same'"
+                            )
+                    else:
+                        raise ValueError(
+                            f"Parameter {param} is not defined in params"
+                        )
+            elif isinstance(self.het_params_range, dict):
+                assert all(
+                    p in self.het_params_range for p in self.het_params
+                ), "All het_params must be defined in het_params_range"
+                self._het_params_range = self.het_params_range
+            elif self.het_params_range is None:
+                # do not normalize the regional parameters
+                self._het_params_range = None
+
         # convert bounds to arrays
         self.lb = np.array(self.lb)
         self.ub = np.array(self.ub)
@@ -383,10 +356,10 @@ class BNMProblem(Problem):
 
         Parameters
         ----------
-        include_sim_group: :obj:`bool`, optional
+        include_sim_group: :obj:`bool`
             whether to include the configuration of the
             associated :class:`cubnm.sim.SimGroup`
-        include_N: :obj:`bool`, optional
+        include_N: :obj:`bool`
             whether to include the current population size
             in the configuration
 
@@ -396,12 +369,16 @@ class BNMProblem(Problem):
             the configuration of the problem
         """
         config = {
+            "model": self.model,
             "params": self.params,
             "het_params": self.het_params,
             "maps": self.input_maps,
             "node_grouping": self.node_grouping,
+            "maps_coef_range": self.maps_coef_range,
+            "het_params_range": self.het_params_range,
             "emp_fc_tril": self.emp_fc_tril,
             "emp_fcd_tril": self.emp_fcd_tril,
+            "emp_bold": self.emp_bold,
         }
         if include_N:
             config["N"] = self.sim_group.N
@@ -446,6 +423,104 @@ class BNMProblem(Problem):
         """
         return (Xt - self.lb) / (self.ub - self.lb)
 
+    def _get_sim_params(self, X):
+        """
+        Gets the global and regional parameters of the problem's 
+        :class:`cubnm.sim.SimGroup` based on the
+        problem free and fixed parameters and type of regional parameter
+        heterogeneity (map-based, group-based or none).
+
+        Parameters
+        ----------
+        X: :obj:`np.ndarray`
+            the normalized parameters of current population in range [0, 1]. 
+            Shape: (N, ndim)
+        Returns
+        -------
+        :obj:`dict` of :obj:`np.ndarray`
+            keys correspond to model parameters
+        """
+        param_lists = {}
+        N = X.shape[0]
+        # transform X from [0, 1] range to the actual
+        # parameter range and label them
+        Xt = pd.DataFrame(self._get_Xt(X), columns=self.free_params, dtype=float)
+        # set fixed parameter lists
+        # these are not going to vary across iterations
+        # but must be specified here as in elsewhere N is unknown
+        for param in self.fixed_params:
+            if param in self.global_params:
+                param_lists[param] = np.repeat(
+                    self.params[param], N
+                )
+            else:
+                param_lists[param] = np.tile(
+                    self.params[param], (N, self.sim_group.nodes)
+                )
+        # first determine the global parameters and bias terms
+        for param in self.free_params:
+            if param in self.global_params:
+                param_lists[param] = Xt.loc[:, param].values
+            elif param in self.regional_params:
+                param_lists[param] = np.tile(
+                    Xt.loc[:, param].values[:, np.newaxis], self.sim_group.nodes
+                )
+        # then multiply the regional parameters by their map-based scalers
+        if self.is_map_based:
+            for param in self.het_params:
+                for sim_idx in range(Xt.shape[0]):
+                    # not doing this vectorized for better code readability
+                    # determine scaler map of current simulation-param
+                    param_scalers = np.ones(self.sim_group.nodes)
+                    for map_idx in range(self.maps.shape[0]):
+                        scaler_name = f"{param}scale{map_idx}"
+                        param_scalers += (
+                            self.maps[map_idx, :] * Xt.iloc[sim_idx].loc[scaler_name]
+                        )
+                    # multiply it by the bias which is already put in param_lists
+                    param_lists[param][sim_idx, :] *= param_scalers
+                    # fix out-of-range parameter values if indicated
+                    if self._het_params_range is not None:
+                        # min-max normalize regional parameters to the
+                        # provided range, if the map-based heterogeneity
+                        # has led to out-of-range values (in either end)
+                        min_lim, max_lim = self._het_params_range[param]
+                        uncorr_min = param_lists[param][sim_idx, :].min()
+                        uncorr_max = param_lists[param][sim_idx, :].max()
+                        # Note that if one end is within range we want
+                        # to keep it as is, therefore we define the target
+                        # min and max to be the limits, or the within-range
+                        # min or max values (whichever is smaller or larger)
+                        # We also make sure that the target min is not larger than
+                        # the target max and vice versa. As a result, 
+                        # if both ends are outside the range, the parameter
+                        # map will effecitvely be homogeneously set to the
+                        # target min or max
+                        target_min = min(max(min_lim, uncorr_min), max_lim)
+                        target_max = max(min(max_lim, uncorr_max), min_lim)
+                        # normalization done only if at least one of the ends is out of range
+                        if ((uncorr_min < target_min) or 
+                            (uncorr_max > target_max)):
+                            # normalize the regional parameters to the provided range
+                            # by first min-max normalizing them to [0, 1]
+                            # and then scaling to the target range
+                            param_lists[param][sim_idx, :] = (
+                                (param_lists[param][sim_idx, :] - uncorr_min)
+                                / (uncorr_max - uncorr_min)
+                            ) * (target_max - target_min) + target_min
+
+        # determine regional parameters that are variable based on groups
+        if self.is_node_based:
+            for param in self.het_params:
+                curr_param_maps = np.zeros((Xt.shape[0], self.sim_group.nodes))
+                for group in self.node_groups:
+                    param_name = f"{param}{group}"
+                    curr_param_maps[:, self.memberships == group] = Xt.loc[
+                        :, param_name
+                    ].values[:, np.newaxis]
+                param_lists[param] = curr_param_maps
+        return param_lists
+
     def _set_sim_params(self, X):
         """
         Sets the global and regional parameters of the problem's 
@@ -459,65 +534,7 @@ class BNMProblem(Problem):
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
         """
-        # transform X from [0, 1] range to the actual
-        # parameter range and label them
-        Xt = pd.DataFrame(self._get_Xt(X), columns=self.free_params, dtype=float)
-        # set fixed parameter lists
-        # these are not going to vary across iterations
-        # but must be specified here as in elsewhere N is unknown
-        for param in self.fixed_params:
-            if param in self.global_params:
-                self.sim_group.param_lists[param] = np.repeat(
-                    self.params[param], self.sim_group.N
-                )
-            else:
-                self.sim_group.param_lists[param] = np.tile(
-                    self.params[param], (self.sim_group.N, self.sim_group.nodes)
-                )
-        # first determine the global parameters and bias terms
-        for param in self.free_params:
-            if param in self.global_params:
-                self.sim_group.param_lists[param] = Xt.loc[:, param].values
-            elif param in self.regional_params:
-                self.sim_group.param_lists[param] = np.tile(
-                    Xt.loc[:, param].values[:, np.newaxis], self.sim_group.nodes
-                )
-        # then multiply the regional parameters by their map-based scalers
-        if self.is_heterogeneous:
-            for param in self.het_params:
-                for sim_idx in range(Xt.shape[0]):
-                    # not doing this vectorized for better code readability
-                    # determine scaler map of current simulation-param
-                    param_scalers = np.ones(self.sim_group.nodes)
-                    for map_idx in range(self.maps.shape[0]):
-                        scaler_name = f"{param}scale{map_idx}"
-                        param_scalers += (
-                            self.maps[map_idx, :] * Xt.iloc[sim_idx].loc[scaler_name]
-                        )
-                    # multiply it by the bias which is already put in param_lists
-                    self.sim_group.param_lists[param][sim_idx, :] *= param_scalers
-                    # fix/reject negatives
-                    if self.sim_group.param_lists[param][sim_idx, :].min() < 0.001:
-                        if self.reject_negative:
-                            # TODO
-                            raise NotImplementedError(
-                                "Rejecting particles due to negative regional parameter is not implemented"
-                            )
-                        else:
-                            self.sim_group.param_lists[param][sim_idx, :] -= (
-                                self.sim_group.param_lists[param][sim_idx, :].min()
-                                - 0.001
-                            )
-        # determine regional parameters that are variable based on groups
-        if self.is_regional:
-            for param in self.het_params:
-                curr_param_maps = np.zeros((Xt.shape[0], self.sim_group.nodes))
-                for group in self.node_groups:
-                    param_name = f"{param}{group}"
-                    curr_param_maps[:, self.memberships == group] = Xt.loc[
-                        :, param_name
-                    ].values[:, np.newaxis]
-                self.sim_group.param_lists[param] = curr_param_maps
+        self.sim_group.param_lists.update(self._get_sim_params(X))
 
     def _evaluate(self, X, out, *args, **kwargs):
         """
@@ -531,15 +548,16 @@ class BNMProblem(Problem):
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
         out: :obj:`dict`
-            the output dictionary to store the results with keys 'F' and 'G'.
-            Currently only 'F' (cost) is used.
+            the output dictionary to store the results with keys ``'F'`` and ``'G'``.
+            Currently only ``'F'`` (cost) is used.
         *args, **kwargs
-            additional arguments passed to the evaluation function
-            kwargs may include:
+            additional arguments passed to the evaluation function,
+            which may include:
+
             - scores: :obj:`list`
                 an empty list passed on to evaluation function to store
                 the individual goodness of fit measures
-            - skip_run: :obj:`bool`, optional
+            - skip_run: :obj:`bool`
                 will only be true in batch optimization where the simulations
                 are already run and only the GOF calculation is needed
         """
@@ -564,7 +582,7 @@ class BNMProblem(Problem):
         X: :obj:`np.ndarray`
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
-        skip_run: :obj:`bool`, optional
+        skip_run: :obj:`bool`
             will only be true in batch optimization where the simulations
             are already run and only the GOF calculation is needed
 
@@ -595,10 +613,6 @@ class Optimizer(ABC):
         pass
 
     @abstractmethod
-    def setup_problem(self, problem, **kwargs):
-        pass
-
-    @abstractmethod
     def optimize(self):
         pass
 
@@ -613,14 +627,20 @@ class Optimizer(ABC):
 
         Parameters
         ---------
-        save_opt: :obj:`bool`, optional
+        save_opt: :obj:`bool`
             reruns and saves the optimal simulation(s) data
-        save_obj: :obj:`bool`, optional
+        save_obj: :obj:`bool`
             saves the optimizer object which also includes the simulation
             data of all simulations and therefore can be large file.
             Warning: this file is very large.
         """
+        assert self.is_fit, (
+            "Optimizer must be fitted before saving. "
+            "Call `optimize()` method to fit the optimizer."
+        )
         # specify the directory
+        # TODO: avoid saving if an identical optimizer directory already exists
+        # by checking the optimizer and problem jsons in previous directories
         run_idx = 0
         while True:
             dirname = (
@@ -634,13 +654,14 @@ class Optimizer(ABC):
         os.makedirs(optimizer_dir, exist_ok=True)
         # save the optimizer object
         if save_obj:
-            with open(os.path.join(optimizer_dir, "optimizer.pickle"), "wb") as f:
+            with open(os.path.join(optimizer_dir, "optimizer.pkl"), "wb") as f:
                 pickle.dump(self, f)
         # save the optimizer history
         self.history.to_csv(os.path.join(optimizer_dir, "history.csv"))
         if self.problem.n_obj == 1:
-            self.opt_history.to_csv(os.path.join(optimizer_dir, "opt_history.csv"))
             self.opt.to_csv(os.path.join(optimizer_dir, "opt.csv"))
+            if type(self).__name__ != "GridOptimizer":
+                self.opt_history.to_csv(os.path.join(optimizer_dir, "opt_history.csv"))
         # save the configs of simulations and optimizer
         problem_config = self.problem.get_config(include_sim_group=True, include_N=True)
         ## problem config might include numpy arrays (for sc, sc_dist, etc.)
@@ -668,28 +689,29 @@ class Optimizer(ABC):
         with open(os.path.join(optimizer_dir, "optimizer.json"), "w") as f:
             json.dump(self.get_config(), f, indent=4)
         if save_opt:
-            # rerun optimum simulation(s) and save it
-            print("Rerunning and saving the optimal simulation(s)")
-            ## reuse the original problem used throughout the optimization
-            ## but change its out_dir, N and parameters to the optimum
-            self.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
-            os.makedirs(self.problem.sim_group.out_dir, exist_ok=True)
-            if type(self).__name__ == "BayesOptimizer":
-                # TODO: ideally implement this part as a separate method
-                # and handle differences of PymooOptimizer and BayesOptimizer
-                # more properly
-                res = self.algorithm.get_result()
-                X = np.atleast_2d(res.x)
+            # (rerun) optimum simulation(s) and save it
+            opt_sim_dir = os.path.join(optimizer_dir, "opt_sim")
+            os.makedirs(opt_sim_dir, exist_ok=True)
+            if type(self).__name__ == "GridOptimizer":
+                print("Saving the optimal simulation")
+                ## slice sim_group at the index of the optimal simulation
+                opt_idx = self.opt.name
+                self.problem.opt_sim_group = self.problem.sim_group.slice(opt_idx, inplace=False)
             else:
+                print("Rerunning and saving the optimal simulation(s)")
+                ## reuse the original problem used throughout the optimization
+                ## but change its out_dir, N and parameters to the optimum
                 res = self.algorithm.result()
                 X = np.atleast_2d(res.X)
-            Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
-            opt_scores = self.problem.eval(X)
-            pd.concat([Xt, opt_scores], axis=1).to_csv(
-                os.path.join(self.problem.sim_group.out_dir, "res.csv")
-            )
+                Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+                opt_scores = self.problem.eval(X)
+                pd.concat([Xt, opt_scores], axis=1).to_csv(
+                    os.path.join(opt_sim_dir, "scores.csv")
+                )
+                self.problem.opt_sim_group = self.problem.sim_group
             ## save simulations data (including BOLD, FC and FCD, extended output, and param maps)
-            self.problem.sim_group.save()
+            self.problem.opt_sim_group.out_dir = opt_sim_dir
+            self.problem.opt_sim_group.save()
         return optimizer_dir
 
     def get_config(self):
@@ -704,6 +726,526 @@ class Optimizer(ABC):
         # TODO: add optimizer-specific get_config funcitons
         return {"n_iter": self.n_iter, "popsize": self.popsize, "seed": self.seed}
 
+    def _plot_space_3d(
+            self, 
+            plot_df, 
+            measure, 
+            title='default', 
+            opt_params=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot 3D parameter space colored by `measure`
+        """
+        # set plotting options based on defaults
+        # and options provided by user
+        _config = dict(
+            figsize = (4.5, 4.5),
+            elev = 15,
+            azim = -15,
+            roll = None,
+            aspects = (1, 1, 1),
+            zoom = 0.85,
+            size = 30,
+            alpha = 0.4,
+            cmap = 'viridis',
+            vmin = None,
+            vmax = None,
+            color = 'red',
+            opt_facecolor = 'none',
+            opt_edgecolor = 'black',
+            full_lim = True,
+        )
+        _config.update(config)
+        if ax is None:
+            # create a figure with 3d projection
+            fig, ax = plt.subplots(figsize=_config['figsize'], subplot_kw={'projection': '3d'})
+        # plot grid
+        if measure is None:
+            c = _config['color']
+            cmap = None
+        else:
+            c = plot_df.loc[:, measure]
+            cmap = _config['cmap']
+        ax.scatter(
+            plot_df.loc[:, self.problem.free_params[0]],
+            plot_df.loc[:, self.problem.free_params[1]],
+            plot_df.loc[:, self.problem.free_params[2]],
+            s=_config['size'],
+            alpha=_config['alpha'],
+            c=c,
+            cmap=cmap,
+            vmin=_config['vmin'],
+            vmax=_config['vmax'],
+        )
+        # mark the optimum if indicated
+        if opt_params is not None:
+            ax.scatter(
+                *opt_params.values,
+                alpha=1.0,
+                s=_config['size'],
+                facecolors=_config['opt_facecolor'],
+                edgecolors=_config['opt_edgecolor'],
+            )
+        # set the x y z lim
+        if _config['full_lim']:
+            ax.set_xlim(self.problem.lb[0], self.problem.ub[0])
+            ax.set_ylim(self.problem.lb[1], self.problem.ub[1])
+            ax.set_zlim(self.problem.lb[2], self.problem.ub[2])
+        # aesthetics
+        labels = [self.problem.sim_group.labels.get(p, p) for p in self.problem.free_params]
+        ax.set_xlabel(labels[0])
+        ax.set_ylabel(labels[1])
+        ax.set_zlabel(labels[2])
+        ax.view_init(elev=_config['elev'], azim=_config['azim'], roll=_config['roll'])
+        ax.set_box_aspect(_config['aspects'], zoom=_config['zoom'])
+        if title == 'default':
+            if measure in self.problem.sim_group.state_names:
+                title = self.problem.sim_group.labels.get(measure, measure)
+            else:
+                title = METRIC_LABELS.get(measure, measure)
+        if title is not None:
+            ax.set_title(title)
+        return ax
+
+    def _plot_space_2d(
+            self, 
+            plot_df, 
+            measure, 
+            title='default', 
+            opt_params=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot 2D parameter space colored by `measure`
+        """
+        # set plotting options based on defaults
+        # and options provided by user
+        _config = dict(
+            figsize = (4.5, 4.5),
+            size = 30,
+            marker = 'o',
+            alpha = 1.0,
+            cmap = 'viridis',
+            vmin = None,
+            vmax = None,
+            color = 'red',
+            opt_facecolor = 'none',
+            opt_edgecolor = 'black',
+            full_lim = True,
+        )
+        _config.update(config)
+        # plot
+        if ax is None:
+            fig, ax = plt.subplots(figsize=_config['figsize'])
+        if measure is None:
+            c = _config['color']
+            cmap = None
+        else:
+            c = plot_df.loc[:, measure]
+            cmap = _config['cmap']
+        ax.scatter(
+            plot_df.loc[:, self.problem.free_params[0]],
+            plot_df.loc[:, self.problem.free_params[1]],
+            s=_config['size'],
+            marker=_config['marker'],
+            c=c,
+            cmap=cmap,
+            vmin=_config['vmin'],
+            vmax=_config['vmax'],
+        )
+        # mark the optimum if indicated
+        if opt_params is not None:
+            ax.scatter(
+                *opt_params.values,
+                alpha=1.0,
+                s=_config['size'],
+                marker=_config['marker'],
+                facecolors=_config['opt_facecolor'],
+                edgecolors=_config['opt_edgecolor'],
+            )
+        # set the x y lim
+        if _config['full_lim']:
+            # TODO: fix the edge simulations in grid which are cut
+            ax.set_xlim(self.problem.lb[0], self.problem.ub[0])
+            ax.set_ylim(self.problem.lb[1], self.problem.ub[1])
+        # aesthetics
+        labels = [self.problem.sim_group.labels.get(p, p) for p in self.problem.free_params]
+        ax.set_xlabel(labels[0])
+        ax.set_ylabel(labels[1])
+        sns.despine(ax=ax)
+        if title == 'default':
+            if measure in self.problem.sim_group.state_names:
+                title = self.problem.sim_group.labels.get(measure, measure)
+            else:
+                title = METRIC_LABELS.get(measure, measure)
+        if title is not None:
+            ax.set_title(title)
+        return ax
+
+    def _plot_space_1d(
+            self, 
+            plot_df, 
+            measure, 
+            title='default', 
+            opt_params=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot 1D parameter space colored by `measure`
+        """
+        # set plotting options based on defaults
+        # and options provided by user
+        _config = dict(
+            figsize = None,
+            size = 30,
+            marker = 'o',
+            alpha = 1.0,
+            color = 'red',
+            opt_facecolor = 'none',
+            opt_edgecolor = 'black',
+            full_lim = True,
+        )
+        _config.update(config)
+        # plot
+        if ax is None:
+            fig, ax = plt.subplots(figsize=_config['figsize'])
+        if measure is None:
+            y = 1
+            if opt_params is not None:
+                opt_y = 1
+        else:
+            y = plot_df.loc[:, measure]
+            if opt_params is not None:
+                opt_y = plot_df.loc[
+                    plot_df.loc[:,self.problem.free_params[0]]==\
+                    opt_params.values[0], measure
+                ]
+        ax.scatter(
+            plot_df.loc[:, self.problem.free_params[0]],
+            y,
+            s=_config['size'],
+            marker=_config['marker'],
+            c=_config['color'],
+        )
+        # mark the optimum if indicated
+        if opt_params is not None:
+            ax.scatter(
+                opt_params.values[0],
+                opt_y,
+                alpha=1.0,
+                s=_config['size'],
+                marker=_config['marker'],
+                facecolors=_config['opt_facecolor'],
+                edgecolors=_config['opt_edgecolor'],
+            )
+        # set the x lim
+        if _config['full_lim']:
+            # TODO: fix the edge simulations in grid which are cut
+            ax.set_xlim(self.problem.lb[0], self.problem.ub[0])
+        # aesthetics
+        labels = [self.problem.sim_group.labels.get(p, p) for p in self.problem.free_params]
+        ax.set_xlabel(labels[0])
+        sns.despine(ax=ax)
+        if title == 'default':
+            if measure in self.problem.sim_group.state_names:
+                title = self.problem.sim_group.labels.get(measure, measure)
+            else:
+                title = METRIC_LABELS.get(measure, measure)
+        if title is not None:
+            ax.set_ylabel(title)
+        return ax
+
+    def plot_space(
+            self, 
+            measure=None, 
+            title='default', 
+            opt=False, 
+            gen=None, 
+            config={}, 
+            ax=None
+        ):
+        """
+        Plot parameter space colored by ``measure``. Can only be used
+        for 1D, 2D and 3D parameter spaces.
+
+        Parameters
+        ----------
+        measure: :obj:`str` or :obj:`None`
+            the measure to color the points by. If None, the points
+            will be colored by the ``config['color']`` parameter and
+            have the same color
+        title: :obj:`str`
+            the title of the plot. If 'default', the title will be
+            set to the measure clean label. If None, no title will be set.
+        opt: :obj:`bool`
+            whether to mark the optimum in the plot. Will
+            be ignored if ``gen`` is provided.
+        gen: :obj:`int` or :obj:`None`
+            the generation to plot. If None, the entire history
+            will be plotted. When using a :class:`cubnm.optimize.GridOptimizer`
+            this is ignored.
+        config: :obj:`dict`
+            plotting configuration. The following keys are available
+            with default values:
+            
+            - figsize: :obj:`tuple`, (4.5, 4.5) for 2D and 3D plots, None for 1D
+                figure size. Ignored if ``ax`` is provided
+            - size: :obj:`float`, 30
+                size of the sphere
+            - alpha: :obj:`float`, 0.2 
+                transparency of the sphere
+            - color: :obj:`str`, 'red'
+                color of the points if measure is None or space is 1D
+            - opt_facecolor: :obj:`str`, 'none'
+                face color of the optimum point
+            - opt_edgecolor: :obj:`str`, 'black'
+                edge color of the optimum point
+            - full_lim: :obj:`bool`, True
+                whether to set the axes limits to the full range
+                of the parameters defined by the problem
+
+            Specific to 2D and 3D plots:
+            
+            - cmap: :obj:`str`, 'viridis'
+                colormap to use for the measure
+            - vmin: :obj:`float`, None
+                minimum value of the color range
+            - vmax: :obj:`float`, None
+                maximum value of the color range
+
+            Specific to 1D and 2D plots:
+
+            - marker: :obj:`str`, 'o'
+            
+            Specific to 3D plots:
+
+            - elev: :obj:`float`, 15
+                elevation angle in degrees
+            - azim: :obj:`float`, -15
+                azimuth angle in degrees
+            - roll: :obj:`float` or :obj:`None`, None
+                roll angle in degrees
+            - aspects: :obj:`tuple`, (1, 1, 1)
+                aspect ratio of the axes
+            - zoom: :obj:`float`, 0.85
+                zoom level of the plot
+
+        ax: :obj:`matplotlib.axes.Axes`
+            the axes to plot on. For 3D must have
+            ``projection='3d'``.
+            If None, a new figure and axes will be created. 
+
+        Returns
+        -------
+        :obj:`tuple`
+            the axes of the plot
+        """
+        assert self.is_fit, (
+            "Cannot plot parameter space before the optimizer is fit. "
+            "Call `optimize` method first."
+        )
+        # check if measure can be plotted
+        if measure in self.problem.sim_group.state_names:
+            if not isinstance(self, GridOptimizer):
+                raise NotImplementedError(
+                    "Plotting state variables is not supported "
+                    "using evolutionary optimizaters"
+                )
+        ndim = len(self.problem.free_params)
+        if ndim > 3:
+            raise ValueError("Cannot plot samples in >3D parameter spaces")
+        # prepare plotting data
+        # (limit history to a given generation
+        # if indicated)
+        history = self.history
+        if (gen is not None) and (not isinstance(self, GridOptimizer)):
+            history = history.loc[history['gen']==gen]
+        if measure in self.problem.sim_group.state_names:
+            state_averages = self.problem.sim_group.get_state_averages()
+            plot_df = pd.concat([
+                history.loc[:,self.problem.free_params], 
+                state_averages.loc[:, measure]
+            ], axis=1)
+        elif measure == '-cost':
+            plot_df = history.set_index(self.problem.free_params)['cost'].reset_index()
+            plot_df.loc[:, '-cost'] = -plot_df.loc[:, 'cost']
+        elif measure is not None:
+            plot_df = history.set_index(self.problem.free_params)[measure].reset_index()
+        else:
+            plot_df = history.loc[:,self.problem.free_params]
+        if opt and (gen is None):
+            opt_params = self.opt[self.problem.free_params]
+        else:
+            opt_params = None
+        # plot based on the number of dimensions
+        if ndim == 3:
+            return self._plot_space_3d(plot_df, measure, title, opt_params, config, ax=ax)
+        elif ndim == 2:
+            return self._plot_space_2d(plot_df, measure, title, opt_params, config, ax=ax)
+        else:
+            return self._plot_space_1d(plot_df, measure, title, opt_params, config, ax=ax)
+
+    def plot_history(self, measure, legend=True, ax=None, line_kws={}, scatter_kws={}):
+        """
+        Plot the history of ``measure`` across the optimization generations.
+
+        Parameters
+        ----------
+        measure: :obj:`str`
+            the measure to plot
+        legend: :obj:`bool`
+            whether to show the legend
+        ax: :obj:`matplotlib.axes.Axes`
+            the axes to plot on. If None, a new figure and axes will be created.
+        line_kws: :obj:`dict`
+            additional keyword arguments passed to the line plot
+            of the median across generations
+        scatter_kws: :obj:`dict`
+            additional keyword arguments passed to the scatter plot
+            of the individual particles across generations
+        """
+        assert not isinstance(self, GridOptimizer), (
+            "Not applicable to GridOptimizer."
+        )
+        assert self.is_fit, (
+            "Cannot plot history before the optimizer is fit. "
+            "Call `optimize` method first."
+        )
+        # calculate negative cost
+        plot_data = self.history.copy()
+        if measure == '-cost':
+            plot_data['-cost'] = -plot_data['cost']
+        # calculate median in each generation
+        median = plot_data.groupby("gen")[measure].median()
+        # plot
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(6, 4))
+        # median
+        _line_kws = dict(
+            color = 'red',
+            alpha = 0.5,
+        )
+        _line_kws.update(line_kws)
+        ax.plot(median, label='Median', **_line_kws)
+        # individual particles
+        _scatter_kws = dict(
+            s = 4,
+            alpha = 0.5,
+            color = 'black',
+        )
+        _scatter_kws.update(scatter_kws)
+        # TODO: consider using matplotlib for all
+        # plotting to avoid dependency on seaborn
+        sns.scatterplot(data=plot_data, x='gen', y=measure, label='Particles', ax=ax, **_scatter_kws)
+        # aesthetics
+        ax.set_ylabel(METRIC_LABELS.get(measure, measure))
+        ax.set_xlabel('Generation')
+        if legend:
+            ax.legend()
+        return ax
+
+class GridOptimizer(Optimizer):
+    def __init__(self, **kwargs):
+        """
+        Grid search optimizer
+
+        Example
+        -------
+        Run a grid search of rWW model with 100 simulations running
+        a 4 by 5 by 5 grid search of parameters G, w_p and J_N: ::
+
+            from cubnm import datasets, optimize
+
+            problem = optimize.BNMProblem(
+                model = 'rWW',
+                params = {
+                    'G': (0.001, 10.0),
+                    'w_p': (0, 2.0),
+                    'J_N': (0.001, 0.5),
+                },
+                duration = 60,
+                TR = 1,
+                window_size=10,
+                window_step=2,
+                sc = datasets.load_sc('strength', 'schaefer-100'),
+                emp_bold = datasets.load_bold('schaefer-100'),
+            )
+            go = optimize.GridOptimizer()
+            go.optimize(problem, grid_shape={'G': 4, 'w_p': 5, 'J_N': 5})
+            go.save()
+        """
+        pass
+
+    def optimize(self, problem, grid_shape):
+        """
+        Runs a grid search optimization on the given problem.
+
+        Parameters
+        ----------
+        problem: :obj:`cubnm.optimizer.BNMProblem`
+            The problem to be set up with the algorithm.
+
+        grid_shape: :obj:`int` or :obj:`dict`
+            Shape of the grid search. If an integer is provided
+            the same number of points are used for each parameter. 
+            If a dictionary is provided, the keys should be the 
+            parameter names and the values should be the number of points 
+            within the range of each parameter.
+        """
+        self.problem = problem
+        if isinstance(grid_shape, int):
+            grid_shape = {param: grid_shape for param in self.problem.free_params}
+        self.grid_shape = grid_shape
+        param_ranges = {}
+        for free_param in self.problem.free_params:
+            param_ranges[free_param] = np.linspace(0, 1, grid_shape[free_param])
+        X = np.array(list(itertools.product(*param_ranges.values())))
+        self.popsize = X.shape[0]
+        out = {} # will include 'F' (cost)
+        scores = [] # will include individual GOF measures
+        self.problem._evaluate(X, out, scores=scores)
+        scores = scores[0]
+        scores['cost'] = out['F']
+        Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
+        self.history = pd.concat([Xt, scores], axis=1)
+        self.opt = self.history.loc[self.history["cost"].idxmin()]
+        self.is_fit = True
+
+    def save(self, save_avg_states=True, **kwargs):
+        """
+        Saves the output of the optimizer, including history
+        of particles, history of optima, the optimal point,
+        and its simulation data. The output will be saved
+        to `out_dir` of the problem's :class:`cubnm.sim.SimGroup`.
+
+        Parameters
+        ---------
+        save_avg_states: :obj:`bool`
+            saves the average states of all simulations
+        **kwargs
+            additional keyword arguments passed to the :meth:`cubnm.optimizer.Optimizer.save`
+        """
+        optimizer_dir = super().save(**kwargs)
+        # save the average states of the optimal simulation
+        if save_avg_states:
+            state_averages = self.problem.sim_group.get_state_averages()
+            state_averages.to_csv(os.path.join(optimizer_dir, "state_averages.csv"))
+        return optimizer_dir
+
+    def get_config(self):
+        """
+        Get the optimizer configuration
+
+        Returns
+        -------
+        :obj:`dict`
+            the configuration of the optimizer
+        """
+        return {'grid_shape': self.grid_shape}
 
 class PymooOptimizer(Optimizer):
     def __init__(
@@ -715,20 +1257,20 @@ class PymooOptimizer(Optimizer):
 
         Parameters:
         ----------
-        termination: :obj:`pymoo.termination.Termination`, optional
+        termination: :obj:`pymoo.termination.Termination`
             The termination object that defines the stopping criteria for 
             the optimization process.
             If not provided, the termination criteria will be based on the 
             number of iterations (`n_iter`).
-        n_iter: :obj:`int`, optional
+        n_iter: :obj:`int`
             The maximum number of iterations for the optimization process.
             This parameter is only used if `termination` is not provided.
-        seed: :obj:`int`, optional
+        seed: :obj:`int`
             The seed value for the random number generator used by the optimizer.
-        print_history: :obj:`bool`, optional
+        print_history: :obj:`bool`
             Flag indicating whether to print the optimization history during the 
             optimization process.
-        save_history_sim: :obj:`bool`, optional
+        save_history_sim: :obj:`bool`
             Flag indicating whether to save the simulation data of each iteration.
             Default is False to avoid consuming too much memory across iterations.
         **kwargs
@@ -758,7 +1300,7 @@ class PymooOptimizer(Optimizer):
         ----------
         problem: :obj:`cubnm.optimizer.BNMProblem`
             The problem to be set up with the algorithm.
-        pymoo_verbose: :obj:`bool`, optional
+        pymoo_verbose: :obj:`bool`
             Flag indicating whether to enable verbose output from pymoo. Default is False.
         **kwargs
             Additional keyword arguments to be passed to the algorithm setup method.
@@ -821,6 +1363,7 @@ class PymooOptimizer(Optimizer):
             # a single optimum can be defined
             self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
             self.opt = self.history.loc[self.history["cost"].argmin()]
+        self.is_fit = True
 
 
 class CMAESOptimizer(PymooOptimizer):
@@ -841,15 +1384,15 @@ class CMAESOptimizer(PymooOptimizer):
         ----------
         popsize: :obj:`int`
             The population size for the optimizer
-        x0: array-like, optional
+        x0: array-like
             The initial guess for the optimization.
             If None (default), the initial guess will be estimated based on
-            20 random samples as the first generation
-        sigma: :obj:`float`, optional
+            `popsize` random samples as the first generation
+        sigma: :obj:`float`
             The initial step size for the optimization
-        use_bound_penalty: :obj:`bool`, optional
+        use_bound_penalty: :obj:`bool`
             Whether to use a bound penalty for the optimization
-        algorithm_kws: :obj:`dict`, optional
+        algorithm_kws: :obj:`dict`
             Additional keyword arguments for the CMAES algorithm
         **kwargs
             Additional keyword arguments
@@ -857,22 +1400,21 @@ class CMAESOptimizer(PymooOptimizer):
         Example
         -------
         Run a CMAES optimization for 10 iterations with 
-        a population size of 20: ::
+        a population size of 20 on a 3D model (rWW, homogeneous): ::
 
             from cubnm import datasets, optimize
 
             problem = optimize.BNMProblem(
                 model = 'rWW',
                 params = {
-                    'G': (0.5, 2.5),
-                    'wEE': (0.05, 0.75),
-                    'wEI': 0.15,
+                    'G': (0.001, 10.0),
+                    'w_p': (0, 2.0),
+                    'J_N': (0.001, 0.5),
                 },
-                emp_fc_tril = datasets.load_functional('FC', 'schaefer-100'),
-                emp_fcd_tril = datasets.load_functional('FCD', 'schaefer-100'),
+                emp_bold = datasets.load_bold('schaefer-100'),
                 duration = 60,
                 TR = 1,
-                sc_path = datasets.load_sc('strength', 'schaefer-100', return_path=True),
+                sc_path = datasets.load_sc('strength', 'schaefer-100'),
                 states_ts = True
             )
             cmaes = optimize.CMAESOptimizer(popsize=20, n_iter=10, seed=1)
@@ -885,7 +1427,7 @@ class CMAESOptimizer(PymooOptimizer):
             print(
                 "Warning: Seed value for CMAES is set to 0."
                 " This will result in different random initializations for each run"
-                " due to a bug in `cma`. Setting seed to 100 instead."
+                " due to how `cma` works. Setting seed to 100 instead."
             )
             self.seed = 100
         self.use_bound_penalty = (
@@ -893,11 +1435,15 @@ class CMAESOptimizer(PymooOptimizer):
         )
         self.popsize = popsize
         self.algorithm = CMAES(
-            x0=x0,  # will estimate the initial guess based on 20 random samples
+            x0=x0, 
             sigma=sigma,
-            popsize=popsize,  # from second generation
+            popsize=popsize,
             **algorithm_kws,
         )
+        if x0 is None:
+            # overwrite the default of 20 sample points
+            # (in pymoo) to popsize
+            self.algorithm.n_sample_points = self.popsize
 
     def setup_problem(self, problem, **kwargs):
         """
@@ -931,7 +1477,7 @@ class NSGA2Optimizer(PymooOptimizer):
         ----------
         popsize: int
             The population size for the optimizer
-        algorithm_kws: dict, optional
+        algorithm_kws: dict
             Additional keyword arguments for the NSGA2 algorithm
         kwargs: dict
             Additional keyword arguments for the base class
@@ -939,92 +1485,6 @@ class NSGA2Optimizer(PymooOptimizer):
         super().__init__(**kwargs)
         self.popsize = popsize
         self.algorithm = NSGA2(pop_size=popsize, **algorithm_kws)
-
-
-class BayesOptimizer(Optimizer):
-    max_obj = 1
-    def __init__(self, popsize, n_iter, seed=0):
-        """
-        Bayesian optimizer
-
-        Parameters
-        ----------
-        popsize: :obj:`int`
-            The population size for the optimizer
-        n_iter: :obj:`int`
-            The number of iterations for the optimization process
-        seed: :obj:`int`, optional
-            The seed value for the random number generator used by the optimizer.
-        """
-        # does not initialize the optimizer yet because
-        # the number of dimensions are not known yet
-        # TODO: consider defining Problem before optimizer
-        # and then passing it on to the optimizer
-        self.popsize = popsize
-        self.n_iter = n_iter
-        self.seed = seed
-        self.save_history_sim=False # currently saving history of simulations is not implemented
-
-    def setup_problem(self, problem, **kwargs):
-        """
-        Sets up the optimizer with the problem
-
-        Parameters
-        ----------
-        problem: :obj:`cubnm.optimizer.BNMProblem`
-            The problem to be set up with the algorithm.
-        **kwargs
-            Additional keyword arguments to be passed to :class:`skopt.Optimizer`
-        """
-        self.problem = problem
-        self.algorithm = skopt.Optimizer(
-            dimensions=[skopt.space.Real(0.0, 1.0)] * self.problem.ndim,
-            random_state=self.seed,
-            base_estimator="gp",
-            acq_func="LCB",  # TODO: see if this is the best option
-            **kwargs,
-        )
-
-    def optimize(self):
-        """
-        Optimizes the associated :class:`cubnm.optimizer.BNMProblem`
-        free parameters through an evolutionary optimization approach by
-        running multiple generations of parallel simulations until the
-        termination criteria is met or maximum number of iterations is reached.
-        """
-        self.history = []
-        self.opt_history = []
-        for it in range(self.n_iter):
-            # ask for next popsize suggestions
-            X = np.array(self.algorithm.ask(n_points=self.popsize))
-            # evaluate them
-            out = {}
-            # pass an empty scores list to the evaluator to store the individual GOF measures
-            scores = []
-            self.problem._evaluate(X, out, scores=scores)
-            if not self.save_history_sim:
-                # clear current simulation data
-                # it has to be here before .tell
-                self.problem.sim_group.clear()
-            # tell the results to the optimizer
-            self.algorithm.tell(X.tolist(), out["F"].tolist())
-            # convert results to dataframe
-            ## parameters
-            res = pd.DataFrame(
-                self.problem._get_Xt(X), columns=self.problem.free_params
-            )
-            res.index.name = "sim_idx"
-            ## cost function
-            res["F"] = out["F"]
-            ## GOF measures
-            res = pd.concat([res, scores[0]], axis=1)
-            print(res.to_string())
-            self.history.append(res)
-            self.opt_history.append(res.loc[res["F"].argmin()])
-        self.history = pd.concat(self.history, axis=0).reset_index(drop=False)
-        self.opt_history = pd.DataFrame(self.opt_history).reset_index(drop=True)
-        self.opt = self.opt_history.loc[self.opt_history["F"].argmin()]
-
 
 def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
     """
@@ -1042,12 +1502,12 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
         Will be mapped one-to-one with the optimizers.
         If not a list, the same problem will be used in all optimizers
         and optimizers must be a list.
-    save: :obj:`bool`, optional
+    save: :obj:`bool`
         save the optimizers and their results. This is more efficient
         than saving each optimizer separately as saving involves
         rerunning the optimal simulations, which is done in a batch in
         this function.
-    setup_kwargs: :obj:`dict`, optional
+    setup_kwargs: :obj:`dict`
         kwargs passed on to :meth:`cubnm.optimize.PymooOptimizer.setup_problem`
         
     Returns
@@ -1069,9 +1529,9 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
         problem_kwargs = dict(
             model = 'rWW',
             params = {
-                'G': (1.0, 3.0),
-                'wEE': (0.05, 0.5),
-                'wEI': 0.15,
+                'G': (0.001, 10.0),
+                'w_p': (0, 2.0),
+                'J_N': (0.001, 0.5),
             },
             duration = 60,
             TR = 1,
@@ -1225,13 +1685,15 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
         # clear and delete MultiSimGroup instance created for this iteration
         msg.clear()
         del msg
-    # organize history and assign optima
+
     for optimizer in optimizers:
         optimizer.history = pd.concat(optimizer.history, axis=0).reset_index(drop=False)
         if optimizer.problem.n_obj == 1:
             # a single optimum can be defined
             optimizer.opt_history = pd.DataFrame(optimizer.opt_history).reset_index(drop=True)
             optimizer.opt = optimizer.history.loc[optimizer.history["cost"].argmin()]
+        optimizer.is_fit = True
+
     if save:
         print("Rerunning and saving the optimal simulation(s)")
         # create a multi-sim group by concatenating the sim groups of the optimizers
@@ -1249,15 +1711,8 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
             ## but change its out_dir, N and parameters to the optimum
             optimizer.problem.sim_group.out_dir = os.path.join(optimizer_dir, "opt_sim")
             os.makedirs(optimizer.problem.sim_group.out_dir, exist_ok=True)
-            if type(optimizer).__name__ == "BayesOptimizer":
-                # TODO: ideally implement this part as a separate method
-                # and handle differences of PymooOptimizer and BayesOptimizer
-                # more properly
-                res = optimizer.algorithm.get_result()
-                X = np.atleast_2d(res.x)
-            else:
-                res = optimizer.algorithm.result()
-                X = np.atleast_2d(res.X)
+            res = optimizer.algorithm.result()
+            X = np.atleast_2d(res.X)
             optimizer.problem.sim_group.N = X.shape[0]
             optimizer.problem._set_sim_params(X)
             Xs.append(X)

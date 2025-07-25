@@ -130,15 +130,20 @@ if noise_segment:
     extra_compile_args.append("-D NOISE_SEGMENT")
 if many_nodes:
     extra_compile_args.append("-D MANY_NODES")
-if omp_enabled:
-    extra_compile_args += [
-        "-fopenmp",
-        "-D OMP_ENABLED"
-    ]
 if gpu_enabled:
     extra_compile_args.append("-D GPU_ENABLED")
     if gpu_model == 'rocm':
         extra_compile_args.append("-D ENABLE_HIP")
+
+gpu_extra_compile_args = extra_compile_args.copy()
+cpu_extra_compile_args = extra_compile_args.copy()
+
+if omp_enabled:
+    cpu_extra_compile_args += [
+        "-fopenmp",
+        "-D OMP_ENABLED"
+    ]
+
 
 if gpu_enabled:
     print(f"Compiling for GPU ({gpu_model}) + CPU")
@@ -159,7 +164,7 @@ if gpu_enabled:
         "cubnm.core",
         [os.path.join("src", "ext", "core.cpp")],
         language="c++",
-        extra_compile_args=extra_compile_args,
+        extra_compile_args=cpu_extra_compile_args,
         libraries=libraries,
         include_dirs=all_includes,
         library_dirs=library_dirs + \
@@ -177,7 +182,7 @@ else:
         "cubnm.core",
         [os.path.join("src", "ext", "core.cpp")],
         language="c++",
-        extra_compile_args=extra_compile_args,
+        extra_compile_args=cpu_extra_compile_args,
         libraries=libraries,
         include_dirs=shared_includes,
         library_dirs=[
@@ -242,17 +247,10 @@ class build_ext_gsl_cuda(build_ext):
         # Compile CUDA code into libbnm.a
         if gpu_enabled:
             cuda_dir = os.path.join(ROOT, 'src', 'ext')
-            conf_flags = []
-            if noise_segment:
-                conf_flags.append("NOISE_SEGMENT")
-            if many_nodes:
-                conf_flags.append("MANY_NODES")
             if gpu_model == 'rocm':
-                conf_flags.append("ENABLE_HIP")
                 include_flags = " ".join([f"-I {p}" for p in all_includes])
             else:
                 include_flags = " ".join([f"-I {p}" for p in shared_includes])
-            conf_flags = " ".join([f"-D {f}" for f in conf_flags])
             source_files = ["bnm.cu", "utils.cu", "fc.cu"] + [
                 os.path.relpath(f, start=cuda_dir) for f in find_file('*.cu', os.path.join(cuda_dir, 'models'))
             ]
@@ -265,8 +263,8 @@ class build_ext_gsl_cuda(build_ext):
                     unified_file.write(f'#include "{source_file}"\n')
             if gpu_model == 'nvidia':
                 compile_commands = [
-                    f"nvcc -c -rdc=true -std=c++11 --compiler-options '-fPIC' -o {cuda_dir}/_bnm.o {unified_source_path} "
-                    f"{include_flags} {conf_flags}",
+                    f"nvcc -c -rdc=true --compiler-options '-fPIC' -o {cuda_dir}/_bnm.o {unified_source_path} "
+                    f"{include_flags} {' '.join(gpu_extra_compile_args)}",
                     f"nvcc -dlink --compiler-options '-fPIC' -o {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o "
                         f"-L {GSL_LIB_DIR} -lm -lgsl -lgslcblas -lcudart_static",
                     f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/_bnm_linked.o {cuda_dir}/_bnm.o",
@@ -274,7 +272,7 @@ class build_ext_gsl_cuda(build_ext):
                 ]
             else:
                 compile_commands = [
-                    f"hipcc -fno-gpu-rdc -std=c++11 -fPIC {include_flags} {conf_flags} -c {unified_source_path} -o {cuda_dir}/_bnm.o ",
+                    f"hipcc -fno-gpu-rdc -fPIC {include_flags} {' '.join(gpu_extra_compile_args)} -c {unified_source_path} -o {cuda_dir}/_bnm.o ",
                     f"hipcc --shared -fPIC -fno-gpu-rdc -o {cuda_dir}/_bnm_linked.so {cuda_dir}/_bnm.o "
                         f"-L {GSL_LIB_DIR} -lgsl -lgslcblas -L {ROCM_PATH}/lib -lamdhip64", # -lm and -lcudart_static are removed
                     f"ar cru {cuda_dir}/libbnm.a {cuda_dir}/_bnm_linked.so {cuda_dir}/_bnm.o",

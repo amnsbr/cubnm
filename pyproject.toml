@@ -14,8 +14,9 @@ dependencies = [
     "scipy",
     "pandas",
     "pymoo==0.6",
-    "scikit-optimize==0.9",
-    "tabulate"
+    "tabulate",
+    "matplotlib",
+    "seaborn"
 ]
 requires-python = ">=3.7"
 description = "A toolbox for brain network modeling on GPUs "
@@ -40,6 +41,10 @@ dynamic = ["version"]
 
 [project.scripts]
 cubnm = "cubnm.cli:main"
+
+[project.optional-dependencies]
+cupy-cuda11x = ["cupy-cuda11x", "numba"]
+cupy-cuda12x = ["cupy-cuda12x", "numba"]
 
 [tool.setuptools]
 include-package-data = true

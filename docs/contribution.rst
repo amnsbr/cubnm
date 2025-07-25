@@ -770,7 +770,7 @@ changes:
         if (strcmp(model_name, "rWW")==0) {
             model = new rWWModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, rand_seed, dt, bw_dt
+                time_steps, do_delay, sim_seed, dt, bw_dt
             );
         } 
         // then add this case at the end
@@ -779,7 +779,7 @@ changes:
         else if (strcmp(model_name, "rWWEx")==0) {
             model = new rWWExModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, rand_seed, dt, bw_dt
+                time_steps, do_delay, sim_seed, dt, bw_dt
             );
         } 
 
@@ -819,6 +819,8 @@ Build the toolbox from source
         sim_group = sim.rWWExSimGroup(
             duration=60,
             TR=1,
+            window_size=10,
+            window_step=2,
             sc=datasets.load_sc('strength', 'schaefer-100'),
         )
         sim_group.N = 1

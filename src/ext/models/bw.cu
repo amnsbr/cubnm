@@ -2,9 +2,9 @@
 #include "cubnm/defines.h"
 #include "cubnm/models/bw.cuh"
 __device__ void bw_step(
-        u_real& bw_x, u_real& bw_f, u_real& bw_nu, 
-        u_real& bw_q, u_real& tmp_f,
-        u_real& n_state
+        double& bw_x, double& bw_f, double& bw_nu, 
+        double& bw_q, double& tmp_f,
+        double& n_state
         ) {
     // Balloon-Windkessel model integration step
     bw_x  = bw_x  +  d_bwc.dt * (n_state - d_bwc.kappa * bw_x - d_bwc.y * (bw_f - 1.0));

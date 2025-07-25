@@ -4,8 +4,8 @@
 __constant__ KuramotoModel::Constants d_Kuramotoc;
 template void _run_simulations_gpu<KuramotoModel>(
     double*, double*, double*, 
-    u_real**, u_real**, u_real*, 
-    u_real**, u_real**, int*, u_real*, 
+    double**, double**, double*, 
+    double**, double**, int*, double*, 
     BaseModel*
 );
 

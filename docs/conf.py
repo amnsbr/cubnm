@@ -27,14 +27,14 @@ extensions = [
 ]
 
 templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', "*/staging/*", "*/venv/*", "*/.ipynb_checkpoints/*"]
 
 # -- Options for autoapi -----------------------------------------------------
 autoapi_dirs = ['../src/cubnm']
 autoapi_type = "python"
 autoapi_python_class_content = "init"
 autodoc_inherit_docstrings = False
-autoapi_ignore = ["*_core*", "*_setup_opts*", "*cli*", "*_version*"]
+autoapi_ignore = ["*_core*", "*_setup_opts*", "*cli*", "*_version*", "*/.ipynb_checkpoints/*", "*/venv/*"]
 autoapi_template_dir = '_autoapi_templates'
 autoapi_options = [
     'members', 'undoc-members', 'show-inheritance', 'inherited-members',
@@ -80,13 +80,3 @@ html_sourcelink_suffix = ''
 # -- Options for nbsphinx
 nbsphinx_execute = "never"
 # TODO: add nbsphinx_prolog to launch on Kaggle
-nbsphinx_epilog = r"""
-{% set docname = env.doc2path(env.docname) %}
-
-.. role:: raw-html(raw)
-    :format: html
-
-.. nbinfo::
-
-    This page was generated from `this Jupyter Notebook <{{docname}}>`_.
-"""

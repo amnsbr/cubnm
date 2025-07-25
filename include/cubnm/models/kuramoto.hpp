@@ -6,9 +6,9 @@ public:
     // first define Constants and Config structs
     // they always must be defined even if empty
     struct Constants {
-        u_real dt;
-        u_real sqrt_dt;
-        u_real twopi;
+        double dt;
+        double sqrt_dt;
+        double twopi;
     };
     struct Config {
     };
@@ -34,10 +34,10 @@ public:
         0, // EXT_BOOL_SHARED
         0, // GLOBAL_OUT_INT
         0, // GLOBAL_OUT_BOOL
-        0, // GLOBAL_OUT_UREAL
+        0, // GLOBAL_OUT_DOUBLE
         0, // REGIONAL_OUT_INT
         0, // REGIONAL_OUT_BOOL
-        0 // REGIONAL_OUT_UREAL
+        0 // REGIONAL_OUT_DOUBLE
     )
 
     // additional functions that need to be overridden

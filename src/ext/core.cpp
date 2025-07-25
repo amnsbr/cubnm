@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <memory>
 #include <iomanip>
+#include <stdexcept>
 #include "cubnm/defines.h"
 #include "utils.cpp"
 #include "./models/bw.cpp"
@@ -56,15 +57,15 @@ BaseModel *model;
 char *last_model_name;
 
 
-u_real ** np_to_array_2d(PyArrayObject * np_arr) {
-    // converts a 2d numpy array to a 2d array of type u_real
+double ** np_to_array_2d(PyArrayObject * np_arr) {
+    // converts a 2d numpy array to a 2d array of type double
     int rows = PyArray_DIM(np_arr, 0);
     int cols = PyArray_DIM(np_arr, 1);
     double* data = (double*)PyArray_DATA(np_arr);
 
-    u_real** arr = (u_real**)malloc(rows * sizeof(u_real*));
+    double** arr = (double**)malloc(rows * sizeof(double*));
     for (int i = 0; i < rows; i++) {
-        arr[i] = (u_real*)malloc(cols * sizeof(u_real));
+        arr[i] = (double*)malloc(cols * sizeof(double));
         for (int j = 0; j < cols; j++) {
             arr[i][j] = data[i*cols + j];
         }
@@ -160,7 +161,7 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
     double value;
 
     if (!PyArg_ParseTuple(args, "sd", &key, &value)) {
-        return NULL;
+        Py_RETURN_NONE;
     }
 
     // update value of the constant
@@ -189,13 +190,12 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
-
-static PyObject* run_simulations(PyObject* self, PyObject* args) {
+static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
     PyArrayObject *py_SC, *py_pFF, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
     PyObject* config_dict;
     bool ext_out, states_ts, noise_out, do_delay, force_reinit, use_cpu;
-    int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, rand_seed;
+    int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, sim_seed;
     double dt, bw_dt;
 
     if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!O!Oiiiiiiiiiiiidd", 
@@ -219,7 +219,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
             &time_steps,
             &BOLD_TR,
             &states_sampling,
-            &rand_seed,
+            &sim_seed,
             &dt,
             &bw_dt
             )) {
@@ -233,10 +233,10 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     py_pFF = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_pFF, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     if ((py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL) | (py_pFF == NULL)) return NULL;
 
-    u_real ** global_params = np_to_array_2d(py_global_params);
-    u_real ** regional_params = np_to_array_2d(py_regional_params);
-    u_real ** SC = np_to_array_2d(py_SC);
-    u_real ** pFF = np_to_array_2d(py_pFF);
+    double ** global_params = np_to_array_2d(py_global_params);
+    double ** regional_params = np_to_array_2d(py_regional_params);
+    double ** SC = np_to_array_2d(py_SC);
+    double ** pFF = np_to_array_2d(py_pFF);
     // calcualte number of SCs as the max value of py_SC_idx
     int N_SCs = *std::max_element(
         (int*)PyArray_DATA(py_SC_indices), 
@@ -269,30 +269,30 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         if (strcmp(model_name, "rWW")==0) {
             model = new rWWModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, rand_seed, dt, bw_dt
+                time_steps, do_delay, sim_seed, dt, bw_dt
             );
         } 
         else if (strcmp(model_name, "rWWEx")==0) {
             model = new rWWExModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, rand_seed, dt, bw_dt
+                time_steps, do_delay, sim_seed, dt, bw_dt
             );
         } 
         else if (strcmp(model_name, "Kuramoto")==0) {
             model = new KuramotoModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, rand_seed, dt, bw_dt
+                time_steps, do_delay, sim_seed, dt, bw_dt
             );
         }
         else {
             std::cerr << "Model " << model_name << " not found" << std::endl;
-            return NULL;
+            Py_RETURN_NONE;
         }
     } else {
         // update model properties based on user data
         model->update(
             nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-            time_steps, do_delay, rand_seed, dt, bw_dt
+            time_steps, do_delay, sim_seed, dt, bw_dt
         );
         // reset base_conf to defaults
         model->base_conf = BaseModel::Config();
@@ -315,17 +315,17 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         // TODO: write a proper warning + instructions on what to do
         // if the system does have a CUDA-enabled GPU
         std::cerr << "Library not compiled with GPU support and cannot use GPU." << std::endl;
-        return NULL;
+        Py_RETURN_NONE;
         #endif
     }
 
     // Initialize GPU/CPU if it's not already done in current session
     // it does memory allocation and noise precalculation among other things
-    start = std::chrono::high_resolution_clock::now();
+    start = std::chrono::system_clock::now();
     if (use_cpu & ((!model->cpu_initialized) | (force_reinit))) {
         std::cout << "Initializing CPU session..." << std::endl;
         model->init_cpu(force_reinit);
-        end = std::chrono::high_resolution_clock::now();
+        end = std::chrono::system_clock::now();
         init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6)
             << init_seconds.count() << " s" << std::endl;
@@ -334,7 +334,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     else if (!use_cpu & ((!model->gpu_initialized) | (force_reinit))) {
         std::cout << "Initializing GPU session..." << std::endl;
         model->init_gpu(bwc, force_reinit);
-        end = std::chrono::high_resolution_clock::now();
+        end = std::chrono::system_clock::now();
         init_seconds = end - start;
         std::cout << "took " << std::fixed << std::setprecision(6) 
             << init_seconds.count() << " s" << std::endl;
@@ -403,8 +403,7 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 
     // Run simulations
     std::cout << "Running " << N_SIMS << " simulations..." << std::endl;
-    start = std::chrono::high_resolution_clock::now();
-    // TODO: cast the arrays to double if u_real is float
+    start = std::chrono::system_clock::now();
     if (use_cpu) {
         model->run_simulations_cpu(
             BOLD_ex_out, fc_trils_out, fcd_trils_out,
@@ -423,19 +422,28 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
         );
     }
     #endif
-    end = std::chrono::high_resolution_clock::now();
+    end = std::chrono::system_clock::now();
     run_seconds = end - start;
+    if (model->base_conf.verbose) {
+        std::cout << "Simulations ";
+        if (model->base_conf.do_fc) {
+            std::cout << "and calculation of FC ";
+            if (model->base_conf.do_fcd) {
+                std::cout << "and FCD ";
+            }
+        }
+    }
     std::cout << "took " << std::fixed << std::setprecision(6)
         << run_seconds.count() << " s" << std::endl;
 
     // Copy the output C arrays to NumPy arrays
     if (ext_out) {
-        array_to_np_3d<u_real>(model->states_out, py_states_out);
+        array_to_np_3d<double>(model->states_out, py_states_out);
         array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
         array_to_np_2d<int>(model->global_out_int, py_global_ints_out);
     }
     if (noise_out) {
-        array_to_np_1d<u_real>(model->noise, py_noise_out);
+        array_to_np_1d<double>(model->noise, py_noise_out);
         #ifdef NOISE_SEGMENT
         array_to_np_1d<int>(model->shuffled_nodes, py_shuffled_nodes_out);
         array_to_np_1d<int>(model->shuffled_ts, py_shuffled_ts_out);
@@ -462,29 +470,53 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
     PyObject* py_run_seconds = PyFloat_FromDouble(run_seconds.count());
 
     // Return output as a dictionary
+    // Note: When setting the dictionary items, the reference count of the value
+    // is increased, so we need to decrement it after setting the item
+    // otherwise the reference count will be 2 and the object will not be garbage collected
+    // (when dictionary is out of scope / deleted in Python) leading to memory leakage
     PyObject* out_dict = PyDict_New();
     PyDict_SetItemString(out_dict, "init_time", py_init_seconds);
     PyDict_SetItemString(out_dict, "run_time", py_run_seconds);
     PyDict_SetItemString(out_dict, "sim_bold", py_BOLD_ex_out);
+    Py_DECREF(py_BOLD_ex_out);
     if (model->base_conf.do_fc) {
         PyDict_SetItemString(out_dict, "sim_fc_trils", py_fc_trils_out);
+        Py_DECREF(py_fc_trils_out);
         if (model->base_conf.do_fcd) {
             PyDict_SetItemString(out_dict, "sim_fcd_trils", py_fcd_trils_out);
+            Py_DECREF(py_fcd_trils_out);
         }
     }
     if (ext_out) {
         PyDict_SetItemString(out_dict, "_sim_states", py_states_out);
+        Py_DECREF(py_states_out);
         PyDict_SetItemString(out_dict, "_global_bools", py_global_bools_out);
+        Py_DECREF(py_global_bools_out);
         PyDict_SetItemString(out_dict, "_global_ints", py_global_ints_out);
+        Py_DECREF(py_global_ints_out);
     }
     if (noise_out) {
         PyDict_SetItemString(out_dict, "_noise", py_noise_out);
+        Py_DECREF(py_noise_out);
         #ifdef NOISE_SEGMENT
         PyDict_SetItemString(out_dict, "_shuffled_nodes", py_shuffled_nodes_out);
+        Py_DECREF(py_shuffled_nodes_out);
         PyDict_SetItemString(out_dict, "_shuffled_ts", py_shuffled_ts_out);
+        Py_DECREF(py_shuffled_ts_out);
         #endif
     }
     return out_dict;
+}
+
+static PyObject* run_simulations(PyObject* self, PyObject* args) {
+    // a wrapper for _run_simulations that catches exceptions
+    // and returns them as Python exceptions
+    try {
+        return _run_simulations(self, args);
+    } catch (const std::exception& e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
 }
 
 
@@ -492,7 +524,7 @@ static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(model_name, SC, pFF, SC_indices, SC_dist, global_params, regional_params, \n"
         "v_list, model_config, ext_out, states_ts, noise_out, do_delay, force_reinit, \n"
-        "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, rand_seed, dt, bw_dt)\n\n"
+        "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, sim_seed, dt, bw_dt)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
         "-----------\n"
@@ -548,7 +580,7 @@ static PyMethodDef methods[] = {
         "BOLD_TR (int)\n"
             "\tBOLD repetition time (ms)\n"
             "\talso used as the sampling interval of extended output\n"
-        "rand_seed (int)\n"
+        "sim_seed (int)\n"
             "\tseed for random number generator\n\n"
         "dt (float)\n"
             "\tintegration time step (msec)\n"

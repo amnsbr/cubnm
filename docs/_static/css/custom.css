@@ -10,3 +10,9 @@
 .function h4 {
     font-size: 1.1rem;
 }
+
+/* making the output of code cells scrollable */
+div.output_area pre {
+    max-height: 400px;
+    overflow: auto;
+}

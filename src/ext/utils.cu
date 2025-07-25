@@ -1,29 +1,11 @@
 #include "cubnm/includes.cuh"
 #include "cubnm/defines.h"
 #include "cubnm/utils.cuh"
-void checkLast(const char* const file, const int line) {
-    // from https://leimao.github.io/blog/Proper-CUDA-Error-Checking/
-    cudaError_t err{cudaGetLastError()};
-    if (err != cudaSuccess)
-    {
-        std::cerr << "CUDA Runtime Error at: " << file << ":" << line
-                  << std::endl;
-        std::cerr << cudaGetErrorString(err) << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-}
-
-__global__ void float2double(double **dst, float **src, size_t rows, size_t cols) {
-    int row = blockIdx.x;
-    int col = blockIdx.y;
-    if ((row > rows) | (col > cols)) return;
-    dst[row][col] = (float)(src[row][col]);
-}
 
 cudaDeviceProp get_device_prop(int verbose) {
     /*
         Gets GPU device properties and prints them to the console.
-        Also exits the program if no GPU is found.
+        Also throws an error if no GPU is found.
     */
     int count;
     cudaError_t error = cudaGetDeviceCount(&count);
@@ -49,8 +31,7 @@ cudaDeviceProp get_device_prop(int verbose) {
                 << ", pciDeviceID: " << prop.pciDeviceID << ", tccDriver: " << prop.tccDriver  << std::endl;
         }
     } else {
-        std::cout << "No CUDA devices was found\n" << std::endl;
-        exit(1);
+        throw std::runtime_error(std::string("No CUDA devices was found"));
     }
     return prop;
 }

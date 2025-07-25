@@ -8,6 +8,7 @@ import os
 import gc
 import copy
 from decimal import Decimal
+import multiprocessing
 
 from cubnm._core import run_simulations, set_const
 from cubnm._setup_opts import (
@@ -16,7 +17,26 @@ from cubnm._setup_opts import (
     noise_segment_flag
 )
 from cubnm import utils, datasets
+from . import _version
+__version__ = _version.get_versions()['version']
 
+try:
+    import cupy as cp
+    has_cupy = True
+except ImportError:
+    cp = None
+    has_cupy = False
+
+
+
+# NaN values in the scores are replaced with the worst possible scores
+# listed below.
+WORST_SCORES = {
+    "+fc_corr": -1.0,
+    "-fc_diff": -2.0,
+    "-fc_normec": -1.0,
+    "-fcd_ks": -1.0,
+}
 
 class SimGroup:
     def __init__(
@@ -35,13 +55,12 @@ class SimGroup:
         noise_out=False,
         do_fc=True,
         do_fcd=True,
-        window_size=10,
-        window_step=2,
-        rand_seed=410,
+        window_size=30,
+        window_step=5,
+        sim_seed=0,
         exc_interhemispheric=False,
         force_cpu=False,
         force_gpu=False,
-        serial_nodes=False,
         gof_terms=["+fc_corr", "-fcd_ks"],
         bw_params="friston2003",
         bold_remove_s=30,
@@ -62,88 +81,86 @@ class SimGroup:
         TR: :obj:`float`
             BOLD TR (in seconds)
         sc: :obj:`str` or :obj:`np.ndarray`
-            path to structural connectome strengths (as an unlabled .txt)
-            or a numpy array
-            Shape: (nodes, nodes)
+            path to structural connectome strengths (as an unlabled .txt/.npy)
+            or a numpy array. Shape: (nodes, nodes)
             If asymmetric, rows are sources and columns are targets.
         pFF: :obj:`str` or :obj:`np.ndarray`
-            path to proportion of feedforward matrix (as an unlabled .txt)
+            path to proportion of feedforward matrix (as an unlabled .txt/.npy)
             or a numpy array. Must have values between 0 and 1.
             If not provided, all connections are considered feedforward.
             Shape: (nodes, nodes)
             If asymmetric, rows are sources and columns are targets.
-        sc_dist: :obj:`str` or :obj:`np.ndarray`, optional
+        sc_dist: :obj:`str` or :obj:`np.ndarray`
             path to structural connectome distances (as an unlabled .txt)
-            or a numpy array
-            Shape: (nodes, nodes)
-            If provided v (velocity) will be a free parameter and there
-            will be delay in inter-regional connections
+            or a numpy array. Shape: (nodes, nodes)
+            If provided ``'v'`` (velocity) will be a free parameter and there
+            will be delay in inter-regional connections.
             If asymmetric, rows are sources and columns are targets.
-        out_dir: {:obj:`str` or 'same' or None}, optional
+        out_dir: {:obj:`str` or 'same' or None}
+            output directory
+
             - :obj:`str`: will create a directory in the provided path
-            - 'same': will create a directory named based on sc
+            - ``'same'``: will create a directory named based on sc
                 (only should be used when sc is a path and not a numpy array)
-            - None: will not have an output directory (and cannot save outputs)
-        dt: :obj:`decimal.Decimal` or :obj:`str`, optional
+            - ``None``: will not have an output directory (and cannot save outputs)
+
+        dt: :obj:`decimal.Decimal` or :obj:`str`
             model integration time step (in msec)
-        bw_dt: :obj:`decimal.Decimal` or :obj:`str`, optional
+        bw_dt: :obj:`decimal.Decimal` or :obj:`str`
             Ballon-Windkessel integration time step (in msec)
-        ext_out: :obj:`bool`, optional
+        ext_out: :obj:`bool`
             return model state variables to self.sim_states
-        states_ts: :obj:`bool`, optional
+        states_ts: :obj:`bool`
             return time series of model states to self.sim_states
             Note that this will increase the memory usage and is not
             recommended for large number of simulations (e.g. in a grid search)
-        states_sampling: :obj:`float`, optional
+        states_sampling: :obj:`float`
             sampling rate of model states in seconds.
             Default is None, which uses BOLD TR as the sampling rate.
-        noise_out: :obj:`bool`, optional
+        noise_out: :obj:`bool`
             return noise time series
-        do_fc: :obj:`bool`, optional
+        do_fc: :obj:`bool`
             calculate simulated functional connectivity (FC)
-        do_fcd: :obj:`bool`, optional
+        do_fcd: :obj:`bool`
             calculate simulated functional connectivity dynamics (FCD)
-        window_size: :obj:`int`, optional
-            dynamic FC window size (in TR)
-            Must be even. The actual window size is +1 (including center)
-        window_step: :obj:`int`, optional
-            dynamic FC window step (in TR)
-        rand_seed: :obj:`int`, optional
+        window_size: :obj:`int`
+            dynamic FC window size (in seconds)
+            will be converted to N TRs (nearest even number)
+            The actual window size is number of TRs + 1 (including center)
+        window_step: :obj:`int`
+            dynamic FC window step (in seconds)
+            will be converted to N TRs
+        sim_seed: :obj:`int`
             seed used for the noise simulation
-        exc_interhemispheric: :obj:`bool`, optional
+        exc_interhemispheric: :obj:`bool`
             excluded interhemispheric connections from sim FC and FCD calculations
-        force_cpu: :obj:`bool`, optional
+        force_cpu: :obj:`bool`
             use CPU for the simulations (even if GPU is available). If set
             to False the program might use GPU or CPU depending on GPU
             availability
-        force_gpu: :obj:`bool`, optional
+        force_gpu: :obj:`bool`
             on some HPC/HTC systems occasionally GPUtil might not detect an 
             available GPU device. Use this if there is a GPU available but
             is not being used for the simulation. If set to True but a GPU
             is not available will lead to errors.
-        serial_nodes: :obj:`bool`, optional
-            only applicable to GPUs; uses one thread per simulation and do calculation
-            of nodes serially. This is an experimental feature which is generally not 
-            recommended and has significantly slower performance in typical use cases. 
-            Only may provide performance benefits with very large grids as computing 
-            time does not scale with the number of simulations as much as the 
-            parallel (default) mode.
-        gof_terms: :obj:`list` of :obj:`str`, optional
+        gof_terms: :obj:`list` of :obj:`str`
             list of goodness-of-fit terms to be used for scoring. May include:
-            - '-fcd_ks': negative Kolmogorov-Smirnov distance of FCDs
-            - '+fc_corr': Pearson correlation of FCs
-            - '-fc_diff': negative absolute difference of FC means
-            - '-fc_normec': negative Euclidean distance of FCs \
+
+            - ``'-fcd_ks'``: negative Kolmogorov-Smirnov distance of FCDs
+            - ``'+fc_corr'``: Pearson correlation of FCs
+            - ``'-fc_diff'``: negative absolute difference of FC means
+            - ``'-fc_normec'``: negative Euclidean distance of FCs \
                 divided by max EC [sqrt(n_pairs*4)]
-        bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}, optional
+
+        bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}
             see :func:`cubnm.utils.get_bw_params` for details
-        bold_remove_s: :obj:`float`, optional
+        bold_remove_s: :obj:`float`
             remove the first bold_remove_s seconds from the simulated BOLD
             in FC, FCD and mean state calculations (but the entire BOLD will
             be returned to .sim_bold)
-        fcd_drop_edges: :obj:`bool`, optional
+        fcd_drop_edges: :obj:`bool`
             drop the edge windows in FCD calculations
-        noise_segment_length: :obj:`float` or None, optional
+        noise_segment_length: :obj:`float` or None
             in seconds, length of the noise segments in the simulations
             The noise segment will be repeated after shuffling
             of nodes and time points. To generate noise for the entire
@@ -152,21 +169,22 @@ class SimGroup:
             in a different noise array even if seed is fixed (but
             fixed combination of seed and noise_segment_length will
             result in reproducible noise)
-        sim_verbose: :obj:`bool`, optional
+        sim_verbose: :obj:`bool`
             verbose output of the simulation including details of
-            simulations and a progress bar. This may slightly make
-            the simulations slower.
-        progress_interval: :obj:`int`, optional
+            simulations and a progress bar.
+        progress_interval: :obj:`int`
             msec; interval of progress updates in the simulation
-            Only used if sim_verbose is True
+            Only used if ``sim_verbose`` is ``True``
 
         Attributes
         ---------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - global parameters with shape (N_SIMS,)
-                - regional parameters with shape (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+
+            - global parameters with shape (N_SIMS,)
+            - regional parameters with shape (N_SIMS, nodes)
+            - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
         Additional attributes will be added after running the simulations.
         See :func:`cubnm.sim.SimGroup._process_out` for details.
 
@@ -189,118 +207,58 @@ class SimGroup:
         And they must implement the following methods:
             _set_default_params: set default (example) parameters for the simulations
         """
-        self.duration = duration
-        self.TR = TR
         self.input_sc = sc
         if isinstance(sc, (str, os.PathLike)):
-            self.sc = np.loadtxt(self.input_sc)
+            if sc.endswith(".txt"):
+                self.sc = np.loadtxt(self.input_sc)
+            elif sc.endswith(".npy"):
+                self.sc = np.load(self.input_sc)
         else:
             self.sc = self.input_sc
-        self._dt = Decimal(dt)
-        self._bw_dt = Decimal(bw_dt)
-        self.ext_out = ext_out
-        self.states_ts = self.ext_out & states_ts
-        if states_sampling is None:
-            self.states_sampling = self.TR
-        else:
-            self.states_sampling = states_sampling
-        self.do_fc = do_fc
-        if self.do_fc:
-            self.do_fcd = do_fcd
-        elif do_fcd:
-            raise ValueError("Cannot calculate FCD without FC")
-        else:
-            self.do_fcd = False
-        if not self.do_fc:
-            if ('+fc_corr' in gof_terms) or ('-fc_diff' in gof_terms) or ('-fc_normec' in gof_terms):
-                raise ValueError("Cannot calculate FC goodness-of-fit terms without FC."
-                                 " Set do_fc to True or remove FC-related goodness-of-fit"
-                                 " terms.")
-        if not self.do_fcd:
-            if '-fcd_ks' in gof_terms:
-                raise ValueError("Cannot calculate FCD goodness-of-fit terms without FCD."
-                                 " Set do_fcd to True or remove FCD-related goodness-of-fit"
-                                 " terms.")
-        self.window_size = window_size
-        assert self.window_size % 2 == 0, "Window size must be even"
-        self.window_step = window_step
-        self.rand_seed = rand_seed
-        self.exc_interhemispheric = exc_interhemispheric
-        self.force_cpu = force_cpu
-        self.force_gpu = force_gpu
-        self.serial_nodes = serial_nodes
-        self.gof_terms = gof_terms
-        self.bold_remove_s = bold_remove_s
-        self.fcd_drop_edges = fcd_drop_edges
-        self.noise_segment_length = noise_segment_length
-        if self.noise_segment_length is None:
-            self.noise_segment_length = self.duration
-        self.noise_out = noise_out
-        self.sim_verbose = sim_verbose
-        self.progress_interval = progress_interval
-        # get duration, TR and extended sampling rate in msec
-        self.duration_msec = int(duration * 1000)  # in msec
-        self.TR_msec = int(TR * 1000)
-        self.states_sampling_msec = int(self.states_sampling * 1000)
-        # ensure bw_dt > dt and divisible by dt + duration is divisible by bw_dt
-        self._check_dt()
-        # warn user if serial is set to True
-        # + revert unsupported options to default
-        if self.serial_nodes and not self.force_cpu:
-            print(
-                "Warning: Running simulations serially on GPU is an experimental "
-                "feature which is generally not recommended and has "
-                "significantly slower performance. Consider setting "
-                "serial_nodes to False."
-            )
-            if self.states_sampling != self.TR:
-                print(
-                    "In serial different states_sampling from TR is not "
-                    "supported. Reseting it to TR."
-                )
-                self.states_sampling = self.TR
-        # warn user if SC diagonal is not 0
         if np.any(np.diag(self.sc)):
             print("Warning: The diagonal of the SC matrix is not 0. "
                 "Self-connections are not ignored by default in "
                 "the simulations. If you want to ignore them set "
                 "the diagonal of the SC matrix to 0.")
-        # raise an error if sampling rate is below model's outer loop dt
-        if (self.states_sampling < 0.001):
-            raise ValueError(
-                "states_sampling cannot be lower than 0.001s "
-                "which is model dt"
-            )
-        # determine number of nodes based on sc dimensions
+        self.duration = duration
+        self.TR = TR
+        self._dt = Decimal(dt)
+        self._bw_dt = Decimal(bw_dt)
+        self._check_dt()
+        self.ext_out = ext_out
+        self.states_sampling = states_sampling
+        self.states_ts = self.ext_out & states_ts
+        self.gof_terms = gof_terms
+        self.do_fc = do_fc
+        self.do_fcd = do_fcd
+        self.window_size = window_size
+        self.window_step = window_step
+        self.sim_seed = sim_seed
+        self.exc_interhemispheric = exc_interhemispheric
+        self.force_cpu = force_cpu
+        self.force_gpu = force_gpu
+        self.bold_remove_s = bold_remove_s
+        self.fcd_drop_edges = fcd_drop_edges
+        self.noise_segment_length = noise_segment_length
+        self.noise_out = noise_out
+        self.sim_verbose = sim_verbose
+        self.progress_interval = progress_interval
+        # get number of available hardware
+        self.avail_gpus = utils.avail_gpus()
+        self.avail_cpus = multiprocessing.cpu_count()
+        # set number of nodes
         self.nodes = self.sc.shape[0]
-        self.use_cpu = (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
-        max_nodes = max_nodes_many if many_nodes_flag else max_nodes_reg
-        if (self.nodes > max_nodes) and (not self.use_cpu) and (not self.serial_nodes):
-            if not many_nodes_flag:
-                raise NotImplementedError(
-                    f"With {self.nodes} nodes in the current installation of the toolbox"
-                    " simulations will fail. Please reinstall the package from source after"
-                    " `export CUBNM_MANY_NODES=1`")
-            if self.do_fc or self.do_fcd:
-                raise NotImplementedError(
-                    "With many nodes, FC and FCD calculations are not supported."
-                    " Set do_fc and do_fcd to False."
-                )
-            if self.dt < 1.0:
-                print(
-                    "Warning: When runnig simulations with large number"
-                    " of nodes it is recommended to set the model dt to"
-                    " >=1.0 msec for better performance."
-                )
-        # inter-regional delay will be added to the simulations
-        # if SC distance matrix is provided
+        # load sc distance if provided, and set delay flag accordingly
         self.input_sc_dist = sc_dist
         if self.input_sc_dist is None:
             self.sc_dist = np.zeros_like(self.sc, dtype=float)
             self.do_delay = False
         else:
             if isinstance(self.input_sc_dist, (str, os.PathLike)):
-                self.sc_dist = np.loadtxt(self.input_sc_dist)
+                if self.input_sc_dist.endswith(".txt"):
+                    self.sc_dist = np.loadtxt(self.input_sc_dist)
+                elif self.input_sc_dist.endswith(".npy"):
+                    self.sc_dist = np.load(self.input_sc_dist)
             else:
                 self.sc_dist = self.input_sc_dist
             self.do_delay = True
@@ -314,7 +272,10 @@ class SimGroup:
                     "pFF can not be used when running simulations on CPU."
                 )
             if isinstance(self.input_pFF, (str, os.PathLike)):
-                self.pFF = np.loadtxt(self.input_pFF)
+                if self.input_pFF.endswith(".txt"):
+                    self.pFF = np.loadtxt(self.input_pFF)
+                elif self.input_pFF.endswith(".npy"):
+                    self.pFF = np.load(self.input_pFF)
             else:
                 self.pFF = self.input_pFF
             assert np.all((self.pFF >= 0) & (self.pFF <= 1)), (
@@ -331,7 +292,7 @@ class SimGroup:
                 "When `out_dir` is set to 'same' `sc` must be"
                 "a path-like string"
             )
-            self.out_dir = self.input_sc.replace(".txt", "")
+            self.out_dir = self.input_sc.replace(".txt", "").replace(".npy", "")
         else:
             self.out_dir = self.input_out_dir
         # keep track of the last N and config to determine if force_reinit
@@ -348,8 +309,98 @@ class SimGroup:
     @N.setter
     def N(self, N):
         self._N = N
-        if not self.do_delay:
+        if hasattr(self, "_do_delay") and (not self.do_delay):
             self.param_lists["v"] = np.zeros(self._N, dtype=float)
+
+    @property
+    def nodes(self):
+        return self._nodes
+    
+    @nodes.setter
+    def nodes(self, nodes):
+        self._nodes = nodes
+        max_nodes = max_nodes_many if many_nodes_flag else max_nodes_reg
+        # determine if with this number of nodes co-launch mode will be enabled
+        # in co-launch mode multiple blocks are occupied by a single (massive) simulation
+        self._co_launch = (self.nodes > max_nodes) and (not self.use_cpu)
+        if self._co_launch:
+            if not many_nodes_flag:
+                raise NotImplementedError(
+                    f"With {self.nodes} nodes in the current installation of the toolbox"
+                    " simulations will fail. Please reinstall the package from source after"
+                    " `export CUBNM_MANY_NODES=1`")
+            if self.do_fcd:
+                raise NotImplementedError(
+                    "With many nodes, FCD calculation is not supported."
+                    " Set do_fcd to False."
+                )
+            if self.dt < 1.0:
+                print(
+                    "Warning: When runnig simulations with large number"
+                    " of nodes it is recommended to set the model dt to"
+                    " >=1.0 msec for better performance."
+                )
+
+    @property
+    def duration(self):
+        return self._duration
+    
+    @duration.setter
+    def duration(self, duration):
+        self._duration = duration
+        self.duration_msec = int(duration * 1000)
+        if hasattr(self, "_noise_segment_length") and (self.noise_segment_length is None):
+            self.noise_segment_length = self.duration
+
+    @property
+    def TR(self):
+        return self._TR
+
+    @TR.setter
+    def TR(self, TR):
+        self._TR = TR
+        self.TR_msec = int(TR * 1000)
+        if hasattr(self, "_states_sampling") and ((self.states_sampling is None) | (self.states_sampling == self.TR)):
+            self.states_sampling = self.TR
+        if hasattr(self, "_window_size"):
+            self.window_size_TRs = int(np.round(self.window_size / (self.TR*2))) * 2
+        if hasattr(self, "_window_step"):
+            self.window_step_TRs = int(np.round(self.window_step / self.TR))
+
+    @property
+    def states_sampling(self):
+        return self._states_sampling
+
+    @states_sampling.setter
+    def states_sampling(self, states_sampling):
+        # raise an error if sampling rate is below model's outer loop dt
+        if (states_sampling is not None) and (states_sampling < 0.001):
+            raise ValueError(
+                "states_sampling cannot be lower than 0.001s "
+                "which is model dt"
+            )
+        if hasattr(self, "_TR") and (states_sampling is None):
+            # also set it to TR when None
+            self._states_sampling = self.TR
+        else:
+            self._states_sampling = states_sampling
+        # convert states_sampling to msec
+        self.states_sampling_msec = int(self.states_sampling * 1000)
+
+    @property
+    def n_states_samples_remove(self):
+        return int(self.bold_remove_s / self.states_sampling)
+
+    @property
+    def noise_segment_length(self):
+        return self._noise_segment_length
+
+    @noise_segment_length.setter
+    def noise_segment_length(self, noise_segment_length):
+        if hasattr(self, "_duration") and (noise_segment_length is None):
+            self._noise_segment_length = self.duration
+        else:
+            self._noise_segment_length = noise_segment_length
 
     @property
     def dt(self):
@@ -388,12 +439,72 @@ class SimGroup:
     @do_delay.setter
     def do_delay(self, do_delay):
         self._do_delay = do_delay
-        if self.do_delay and (self.dt < 1.0):
+        if hasattr(self, "_dt") and self.do_delay and (self.dt < 1.0):
             print(
                 "Warning: When using delay in the simulations"
                 " it is recommended to set the model dt to >="
                 " 1.0 msec for better performance."
             )
+
+    @property
+    def window_size(self):
+        return self._window_size
+
+    @window_size.setter
+    def window_size(self, window_size):
+        self._window_size = window_size
+        # calculate nearest even number of TRs
+        # TODO: enable odd window sizes
+        self.window_size_TRs = int(np.round(window_size / (self.TR*2))) * 2
+
+    @property
+    def window_step(self):
+        return self._window_step
+    
+    @window_step.setter
+    def window_step(self, window_step):
+        self._window_step = window_step
+        self.window_step_TRs = int(np.round(window_step / self.TR))
+
+    @property
+    def do_fc(self):
+        return self._do_fc
+
+    @do_fc.setter
+    def do_fc(self, do_fc):
+        if hasattr(self, "gof_terms") and (not do_fc):
+            if ('+fc_corr' in self.gof_terms) or ('-fc_diff' in self.gof_terms) or ('-fc_normec' in self.gof_terms):
+                raise ValueError("Cannot calculate FC goodness-of-fit terms without FC."
+                                 " Set do_fc to True or remove FC-related goodness-of-fit"
+                                 " terms.")
+        if hasattr(self, "_do_fcd") and (not do_fc):
+            raise ValueError("Cannot calculate FCD without FC. Set do_fcd to False.")
+        self._do_fc = do_fc
+
+    @property
+    def do_fcd(self):
+        return self._do_fcd
+
+    @do_fcd.setter
+    def do_fcd(self, do_fcd):
+        if hasattr(self, "_do_fc") and self.do_fc:
+            self._do_fcd = do_fcd
+        elif do_fcd:
+            raise ValueError("Cannot calculate FCD without FC")
+        else:
+            self._do_fcd = False
+        if hasattr(self, "gof_terms") and (not self._do_fcd) and ('-fcd_ks' in self.gof_terms):
+            raise ValueError("Cannot calculate FCD goodness-of-fit terms without FCD."
+                                " Set do_fcd to True or remove FCD-related goodness-of-fit"
+                                " terms.")
+
+    @property
+    def labels(self):
+        """
+        Labels of parameters and state variables
+        to use in plots and reports
+        """
+        return {}
 
     def _check_dt(self):
         """
@@ -425,10 +536,10 @@ class SimGroup:
 
         Parameters
         ----------
-        include_N: :obj:`bool`, optional
+        include_N: :obj:`bool`
             include N in the output config
             is ignored when for_reinit is True
-        for_reinit: :obj:`bool`, optional
+        for_reinit: :obj:`bool`
             include the parameters that need reinitialization of the
             simulation core session if changed
 
@@ -448,7 +559,9 @@ class SimGroup:
             "do_fcd": self.do_fcd,
             "window_size": self.window_size,
             "window_step": self.window_step,
-            "rand_seed": self.rand_seed,
+            "window_size_TRs": self.window_size_TRs,
+            "window_step_TRs": self.window_step_TRs,
+            "sim_seed": self.sim_seed,
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
             "force_gpu": self.force_gpu,
@@ -467,6 +580,7 @@ class SimGroup:
             config["pFF"] = self.input_pFF
             config["sc_dist"] = self.input_sc_dist
             config["bw_params"] = self.bw_params
+            config["version"] = __version__
             if include_N:
                 config["N"] = self.N
         return config
@@ -475,21 +589,39 @@ class SimGroup:
     def _model_config(self):
         """
         Internal model configuration used in the simulation
+
+        Returns
+        -------
+        model_config: :obj:`dict`
+            Dictionary of internal model configurations
         """
         model_config = {
             'do_fc': str(int(self.do_fc)),
             'do_fcd': str(int(self.do_fcd)),
             'bold_remove_s': str(self.bold_remove_s),
             'exc_interhemispheric': str(int(self.exc_interhemispheric)),
-            'window_size': str(self.window_size),
-            'window_step': str(self.window_step),
+            'window_size': str(self.window_size_TRs),
+            'window_step': str(self.window_step_TRs),
             'drop_edges': str(int(self.fcd_drop_edges)),
             'noise_time_steps': str(int(self.noise_segment_length*1000)), 
             'verbose': str(int(self.sim_verbose)),
             'progress_interval': str(int(self.progress_interval)),
-            'serial': str(int(self.serial_nodes)),
         }
         return model_config
+
+    @property
+    def use_cpu(self):
+        """
+        Check if CPU should be used for the simulations
+        based on the available hardware, compilation options, 
+        and user settings
+        """
+        return (
+            (self.force_cpu | 
+            (not gpu_enabled_flag) | 
+            (self.avail_gpus == 0)) & 
+            (not self.force_gpu)
+        )
 
     def pre_run(self):
         """
@@ -508,7 +640,7 @@ class SimGroup:
 
         Parameters
         ----------
-        force_reinit: :obj:`bool`, optional
+        force_reinit: :obj:`bool`
             force reinitialization of the session.
             At the beginning of each session (when `cubnm` is imported)
             some variables are initialized on CPU/GPU and reused in
@@ -525,10 +657,6 @@ class SimGroup:
             force_reinit
             | (self.N != self.last_N)
             | (curr_config != self.last_config)
-        )
-        self.use_cpu = (
-            (self.force_cpu | (not gpu_enabled_flag) | (utils.avail_gpus() == 0))
-            & (not self.force_gpu)
         )
         # check if running on Jupyter and print warning that
         # simulations are running but progress will not be shown
@@ -561,7 +689,8 @@ class SimGroup:
         assert sc.shape[0] == np.unique(sc_indices).size
         assert (np.sort(np.unique(sc_indices)) == np.arange(np.unique(sc_indices).size)).all()
         assert sc_indices.size == self.N
-        out = run_simulations(
+        # run the simulations
+        args = (
             self.model_name,
             sc,
             pFF,
@@ -582,10 +711,24 @@ class SimGroup:
             self.duration_msec,
             self.TR_msec,
             self.states_sampling_msec,
-            self.rand_seed,
+            self.sim_seed,
             float(self.dt),
             float(self.bw_dt),
         )
+        try:
+            out = run_simulations(*args)
+        except RuntimeError as e:
+            if "CUDA Error" in str(e):
+                print(
+                    "CUDA error occurred. This might be due to the data exceeding "
+                    "the available GPU memory. Try reducing the number of simulations or "
+                    "sampling rate of states,",
+                    end=" "
+                )
+                if self.states_ts:
+                    print("or set `states_ts` to False", end=" ")
+                print("to reduce memory usage")
+            raise e
         # avoid reinitializing GPU in the next runs
         # of the same group
         self.last_N = self.N
@@ -602,38 +745,36 @@ class SimGroup:
         Parameters
         ----------
         out: :obj:`tuple`
-            output of `run_simulations` function
+            output of ``cubnm._core.run_simulations`` function
 
         Notes
         -----
         The simulation outputs are assigned to the following object attributes:
-            - init_time: :obj:`float`
-                initialization time of the simulations
-            - run_time: :obj:`float`
-                run time of the simulations
-            - sim_bold : :obj:`np.ndarray`
-                simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
-        If `do_fc` is True, additionally includes:
-            - sim_fc_trils : :obj:`np.ndarray`
-                simulated FC lower triangle. Shape: (N_SIMS, n_pairs)
-        If `do_fcd` is True, additionally includes:
-            - sim_fcd_trils : :obj:`np.ndarray`
-                simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
-        If `ext_out` is True, additionally includes:
-            - _sim_states: :obj:`np.ndarray`
-                Model state variables. Shape: (n_vars, N_SIMS, nodes[*duration/TR])
-            - _global_bools: :obj:`np.ndarray`
-                Global boolean variables. Shape: (n_bools, N_SIMS)
-            - _global_ints: :obj:`np.ndarray`
-                Global integer variables. Shape: (n_ints, N_SIMS)
-        If `noise_out` is True, additionally includes:
-            - _noise: :obj:`np.ndarray`
-                Noise segment array. Shape: (nodes*noise_time_steps*10*Model.n_noise,)
-        If `noise_out` is True and noise segmenting is on, additionally includes:
-            - _shuffled_nodes: :obj: `np.ndarray`
-                Node shufflings in each noise repeate. Shape: (noise_repeats, nodes)
-            - _shuffled_ts: :obj: `np.ndarray`
-                Time step shufflings in each noise repeate. Shape: (noise_repeats, noise_time_steps)                
+
+        - init_time: :obj:`float`
+            initialization time of the simulations
+        - run_time: :obj:`float`
+            run time of the simulations
+        - sim_bold: :obj:`np.ndarray`
+            simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
+
+        If ``do_fc`` is ``True``, additionally includes:
+
+        - sim_fc_trils: :obj:`np.ndarray`
+            simulated FC lower triangle. Shape: (N_SIMS, n_pairs)
+
+        If ``do_fcd`` is ``True``, additionally includes:
+
+        - sim_fcd_trils: :obj:`np.ndarray`
+            simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
+
+        If ``ext_out`` is True, additionally includes:
+
+        - sim_states: :obj:`dict` of :obj:`np.ndarray`
+            simulated state variables with keys as state names
+            and values as arrays with the shape (N_SIMS, nodes)
+            when ``states_ts`` is False, and (N_SIMS, duration/TR, nodes)
+            when ``states_ts`` is True
         """
         # assign the output to object attributes
         self.__dict__.update(out)
@@ -645,11 +786,35 @@ class SimGroup:
                 self.sim_fcd_trils = self.sim_fcd_trils.reshape(self.N, -1)
         if self.ext_out:
             # process sim states into a dictionary
+            # TODO: ensure each state's array is a view and not a copy of the original
             self.sim_states = {}
             for state_i, state_name in enumerate(self.state_names):
                 self.sim_states[state_name] = self._sim_states[state_i, :, :]
                 if self.states_ts:
                     self.sim_states[state_name] = self.sim_states[state_name].reshape(self.N, -1, self.nodes)
+
+    def get_state_averages(self):
+        """
+        Get the averages of state variables across time and nodes
+        for each simulation.
+
+        Returns
+        -------
+        state_averages: :obj:`pd.DataFrame`
+            DataFrame of state averages with columns as state names
+            and rows as simulations
+        """
+        state_averages = {}
+        for state_var in self.state_names:
+            if self.states_ts:
+                state_averages[state_var] = (
+                    self.sim_states[state_var]
+                    [:, self.n_states_samples_remove:, :]
+                    .mean(axis=1).mean(axis=1)
+                )
+            else:
+                state_averages[state_var] = self.sim_states[state_var].mean(axis=1)
+        return pd.DataFrame(state_averages)
 
     def get_noise(self):
         """
@@ -704,11 +869,153 @@ class SimGroup:
         # transpose to (n_noise, nodes, time_steps, 10)
         return noise_all.transpose(3, 2, 0, 1)
 
+    def get_sim_fc(self, idx):
+        """
+        Get the simulated FC of a given simulation ``idx``
+        as a square matrix.
+
+        Parameters
+        ----------
+        idx: :obj:`int`
+            index of the simulation to get the FC for
+
+        Returns
+        -------
+        fc: :obj:`np.ndarray`
+            simulated FC matrix of shape (nodes, nodes)
+            for the simulation with index ``idx``
+        """
+        if not self.do_fc:
+            raise ValueError("FC is not calculated in this simulation group")
+        if idx >= self.N:
+            raise IndexError("Index out of range")
+        # get the FC lower triangle
+        fc_tril = self.sim_fc_trils[idx].copy()
+        # convert it to a square matrix
+        sim_fc = np.zeros((self.nodes, self.nodes), dtype=float)
+        if self.exc_interhemispheric:
+            # when interhemispheric connections are excluded
+            # the FC matrix is split into two halves
+            # and the lower triangle is filled in each half
+            half_nodes = self.nodes // 2
+            sim_fc[:half_nodes, :half_nodes][
+                np.tril_indices(half_nodes,-1)
+            ] = fc_tril[:fc_tril.shape[0] // 2]
+            sim_fc[half_nodes:, half_nodes:][
+                np.tril_indices(half_nodes,-1)
+            ] = fc_tril[fc_tril.shape[0] // 2:]
+            # set the rest to NaNs
+            sim_fc[:half_nodes, half_nodes:] = np.NaN
+            sim_fc[half_nodes:, :half_nodes] = np.NaN
+        else:
+            # fill the lower triangle of the square matrix
+            sim_fc[np.tril_indices(self.nodes,-1)] = fc_tril
+        # make the matrix symmetric
+        sim_fc += sim_fc.T
+        # fill the diagonal with 1s
+        np.fill_diagonal(sim_fc, 1.0)
+        return sim_fc
+
+    def get_sim_fcd(self, idx):
+        """
+        Get the simulated FCD of a given simulation ``idx``
+        as a square matrix.
+
+        Parameters
+        ----------
+        idx: :obj:`int`
+            index of the simulation to get the FC for
+        
+        Returns
+        -------
+        fcd: :obj:`np.ndarray`
+            simulated FC matrix of shape (n_windows, n_windows)
+            for the simulation with index ``idx``
+        """
+        if not self.do_fcd:
+            raise ValueError("FCD is not calculated in this simulation group")
+        if idx >= self.N:
+            raise IndexError("Index out of range")
+        # get the FCD lower triangle
+        fcd_tril = self.sim_fcd_trils[idx].copy()
+        n_pairs = fcd_tril.shape[0]
+        # determine number of windows
+        # this is not returned from the core
+        # and its direct calculation without using
+        # a loop isn't trivial (because of different
+        # conditions etc.; or at least I don't know
+        # how to do it).
+        # therefore, we use the (known) number of pairs
+        # and solve for n_pairs = n_windows * (n_windows - 1) / 2
+        # aka:
+        n_windows = (1 + np.sqrt(1 + 8 * n_pairs)) / 2
+        assert n_windows.is_integer() # just a sanity check
+        n_windows = int(n_windows)
+        # convert it to a square matrix
+        sim_fcd = np.zeros((n_windows, n_windows), dtype=float)
+        # fill the lower triangle of the square matrix
+        sim_fcd[np.tril_indices(n_windows,-1)] = fcd_tril
+        # make the matrix symmetric
+        sim_fcd += sim_fcd.T
+        # fill the diagonal with 1s
+        np.fill_diagonal(sim_fcd, 1.0)
+        return sim_fcd
+
+    def slice(self, key, inplace=False):
+        """
+        Slice the simulation group to a single simulation
+
+        Parameters
+        ----------
+        key: :obj:`int`
+            index of the simulation to slice
+        inplace: :obj:`bool`
+            the object will be sliced in place
+            and therefore the data of other simulations
+            will be removed. Otherwise a new object
+            copied from the current object will be returned.
+        
+        Returns
+        -------
+        obj: :obj:`cubnm.sim.SimGroup`
+            sliced simulation group
+        """
+        if not isinstance(key, int):
+            raise ValueError("Only integer indexing is supported")
+        if key >= self.N:
+            raise IndexError("Index out of range")
+        if inplace:
+            obj = self
+        else:
+            # create a (shallow) copy
+            # and not a deep copy as the
+            # data may be very large
+            obj = copy.copy(self)
+        obj.param_lists = {k: v[key][np.newaxis, ...] for k, v in self.param_lists.items()}
+        obj.sim_bold = self.sim_bold[key][np.newaxis, ...]
+        if obj.do_fc:
+            obj.sim_fc_trils = self.sim_fc_trils[key][np.newaxis, ...]
+            if obj.do_fcd:
+                obj.sim_fcd_trils = self.sim_fcd_trils[key][np.newaxis, ...]
+        if obj.ext_out:
+            obj.sim_states = {k: v[key][np.newaxis, ...] for k, v in self.sim_states.items()}
+        obj.N = 1
+        return obj
+
     def clear(self):
         """
         Clear the simulation outputs
         """
-        for attr in ["sim_bold", "sim_fc_trils", "sim_fcd_trils", "sim_states"]:
+        for attr in [
+            "sim_bold", 
+            "sim_fc_trils", 
+            "sim_fcd_trils", 
+            "sim_states",
+            "_sim_states",
+            "_noise",
+            "_shuffled_nodes",
+            "_shuffled_ts",
+        ]:
             if hasattr(self, attr):
                 delattr(self, attr)
         gc.collect()
@@ -732,19 +1039,36 @@ class SimGroup:
 
         Parameters
         ----------
-        X : :obj:`np.ndarray`
+        X: :obj:`np.ndarray`
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
-        out : :obj:`dict`
+        out: :obj:`dict`
             the output dictionary to store the results with keys 'F' and 'G'.
             Currently only 'F' (cost) is used.
         *args, **kwargs
         """
         pass
 
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None):
+    def score(
+            self, 
+            emp_fc_tril=None, 
+            emp_fcd_tril=None, 
+            emp_bold=None, 
+            force_cpu=False,
+            usable_mem=None
+        ):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
+
+        .. note::
+            If `emp_bold` is provided, `emp_fc_tril` and `emp_fcd_tril` will be ignored.
+
+        .. note::
+            For each measure, if the value is NaN, it will be set to the "worst" possible value.
+            NaNs may occur in simulated FCD or FC. For example, in the rWWEx model, when excitation
+            is too high and noise is low, `S` and in turn `BOLD` in some areas may become saturated
+            and show no variability. This can result in correlations of their BOLD signals with
+            other nodes (within certain dynamic windows) being NaN.
 
         Parameters
         --------
@@ -757,6 +1081,13 @@ class SimGroup:
             Motion outliers should either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
+        force_cpu: :obj:`bool`
+            force CPU for the calculations. Otherwise if GPU is available
+            some of the scores (including "+fc_corr", "-fcd_ks") 
+            will be calculated on GPU.
+        usable_mem: :obj:`int`
+            amount of available GPU memory to be used in bytes.
+            If None, 80% of the free memory will be used.
 
         Returns
         -------
@@ -776,8 +1107,8 @@ class SimGroup:
             if self.do_fcd:
                 emp_fcd_tril = utils.calculate_fcd(
                     emp_bold, 
-                    self.window_size, 
-                    self.window_step, 
+                    self.window_size_TRs, 
+                    self.window_step_TRs, 
                     drop_edges=self.fcd_drop_edges,
                     exc_interhemispheric=self.exc_interhemispheric,
                     return_tril=True,
@@ -790,33 +1121,57 @@ class SimGroup:
         columns = []
         if self.do_fc and (emp_fc_tril is not None):
             columns += list(set(["+fc_corr", "-fc_diff", "-fc_normec"]) & set(self.gof_terms))
+            assert emp_fc_tril.size == self.sim_fc_trils.shape[1], (
+                "Empirical FC lower triangle size does not match the simulated FC size"
+            )
         if self.do_fcd and (emp_fcd_tril is not None):
             columns += list(set(["-fcd_ks"]) & set(self.gof_terms))
         columns += ["+gof"]
-        scores = pd.DataFrame(columns=columns, dtype=float)
-        # calculate GOF
-        for idx in range(self.N):
+        scores = pd.DataFrame(index=range(self.N), columns=columns, dtype=float)
+        # vectorized calculation of some measures on CPU
+        for column in columns:
+            if column == "-fc_diff":
+                scores.loc[:, column] = -np.abs(
+                    self.sim_fc_trils.mean(axis=1) - emp_fc_tril.mean()
+                )
+            elif column == "-fc_normec":
+                scores.loc[:, column] = -np.linalg.norm(
+                    self.sim_fc_trils - emp_fc_tril[None, :],
+                    axis=1,
+                ) / (2 * np.sqrt(emp_fc_tril.size))
+        # calculation of fc_corr and fcd_ks per simulation on CPU
+        # or in parallel batches on GPU (if available and CuPy is installled)
+        if (self.use_cpu or force_cpu or (not has_cupy)):
+            # TODO: run in parallel on CPU cores when
+            # self.avail_cpus > 1
+            for idx in range(self.N):
+                for column in columns:
+                    if column == "+fc_corr":                    
+                        # TODO: vectorize FC corr calculation
+                        scores.loc[idx, column] = scipy.stats.pearsonr(
+                            self.sim_fc_trils[idx], emp_fc_tril
+                        ).statistic
+                    elif column == "-fcd_ks":
+                        scores.loc[idx, column] = -scipy.stats.ks_2samp(
+                            self.sim_fcd_trils[idx], emp_fcd_tril
+                        ).statistic
+        else:
+            # calculate on GPU
+            if usable_mem is None:
+                # get amount of available GPU memory as
+                # 80% of the free memory
+                free_mem, _ = cp.cuda.runtime.memGetInfo()
+                usable_mem = int(free_mem * 0.8)
             for column in columns:
-                if column == "+fc_corr":                    
-                    scores.loc[idx, column] = scipy.stats.pearsonr(
-                        self.sim_fc_trils[idx], emp_fc_tril
-                    ).statistic
-                elif column == "-fc_diff":
-                    scores.loc[idx, column] = -np.abs(
-                        self.sim_fc_trils[idx].mean() - emp_fc_tril.mean()
-                    )
-                elif column == "-fc_normec":
-                    scores.loc[idx, column] = -utils.fc_norm_euclidean(
-                        self.sim_fc_trils[idx], emp_fc_tril
-                    )
+                if column == "+fc_corr":
+                    scores.loc[:, column] = utils.fc_corr_device(self.sim_fc_trils, emp_fc_tril, usable_mem)
                 elif column == "-fcd_ks":
-                    scores.loc[idx, column] = -scipy.stats.ks_2samp(
-                        self.sim_fcd_trils[idx], emp_fcd_tril
-                    ).statistic
-            # combined the selected terms into gof (that should be maximized)
-            scores.loc[idx, "+gof"] = 0
-            for term in self.gof_terms:
-                scores.loc[idx, "+gof"] += scores.loc[idx, term]
+                    scores.loc[:, column] = -utils.fcd_ks_device(self.sim_fcd_trils, emp_fcd_tril, usable_mem)
+        # fill NaNs with the worst possible value
+        for column in columns:
+            scores.loc[:, column] = scores.loc[:, column].fillna(WORST_SCORES.get(column, np.nan))
+        # combined the selected terms into gof (that should be maximized)
+        scores.loc[:, "+gof"] = scores.loc[:, self.gof_terms].sum(axis=1)
         return scores
     
     def _get_save_data(self):
@@ -836,33 +1191,21 @@ class SimGroup:
         if self.do_fcd:
             out_data['sim_fcd_trils'] = self.sim_fcd_trils
         if self.ext_out:
-            out_data['sim_states'] = self.sim_states
+            out_data.update(self.sim_states)
         out_data.update(self.param_lists)
         return out_data
 
-    def save(self, save_as="npz"):
+    def save(self):
         """
-        Save simulation outputs to disk.
-
-        Parameters
-        ---------
-        save_as: {'npz' or 'txt'}, optional
-            - 'npz': all the output of all sims will be written to a npz file
-            - 'txt': outputs of simulations will be written to separate files,\
-                recommended when N = 1 (e.g. rerunning the best simulation)
+        Save simulation outputs to disk as an npz file.
         """
         assert self.out_dir is not None, (
             "Cannot save the simulations when `.out_dir`"
             "is not set"
         )
-        sims_dir = self.out_dir
-        os.makedirs(sims_dir, exist_ok=True)
+        os.makedirs(self.out_dir, exist_ok=True)
         out_data = self._get_save_data()
-        if save_as == "npz":
-            # TODO: use more informative filenames
-            np.savez_compressed(os.path.join(sims_dir, f"it{self.it}.npz"), **out_data)
-        elif save_as == "txt":
-            raise NotImplementedError
+        np.savez_compressed(os.path.join(self.out_dir, "sim_data.npz"), **out_data)
 
     @classmethod
     def _get_test_configs(cls, cpu_gpu_identity=False):
@@ -871,7 +1214,7 @@ class SimGroup:
 
         Parameters
         ----------
-        cpu_gpu_identity: :obj:`bool`, optional
+        cpu_gpu_identity: :obj:`bool`
             indicates whether configs are for CPU/GPU identity tests
             in which case force_cpu is not included in the configs
             since tests will be done on both CPU and GPU
@@ -916,6 +1259,8 @@ class SimGroup:
         sim_group = cls(
             duration=60,
             TR=1,
+            window_size=10,
+            window_step=2,
             sc=datasets.load_sc('strength', 'schaefer-100'),
             sc_dist=sc_dist,
             dt = dt,
@@ -927,7 +1272,7 @@ class SimGroup:
 class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ["G", "G_fb"]
-    regional_param_names = ["wEE", "wEI", "wIE"]
+    regional_param_names = ["w_p", "J_N", "wIE"]
     state_names = ["I_E", "I_I", "r_E", "r_I", "S_E", "S_I"]
     sel_state_var = "r_E" # TODO: use all states
     n_noise = 2
@@ -936,7 +1281,7 @@ class rWWSimGroup(SimGroup):
                  separate_G_fb = False,
                  do_fic = True,
                  max_fic_trials = 0,
-                 fic_penalty = True,
+                 fic_penalty_scale = 0.5,
                  fic_i_sampling_start = 1000,
                  fic_i_sampling_end = 10000,
                  fic_init_delta = 0.02,
@@ -953,20 +1298,22 @@ class rWWSimGroup(SimGroup):
             Note that from the model perspective there is
             always two global couplings: G for feedforward
             connections and G_fb for feedback connections.
-        do_fic: :obj:`bool`, optional
+        do_fic: :obj:`bool`
             do analytical (Demirtas 2019) & numerical (Deco 2014) 
             Feedback Inhibition Control.
             If provided wIE parameters will be ignored
-        max_fic_trials: :obj:`int`, optional
+        max_fic_trials: :obj:`int`
             maximum number of trials for FIC numerical adjustment.
             If set to 0, FIC will be done only analytically
-        fic_penalty: :obj:`bool`, optional
-            penalize deviation from FIC target mean rE of 3 Hz
-        fic_i_sampling_start: :obj:`int`, optional
+        fic_penalty_scale: :obj:`bool`
+            how much deviation from FIC target mean rE of 3 Hz
+            is penalized. Set to 0 to disable FIC penalty.
+        fic_i_sampling_start: :obj:`int`
             starting time of numerical FIC I_E sampling (msec)
-        fic_i_sampling_end: :obj:`int`, optional
+        fic_i_sampling_end: :obj:`int`
             end time of numerical FIC I_E sampling (msec)
-        fic_init_delta: :obj:`float`, optional
+        fic_init_delta: :obj:`float`
+            initial delta for numerical FIC adjustment.
         *args, **kwargs:
             see :class:`cubnm.sim.SimGroup` for details
 
@@ -974,12 +1321,13 @@ class rWWSimGroup(SimGroup):
         ----------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - 'G': global coupling of feedforward connections to excitatory neurons. Shape: (N_SIMS,)
-                - 'G_fb': global coupling of feedback connections to inhibitory neurons. Shape: (N_SIMS,)
-                - 'wEE': local excitatory self-connection strength. Shape: (N_SIMS, nodes)
-                - 'wEI': local inhibitory self-connection strength. Shape: (N_SIMS, nodes)
-                - 'wIE': local excitatory to inhibitory connection strength. Shape: (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+                - ``'G'``: global coupling of feedforward connections to excitatory neurons. Shape: (N_SIMS,)
+                - ``'G_fb'``: global coupling of feedback connections to inhibitory neurons. Shape: (N_SIMS,)
+                - ``'w_p'``: local recurrent excitatory connection weight. Shape: (N_SIMS, nodes)
+                - ``'J_N'``: NMDA conductance. Shape: (N_SIMS, nodes)
+                - ``'wIE'``: local inhibitory to excitatory connection strength. 
+                  By default it is determined based on FIC algorithm. Shape: (N_SIMS, nodes)
+                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
         -------
@@ -998,13 +1346,13 @@ class rWWSimGroup(SimGroup):
             )
             sim_group.N = 1
             sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['wEE'] = np.full((N_SIMS, nodes), 0.21)
-            sim_group.param_lists['wEI'] = np.full((N_SIMS, nodes), 0.15)
+            sim_group.param_lists['w_p'] = np.full((N_SIMS, nodes), 1.4)
+            sim_group.param_lists['J_N'] = np.full((N_SIMS, nodes), 0.15)
             sim_group.run()
         """
         self.do_fic = do_fic
         self.max_fic_trials = max_fic_trials
-        self.fic_penalty = fic_penalty
+        self.fic_penalty_scale = fic_penalty_scale
         self.fic_i_sampling_start = fic_i_sampling_start
         self.fic_i_sampling_end = fic_i_sampling_end
         self.fic_init_delta = fic_init_delta
@@ -1021,12 +1369,6 @@ class rWWSimGroup(SimGroup):
         else:
             self.separate_G_fb = separate_G_fb
         self.ext_out = self.ext_out | self.do_fic
-        if self.serial_nodes and (self.max_fic_trials > 0):
-            print(
-                "Numerical FIC is not supported in serial_nodes mode. "
-                "Setting max_fic_trials to 0."
-            )
-            self.max_fic_trials = 0
         if ((self.input_pFF is not None) and self.do_fic):
             print(
                 "Warning: In analytical FIC pFF is ignored and all"
@@ -1047,7 +1389,7 @@ class rWWSimGroup(SimGroup):
         config.update(
             do_fic=self.do_fic, 
             max_fic_trials=self.max_fic_trials,
-            fic_penalty=self.fic_penalty,
+            fic_penalty_scale=self.fic_penalty_scale,
             fic_i_sampling_start=self.fic_i_sampling_start,
             fic_i_sampling_end=self.fic_i_sampling_end,
             fic_init_delta=self.fic_init_delta,
@@ -1076,6 +1418,27 @@ class rWWSimGroup(SimGroup):
             'init_delta': str(self.fic_init_delta),
         })
         return model_config
+
+    @property
+    def labels(self):
+        """
+        Labels of parameters and state variables
+        to use in plots and reports
+        """
+        labels = super().labels
+        labels.update({
+            'G': 'G',
+            'w_p': r'$w^{p}$',
+            'J_N': r'$J^{N}$',
+            'wIE': r'$w^{IE}$',
+            'I_E': r'$I^E$',
+            'I_I': r'$I^I$',
+            'r_E': r'$r^E$',
+            'r_I': r'$r^I$',
+            'S_E': r'$S^E$',
+            'S_I': r'$S^I$',
+        })
+        return labels
     
     def _set_default_params(self):
         """
@@ -1088,8 +1451,8 @@ class rWWSimGroup(SimGroup):
             self.param_lists["G_fb"] = np.repeat(0.25, self.N)
         else:
             self.param_lists["G_fb"] = np.repeat(0.5, self.N)
-        self.param_lists["wEE"] = np.full((self.N, self.nodes), 0.21)
-        self.param_lists["wEI"] = np.full((self.N, self.nodes), 0.15)
+        self.param_lists["w_p"] = np.full((self.N, self.nodes), 1.4)
+        self.param_lists["J_N"] = np.full((self.N, self.nodes), 0.15)
         if not self.do_fic:
             self.param_lists["wIE"] = np.full((self.N, self.nodes), 1.0)
 
@@ -1103,10 +1466,12 @@ class rWWSimGroup(SimGroup):
             # write FIC (+ numerical adjusted) wIE to param_lists
             self.param_lists["wIE"] = self._regional_params[2].reshape(self.N, -1)
     
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, fic_penalty_scale=2):
+    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, **kwargs):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
-        In FIC models also calculates fic_penalty.
+        In FIC models also calculates fic_penalty. Note that while 
+        FIC penalty is included in the cost function of optimizer, 
+        it is not included in the aggregate GOF.
 
         Parameters
         --------
@@ -1119,31 +1484,39 @@ class rWWSimGroup(SimGroup):
             Motion outliers should either be excluded (not recommended as it disrupts
             the temporal structure) or replaced with zeros.
             If provided emp_fc_tril and emp_fcd_tril will be ignored.
-        fic_penalty_scale: :obj:`float`, optional
-            scale of the FIC penalty term.
-            Set to 0 to disable the FIC penalty term.
-            Note that while it is included in the cost function of
-            optimizer, it is not included in the aggregate GOF
+        **kwargs:
+            keyword arguments passed to `cubnm.sim.SimGroup.score`
 
         Returns
         -------
         scores: :obj:`pd.DataFrame`
             The goodness of fit measures (columns) of each simulation (rows)
         """
-        scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold)
+        scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold, **kwargs)
         # calculate FIC penalty
-        if self.do_fic & self.fic_penalty:
+        if self.do_fic & (self.fic_penalty_scale > 0):
+            # calculate time-averaged r_E in each simulation-node
             if self.states_ts:
-                mean_r_E = self.sim_states["r_E"][:, self.bold_remove_s:].mean(axis=1)
+                mean_r_E = self.sim_states["r_E"][:, self.n_states_samples_remove:].mean(axis=1)
             else:
                 mean_r_E = self.sim_states["r_E"]
             for idx in range(self.N):
+                # absolute deviation from target of 3 Hz
                 diff_r_E = np.abs(mean_r_E[idx, :] - 3)
                 if (diff_r_E > 1).sum() > 0:
+                    # at least one node has a deviation greater than 1
+                    # only consider deviations greater than 1
+                    # in the penalty
                     diff_r_E[diff_r_E <= 1] = np.NaN
+                    # within each node the FIC penalty decreases
+                    # exponentially as the deviations gets smaller
+                    # the penalty max value in each node is 1
+                    # which is then scaled by fic_penalty_scale
+                    # and averaged across nodes (with 0s/NaNs)
+                    # in node with no deviation > 1 Hz
                     scores.loc[idx, "-fic_penalty"] = (
                         -np.nansum(1 - np.exp(-0.05 * (diff_r_E - 1)))
-                        * fic_penalty_scale / self.nodes
+                        * self.fic_penalty_scale / self.nodes
                     )
                 else:
                     scores.loc[idx, "-fic_penalty"] = 0
@@ -1192,7 +1565,7 @@ class rWWSimGroup(SimGroup):
                 "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
             )
         if problem.multiobj:
-            if self.do_fic & self.fic_penalty:
+            if self.do_fic & (self.fic_penalty_scale > 0):
                 problem.obj_names.append("+fic_penalty")
                 problem.n_obj += 1
 
@@ -1203,18 +1576,18 @@ class rWWSimGroup(SimGroup):
 
         Parameters
         ----------
-        X : :obj:`np.ndarray`
+        X: :obj:`np.ndarray`
             the normalized parameters of current population in range [0, 1]. 
             Shape: (N, ndim)
-        out : :obj:`dict`
-            the output dictionary to store the results with keys 'F' and 'G'.
-            Currently only 'F' (cost) is used.
+        out: :obj:`dict`
+            the output dictionary to store the results with keys ``'F'`` and ``'G'``.
+            Currently only ``'F'`` (cost) is used.
         *args, **kwargs
         """
         # Note: scores (inidividual GOF measures) is passed on in kwargs 
         # in the internal mechanism of pymoo evaluation function
         scores = kwargs["scores"][-1]
-        if self.do_fic & self.fic_penalty:
+        if self.do_fic & (self.fic_penalty_scale > 0):
             if problem.multiobj:
                 out["F"] = np.concatenate(
                     [out["F"], -scores.loc[:, ["-fic_penalty"]].values], axis=1
@@ -1230,7 +1603,7 @@ class rWWSimGroup(SimGroup):
 
         Parameters
         ----------
-        cpu_gpu_identity: :obj:`bool`, optional
+        cpu_gpu_identity: :obj:`bool`
             indicates whether configs are for CPU/GPU identity tests
             in which case force_cpu is not included in the configs
             since tests will be done on both CPU and GPU
@@ -1293,11 +1666,11 @@ class rWWExSimGroup(SimGroup):
         ----------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - 'G': global coupling. Shape: (N_SIMS,)
-                - 'w': local excitatory self-connection strength. Shape: (N_SIMS, nodes)
-                - 'I0': local external input current. Shape: (N_SIMS, nodes)
-                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+                - ``'G'``: global coupling. Shape: (N_SIMS,)
+                - ``'w'``: local excitatory self-connection strength. Shape: (N_SIMS, nodes)
+                - ``'I0'``: local external input current. Shape: (N_SIMS, nodes)
+                - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
+                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
         -------
@@ -1352,7 +1725,7 @@ class KuramotoSimGroup(SimGroup):
         ---------
         *args, **kwargs:
             see :class:`cubnm.sim.SimGroup` for details
-        random_init_theta : :obj:`bool`, optional
+        random_init_theta: :obj:`bool`
             Set initial theta by randomly sampling from a uniform distribution 
             [0, 2*pi].
 
@@ -1360,12 +1733,12 @@ class KuramotoSimGroup(SimGroup):
         ----------
         param_lists: :obj:`dict` of :obj:`np.ndarray`
             dictionary of parameter lists, including
-                - 'G': global coupling. Shape: (N_SIMS,)
-                - 'init_theta': initial theta. Randomly sampled from a uniform distribution 
-                    [0, 2*pi] by default. Shape: (N_SIMS, nodes)
-                - 'omega': intrinsic frequency. Shape: (N_SIMS, nodes)
-                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
+                - ``'G'``: global coupling. Shape: (N_SIMS,)
+                - ``'init_theta'``: initial theta. Randomly sampled from a uniform distribution 
+                  [0, 2*pi] by default. Shape: (N_SIMS, nodes)
+                - ``'omega'``: intrinsic frequency. Shape: (N_SIMS, nodes)
+                - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
+                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
         -------
@@ -1398,7 +1771,7 @@ class KuramotoSimGroup(SimGroup):
             # sample from uniform distribution of [0, 2*pi] across nodes and
             # repeat it across simulations
             # use the same random seed as the simulation noise
-            rng = np.random.default_rng(self.rand_seed)
+            rng = np.random.default_rng(self.sim_seed)
             self.param_lists["init_theta"] = np.tile(rng.uniform(0, 2 * np.pi, self.nodes), (self._N, 1))
         else:
             self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
@@ -1504,7 +1877,7 @@ class MultiSimGroupMixin:
         Divides simulations outputs across individual
         children SimGroup objects which will respectively
         convert the output to attributes with correct shapes,
-        names and types. See `cubnm.sim.SimGroup._process_out`
+        names and types. See :func:`cubnm.sim.SimGroup._process_out`
         for details.
 
         Parameters
@@ -1535,7 +1908,7 @@ class MultiSimGroupMixin:
                 "_shuffled_nodes",
                 "_shuffled_ts",
             ]:
-                if not (k in out):
+                if k not in out:
                     continue
                 if k in ["init_time", "run_time", "_noise", "_shuffled_nodes", "_shuffled_ts"]:
                     # shared between all simulations
@@ -1557,18 +1930,19 @@ class MultiSimGroupMixin:
 def create_multi_sim_group(sim_group_cls):
     """
     Dynamically creates a MultiSimGroup class by combining
-    a model's specific <Model>SimGroup class with MultiSimGroupMixin,
+    a model's specific ``<Model>SimGroup`` class with 
+    :class:`cubnm.sim.MultiSimGroupMixin`,
     which can be used in batch optimization.
 
     Parameters
     ----------
     sim_group_cls: :obj:`type`
-        e.g. rWWSimGroup, rWWExSimGroup, KuramotoSimGroup
+        :class:`cubnm.sim.SimGroup` subclass, e.g. :class:`cubnm.sim.rWWSimGroup`
     
     Returns
     -------
     MultiSimGroup: :obj:`type`
-        MultiSimGroup class that can be used in batch optimization
+        :class:`MultiSimGroup` class that can be used in batch optimization
     """
     MultiSimGroup = type(
         'MultiSimGroup',
