@@ -281,6 +281,9 @@ class SimGroup:
             assert np.all((self.pFF >= 0) & (self.pFF <= 1)), (
                 "pFF values must be between 0 and 1"
             )
+            assert self.pFF.shape == self.sc.shape, (
+                "Structural connectome and pFF must have the same shape"
+            )
         # set Ballon-Windkessel parameters
         self.bw_params = bw_params
         # initialze w_IE_list as all 0s if do_fic
@@ -1821,15 +1824,23 @@ class MultiSimGroupMixin:
         """
         # concatenate SCs while allowing variable SCs
         # across children
+        # it does the same on pFFs, assuming that pFFs and
+        # SCs for each child have the same shape
+        # and have one-on-one correspondence
         for child_i, child in enumerate(self.children):
             # pre-run hook
             # e.g. setting G_fb to G for rWW
             child.pre_run()
-            # make a copy of current child's SCs
+            # make a copy of current child's SCs and pFFs
             child_scs = child.sc.copy()
+            child_pFFs = child.pFF.copy()
+            assert child_scs.shape == child_pFFs.shape, (
+                "Child SCs and pFFs must have the same shape"
+            )
             # make scs 3D (n_scs, nodes, nodes)
             if (child_scs.ndim == 2):
                 child_scs = child_scs[None, :, :]
+                child_pFFs = child_pFFs[None, :, :]
             # create sc_indices as all zeros if only one SC is used
             # in current child
             if (child_scs.shape[0] == 1):
@@ -1839,6 +1850,7 @@ class MultiSimGroupMixin:
             # initialize merged sim group SC as the first child SC(s)
             if child_i == 0:
                 self.sc = child_scs
+                self.pFF = child_pFFs
                 self.sc_indices = child_sc_indices
             else:
                 # for subsequent children check if SC is already in self.sc
@@ -1851,6 +1863,7 @@ class MultiSimGroupMixin:
                         # if SC is not already in self.sc, add it
                         # as a new SC with a new index
                         self.sc = np.concatenate([self.sc, sc[None, :, :]], axis=0)
+                        self.pFF = np.concatenate([self.pFF, child_pFFs[sc_i][None, :, :]], axis=0)
                         new_sc_idx = self.sc_indices.max()+1
                         sc_indices[sc_indices == sc_i] = new_sc_idx
                     else:
@@ -1864,6 +1877,7 @@ class MultiSimGroupMixin:
                     self.sc_indices = np.concatenate([self.sc_indices, sc_indices], axis=0)
         # convert sc back to 2D if same SC is used in all simulations
         self.sc = np.squeeze(self.sc)
+        self.pFF = np.squeeze(self.pFF)
         # concatenate parameters
         for param in self.param_lists:
             self.param_lists[param] = np.concatenate(
