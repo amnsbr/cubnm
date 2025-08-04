@@ -29,7 +29,8 @@ METRIC_LABELS = {
     '+fc_corr': r'FC$_{corr}$',
     '-fcd_ks': r'- FCD$_{KS}$',
     '-fc_diff': r'- FC$_{diff}$',
-    '-fc_normec': r'- FC$_{normEC}'
+    '-fc_normec': r'- FC$_{normEC}',
+    '+var_corr': r'VAR$_{corr}$',
 }
 
 class BNMProblem(Problem):
@@ -139,8 +140,10 @@ class BNMProblem(Problem):
         # initialize sim_group (N not known yet)
         sim_group_cls = getattr(sim, f"{self.model}SimGroup")
         self.sim_group = sim_group_cls(**kwargs)
-        # calculate empirical FC and FCD if BOLD is provided
-        # and do_fc/do_fcd are set to True
+        # calculate or assign empirical FC, FCD and VAR
+        self.emp_fc_tril = None
+        self.emp_fcd_tril = None
+        self.emp_var = None
         if emp_bold is not None:
             if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
                 print(
@@ -163,6 +166,13 @@ class BNMProblem(Problem):
                     return_tril=True,
                     return_dfc = False
                 )
+            if "+var_corr" in self.sim_group.gof_terms:
+                # calculate empirical VAR
+                self.emp_var = utils.calculate_var(
+                    self.emp_bold,
+                    exc_interhemispheric=self.sim_group.exc_interhemispheric,
+                    flatten=True
+                )
         else:
             # when BOLD is not provided but empirical FC/FCD are
             # set do_fc and do_fcd based on the provided data
@@ -181,6 +191,12 @@ class BNMProblem(Problem):
                 self.sim_group.do_fcd = True
             else:
                 self.sim_group.do_fcd = False
+            # BOLD must always be provided for VAR calculation
+            if "+var_corr" in self.sim_group.gof_terms:
+                if self.emp_bold is None:
+                    raise ValueError(
+                        "Empirical BOLD must be provided to calculate VAR"
+                    )
         # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")
@@ -378,6 +394,7 @@ class BNMProblem(Problem):
             "het_params_range": self.het_params_range,
             "emp_fc_tril": self.emp_fc_tril,
             "emp_fcd_tril": self.emp_fcd_tril,
+            "emp_var": self.emp_var,
             "emp_bold": self.emp_bold,
         }
         if include_N:
@@ -599,7 +616,11 @@ class BNMProblem(Problem):
         self._set_sim_params(X)
         if not skip_run:
             self.sim_group.run()
-        return self.sim_group.score(self.emp_fc_tril, self.emp_fcd_tril)
+        return self.sim_group.score(
+            emp_fc_tril=self.emp_fc_tril, 
+            emp_fcd_tril=self.emp_fcd_tril,
+            emp_var=self.emp_var
+        )
 
 
 class Optimizer(ABC):

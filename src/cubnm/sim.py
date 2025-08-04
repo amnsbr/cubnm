@@ -36,6 +36,7 @@ WORST_SCORES = {
     "-fc_diff": -2.0,
     "-fc_normec": -1.0,
     "-fcd_ks": -1.0,
+    "+var_corr": -1.0,
 }
 
 class SimGroup:
@@ -151,6 +152,8 @@ class SimGroup:
             - ``'-fc_diff'``: negative absolute difference of FC means
             - ``'-fc_normec'``: negative Euclidean distance of FCs \
                 divided by max EC [sqrt(n_pairs*4)]
+            - ``'+var_corr'``: Pearson correlation of vector autoregression
+                (VAR) matrices
 
         bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}
             see :func:`cubnm.utils.get_bw_params` for details
@@ -1055,7 +1058,8 @@ class SimGroup:
     def score(
             self, 
             emp_fc_tril=None, 
-            emp_fcd_tril=None, 
+            emp_fcd_tril=None,
+            emp_var=None,
             emp_bold=None, 
             force_cpu=False,
             usable_mem=None
@@ -1079,6 +1083,8 @@ class SimGroup:
             1D array of empirical FC lower triangle. Shape: (edges,)
         emp_fcd_tril: :obj:`np.ndarray` or None
             1D array of empirical FCD lower triangle. Shape: (window_pairs,)
+        emp_var: :obj:`np.ndarray` or None
+            1D flattened empirical VAR matrix, excluding diagonal. Shape: (node_pairs,)
         emp_bold: :obj:`np.ndarray` or None
             cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
             Motion outliers should either be excluded (not recommended as it disrupts
@@ -1101,8 +1107,8 @@ class SimGroup:
         if emp_bold is not None:
             if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
                 print(
-                    "Warning: Both empirical BOLD and empirical FC/FCD are"
-                    " provided. Empirical FC/FCD will be calculated based on"
+                    "Warning: Both empirical BOLD and empirical FC/FCD/VAR are"
+                    " provided. Empirical FC/FCD/VAR will be calculated based on"
                     " BOLD and will be overwritten."
                 )
             if self.do_fc:
@@ -1117,21 +1123,31 @@ class SimGroup:
                     return_tril=True,
                     return_dfc = False
                 )
+            if "+var_corr" in self.gof_terms:
+                emp_var = utils.calculate_var(
+                    emp_bold,
+                    exc_interhemispheric=self.exc_interhemispheric,
+                    flatten=True
+                )
         # + => aim to maximize; - => aim to minimize
         # get list of columns to be calculated
         # based on availability of FC and FCD (simulated and empirical)
         # and gof_terms
         columns = []
         if self.do_fc and (emp_fc_tril is not None):
-            columns += list(set(["+fc_corr", "-fc_diff", "-fc_normec"]) & set(self.gof_terms))
-            assert emp_fc_tril.size == self.sim_fc_trils.shape[1], (
-                "Empirical FC lower triangle size does not match the simulated FC size"
-            )
+            fc_cols = list(set(["+fc_corr", "-fc_diff", "-fc_normec"]) & set(self.gof_terms))
+            columns += fc_cols
+            if len(fc_cols) > 0:
+                assert emp_fc_tril.size == self.sim_fc_trils.shape[1], (
+                    "Empirical FC lower triangle size does not match the simulated FC size"
+                )
         if self.do_fcd and (emp_fcd_tril is not None):
             columns += list(set(["-fcd_ks"]) & set(self.gof_terms))
+        columns += list(set(["+var_corr"]) & set(self.gof_terms))
+        # GOF as the sum of all terms
         columns += ["+gof"]
         scores = pd.DataFrame(index=range(self.N), columns=columns, dtype=float)
-        # vectorized calculation of some measures on CPU
+        # measures that are always calculated on CPU
         for column in columns:
             if column == "-fc_diff":
                 scores.loc[:, column] = -np.abs(
@@ -1142,6 +1158,18 @@ class SimGroup:
                     self.sim_fc_trils - emp_fc_tril[None, :],
                     axis=1,
                 ) / (2 * np.sqrt(emp_fc_tril.size))
+            elif column == "+var_corr":
+                for idx in range(self.N):
+                    # calculate simulated VAR
+                    sim_var = utils.calculate_var(
+                        self.sim_bold[idx].T, # transpose to (nodes, time)
+                        exc_interhemispheric=self.exc_interhemispheric,
+                        flatten=True
+                    )
+                    # calculate correlation with empirical VAR
+                    scores.loc[idx, column] = scipy.stats.pearsonr(
+                        sim_var, emp_var
+                    ).statistic
         # calculation of fc_corr and fcd_ks per simulation on CPU
         # or in parallel batches on GPU (if available and CuPy is installled)
         if (self.use_cpu or force_cpu or (not has_cupy)):
@@ -1469,7 +1497,14 @@ class rWWSimGroup(SimGroup):
             # write FIC (+ numerical adjusted) wIE to param_lists
             self.param_lists["wIE"] = self._regional_params[2].reshape(self.N, -1)
     
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, **kwargs):
+    def score(
+            self, 
+            emp_fc_tril=None, 
+            emp_fcd_tril=None, 
+            emp_var=None,
+            emp_bold=None, 
+            **kwargs
+        ):
         """
         Calcualates individual goodness-of-fit terms and aggregates them.
         In FIC models also calculates fic_penalty. Note that while 
@@ -1482,6 +1517,8 @@ class rWWSimGroup(SimGroup):
             1D array of empirical FC lower triangle. Shape: (edges,)
         emp_fcd_tril: :obj:`np.ndarray`
             1D array of empirical FCD lower triangle. Shape: (window_pairs,)
+        emp_var: :obj:`np.ndarray` or None
+            1D flattened empirical VAR matrix, excluding diagonal. Shape: (node_pairs,)
         emp_bold: :obj:`np.ndarray` or None
             cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
             Motion outliers should either be excluded (not recommended as it disrupts
@@ -1495,7 +1532,13 @@ class rWWSimGroup(SimGroup):
         scores: :obj:`pd.DataFrame`
             The goodness of fit measures (columns) of each simulation (rows)
         """
-        scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold, **kwargs)
+        scores = super().score(
+            emp_fc_tril=emp_fc_tril, 
+            emp_fcd_tril=emp_fcd_tril, 
+            emp_var=emp_var,
+            emp_bold=emp_bold, 
+            **kwargs
+        )
         # calculate FIC penalty
         if self.do_fic & (self.fic_penalty_scale > 0):
             # calculate time-averaged r_E in each simulation-node

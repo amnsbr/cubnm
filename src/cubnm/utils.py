@@ -297,6 +297,74 @@ def calculate_fcd(
     else:
         return fcd_matrix
 
+def calculate_var(
+    bold,
+    lag=1,
+    lam=1000,
+    exc_interhemispheric=False,
+    flatten=True,
+):
+    """
+    Calculates vector autoregression (VAR) matrix as a measure
+    of directional connectivity between nodes
+
+    Parameters
+    ---------
+    bold: :obj:`np.ndarray`
+        cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
+        Motion outliers should either be excluded or replaced with zeros.
+    lag: :obj:`int`
+        lag order for VAR estimation
+    lam: :obj:`float`
+        regularization parameter for VAR estimation
+    exc_interhemispheric: :obj:`bool`
+        whether to exclude interhemispheric connections
+    flatten: :obj:`bool`
+        whether to return VAR as a flattened matrix (excluding diagonal)
+    
+    Returns
+    -------
+    :obj:`np.ndarray`
+        VAR matrix. Shape: (nodes, nodes) or (n_node_pairs,)
+        if ``flatten`` is ``True``
+
+    Notes
+    -----
+    Original code provided by Younghyun Oh.
+    """
+    if exc_interhemispheric:
+        # TODO: implement this
+        raise NotImplementedError(
+            "Excluding interhemispheric connections is not implemented for VAR calculation."
+        )
+    x = bold.copy()
+    # z-score non-outlier volumes in each node
+    outlier_vols = x.sum(axis=0) == 0
+    x[:, ~outlier_vols] = scipy.stats.zscore(bold[:, ~outlier_vols], axis=1, ddof=1)
+    # calculate VAR matrix
+    n, m = x.shape
+    lag1 = 1 + lag
+    M = m - lag
+    # unlagged observations: X0 shape (n, M)
+    X0 = x[:, lag1-1 : m]
+    # lagged observations: XL shape (n, M)
+    XL = np.zeros((n, M))
+    for k in range(1, lag+1):
+        XL[:, :] = x[:, lag1 - k - 1 : m - k]
+    # ridge regularization
+    XXL = XL @ XL.T  # (n x n)
+    A = (X0 @ XL.T) @ np.linalg.inv(XXL + lam * np.eye(n))  # (n x n)
+    # remove diagonal
+    # after making sure there are no other NaNs
+    assert np.isnan(A).sum() == 0, \
+        "VAR matrix contains NaNs."
+    A[np.diag_indices_from(A)] = np.nan
+    if flatten:
+        A_flat = A.flatten()
+        return A_flat[~np.isnan(A_flat)]
+    else:
+        return A
+
 def fcd_ks_device(sim_fcd_trils, emp_fcd_tril, usable_mem=None):
     """
     Calculates Kolmogorov-Smirnov distance of provided simulated FCDs
