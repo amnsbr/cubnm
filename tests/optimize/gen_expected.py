@@ -19,6 +19,7 @@ problem_args = dict(
         'J_N': (0.001, 0.5),
     },
     emp_bold = emp_bold,
+    gof_terms = ['+fc_corr', '+var_corr'],
     het_params = ['w_p', 'J_N'],
     maps = datasets.load_maps(
         ['myelinmap', 'fcgradient01'],
