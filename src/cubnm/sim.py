@@ -1381,7 +1381,7 @@ class SimGroup:
 class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ["G", "G_fb"]
-    regional_param_names = ["w_p", "J_N", "wIE"]
+    regional_param_names = ["w_p", "J_N", "wIE", "theta_ff", "theta_fb"]
     state_names = ["I_E", "I_I", "r_E", "r_I", "S_E", "S_I"]
     sel_state_var = "r_E" # TODO: use all states
     n_noise = 2
@@ -1436,6 +1436,12 @@ class rWWSimGroup(SimGroup):
                 - ``'J_N'``: NMDA conductance. Shape: (N_SIMS, nodes)
                 - ``'wIE'``: local inhibitory to excitatory connection strength. 
                   By default it is determined based on FIC algorithm. Shape: (N_SIMS, nodes)
+                - ``'theta_ff'``: proportion of incoming FF connections targeting excitatory neurons.
+                  Must be between 0 and 1. ``1 - theta_ff`` determines proportion of FF connections
+                  targeting inhibitory neurons. Shape: (N_SIMS, nodes)
+                - ``'theta_fb'``: proportion of incoming FB connections targeting excitatory neurons.
+                  Must be between 0 and 1. ``1 - theta_fb`` determines proportion of FB connections
+                  targeting inhibitory neurons. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
@@ -1492,6 +1498,13 @@ class rWWSimGroup(SimGroup):
         super(rWWSimGroup, rWWSimGroup).N.__set__(self, N)
         if self.do_fic:
             self.param_lists["wIE"] = np.zeros((self._N, self.nodes), dtype=float)
+        # set theta_ff to 1 and theta_fb to 0, i.e., make all FF connections excitatory
+        # and all FB connections inhibitory. This ensures backward compatiblity with
+        # simulations not using these two parameters
+        # In additon, when no pFF is applied (and all connections are FF) this ensures
+        # they are all excitatory, which is the behavior of the normal rWW model
+        self.param_lists["theta_ff"] = np.ones((self._N, self.nodes), dtype=float)
+        self.param_lists["theta_fb"] = np.zeros((self._N, self.nodes), dtype=float)
 
     def get_config(self, *args, **kwargs):
         config = super().get_config(*args, **kwargs)
@@ -1540,6 +1553,8 @@ class rWWSimGroup(SimGroup):
             'w_p': r'$w^{p}$',
             'J_N': r'$J^{N}$',
             'wIE': r'$w^{IE}$',
+            'theta_ff': r'$\theta^{FF}$',
+            'theta_fb': r'$\theta^{FB}$',
             'I_E': r'$I^E$',
             'I_I': r'$I^I$',
             'r_E': r'$r^E$',

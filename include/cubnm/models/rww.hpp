@@ -74,7 +74,7 @@ public:
         7, // INTER_VARS
         2, // NOISE
         2, // GLOBAL_PARAMS
-        3, // REGIONAL_PARAMS
+        5, // REGIONAL_PARAMS
         4, // CONN_STATE_VAR_IDX
         4, // BOLD_STATE_VAR_IDX
         true, // HAS_POST_BW

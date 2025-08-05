@@ -41,18 +41,20 @@ __device__ void rWWModel::step(
         double& globalinput_ff, double& globalinput_fb,
         double* noise, long& noise_idx
         ) {
-    // I_E = w_E * I_0 + (w_p * J_N) * S_E + global_input * G * J_N - w_IE * S_I
+    // I_E = w_E * I_0 + (w_p * J_N) * S_E + (global_input_ff * G * theta_ff * J_N) + (global_input_fb * G_fb * theta_fb * J_N) - w_IE * S_I
     _state_vars[0] =
         d_rWWc.w_E__I_0 
         + _regional_params[0] * _regional_params[1] * _state_vars[4] 
-        + globalinput_ff * _global_params[0] * _regional_params[1] 
+        + globalinput_ff * _global_params[0] * _regional_params[3] * _regional_params[1] 
+        + globalinput_fb * _global_params[1] * _regional_params[4] * _regional_params[1] 
         - _regional_params[2] * _state_vars[5];
-    // I_I = w_I * I_0 + J_N * S_E - w_II * S_I
+    // I_I = w_I * I_0 + J_N * S_E + (global_input_ff * G * (1 - theta_ff) * J_N) + (global_input_fb * G_fb * (1 - theta_fb) * J_N) - w_II * S_I
     _state_vars[1] = 
         d_rWWc.w_I__I_0 
         + _regional_params[1] * _state_vars[4] 
-        - d_rWWc.w_II * _state_vars[5]
-        + globalinput_fb * _global_params[1] * _regional_params[1];
+        + globalinput_ff * _global_params[0] * (1 - _regional_params[3]) * _regional_params[1]
+        + globalinput_fb * _global_params[1] * (1 - _regional_params[4]) * _regional_params[1]
+        - d_rWWc.w_II * _state_vars[5];
     // aIb_E = a_E * I_E - b_E
     _intermediate_vars[0] = d_rWWc.a_E * _state_vars[0] - d_rWWc.b_E;
     // aIb_I = a_I * I_I - b_I
