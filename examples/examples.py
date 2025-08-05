@@ -381,6 +381,7 @@ def run_cmaes_optimizer_pFF(separate_G_fb=True):
         model = 'rWW',
         params = params,
         emp_bold = emp_bold,
+        gof_terms = ["+fc_corr", "+var_corr", "-nr_diff"],
         het_params = ['w_p', 'J_N'],
         maps = datasets.load_maps(
             ['myelinmap', 'fcgradient01'],
@@ -393,11 +394,13 @@ def run_cmaes_optimizer_pFF(separate_G_fb=True):
         sc = datasets.load_sc('strength', 'schaefer-100'),
         pFF = pFF,
         separate_G_fb = separate_G_fb,
+        out_dir = './cmaes_rWW_pFF',
     )
     cmaes = optimize.CMAESOptimizer(popsize=10, n_iter=2, seed=1, 
                                     algorithm_kws=dict(tolfun=5e-3))
     cmaes.setup_problem(problem)
     cmaes.optimize()
+    cmaes.save()
     return cmaes
 
 def run_cmaes_optimizer_regional(node_grouping='sym'):

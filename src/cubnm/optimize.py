@@ -31,6 +31,8 @@ METRIC_LABELS = {
     '-fc_diff': r'- FC$_{diff}$',
     '-fc_normec': r'- FC$_{normEC}',
     '+var_corr': r'VAR$_{corr}$',
+    '+nr_corr': r'NR$_{corr}$',
+    '-nr_diff': r'- NR$_{diff}$',
 }
 
 class BNMProblem(Problem):
@@ -144,6 +146,7 @@ class BNMProblem(Problem):
         self.emp_fc_tril = None
         self.emp_fcd_tril = None
         self.emp_var = None
+        self.emp_nr = None
         if emp_bold is not None:
             if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
                 print(
@@ -166,12 +169,17 @@ class BNMProblem(Problem):
                     return_tril=True,
                     return_dfc = False
                 )
-            if "+var_corr" in self.sim_group.gof_terms:
-                # calculate empirical VAR
+            if self.sim_group.do_var:
                 self.emp_var = utils.calculate_var(
                     self.emp_bold,
                     exc_interhemispheric=self.sim_group.exc_interhemispheric,
                     flatten=True
+                )
+            if self.sim_group.do_nr:
+                self.emp_nr = utils.calculate_nr(
+                    self.emp_bold, 
+                    tau=self.sim_group.nr_tau,
+                    exc_interhemispheric=self.sim_group.exc_interhemispheric
                 )
         else:
             # when BOLD is not provided but empirical FC/FCD are
@@ -192,7 +200,7 @@ class BNMProblem(Problem):
             else:
                 self.sim_group.do_fcd = False
             # BOLD must always be provided for VAR calculation
-            if "+var_corr" in self.sim_group.gof_terms:
+            if self.sim_group.do_var or self.sim_group.do_nr:
                 if self.emp_bold is None:
                     raise ValueError(
                         "Empirical BOLD must be provided to calculate VAR"
@@ -395,6 +403,7 @@ class BNMProblem(Problem):
             "emp_fc_tril": self.emp_fc_tril,
             "emp_fcd_tril": self.emp_fcd_tril,
             "emp_var": self.emp_var,
+            "emp_nr": self.emp_nr,
             "emp_bold": self.emp_bold,
         }
         if include_N:
@@ -602,7 +611,6 @@ class BNMProblem(Problem):
         skip_run: :obj:`bool`
             will only be true in batch optimization where the simulations
             are already run and only the GOF calculation is needed
-
         
         Returns
         -------
@@ -619,7 +627,8 @@ class BNMProblem(Problem):
         return self.sim_group.score(
             emp_fc_tril=self.emp_fc_tril, 
             emp_fcd_tril=self.emp_fcd_tril,
-            emp_var=self.emp_var
+            emp_var=self.emp_var,
+            emp_nr=self.emp_nr
         )
 
 

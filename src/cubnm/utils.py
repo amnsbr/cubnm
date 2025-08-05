@@ -320,7 +320,8 @@ def calculate_var(
     exc_interhemispheric: :obj:`bool`
         whether to exclude interhemispheric connections
     flatten: :obj:`bool`
-        whether to return VAR as a flattened matrix (excluding diagonal)
+        whether to return VAR as a flattened matrix 
+        (excluding diagonal +/- interhemispheric connections)
     
     Returns
     -------
@@ -332,11 +333,6 @@ def calculate_var(
     -----
     Original code provided by Younghyun Oh.
     """
-    if exc_interhemispheric:
-        # TODO: implement this
-        raise NotImplementedError(
-            "Excluding interhemispheric connections is not implemented for VAR calculation."
-        )
     x = bold.copy()
     # z-score non-outlier volumes in each node
     outlier_vols = x.sum(axis=0) == 0
@@ -354,16 +350,87 @@ def calculate_var(
     # ridge regularization
     XXL = XL @ XL.T  # (n x n)
     A = (X0 @ XL.T) @ np.linalg.inv(XXL + lam * np.eye(n))  # (n x n)
-    # remove diagonal
-    # after making sure there are no other NaNs
+    # make sure there are no NaNs
     assert np.isnan(A).sum() == 0, \
         "VAR matrix contains NaNs."
+    # excluded interhemispheric connections
+    if exc_interhemispheric:
+        rh_idx = nodes // 2
+        A[:rh_idx, rh_idx:] = np.nan
+        A[rh_idx:, :rh_idx] = np.nan
+    # remove diagonal
     A[np.diag_indices_from(A)] = np.nan
     if flatten:
         A_flat = A.flatten()
         return A_flat[~np.isnan(A_flat)]
     else:
         return A
+
+def calculate_nr(
+    bold,
+    tau=3,
+    exc_interhemispheric=False,
+    flatten=True,
+):
+    """
+    Calculate non-reversibility (NR) matrix based on 
+    Kringelbach et al. 2023 Sci Adv.
+
+    Parameters
+    ----------
+    bold: :obj:`np.ndarray`
+        cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
+    tau: :obj:`int`
+        time lag (in TR) for which to calculate NR
+    exc_interhemispheric: :obj:`bool`, optional
+        exclude interhemispheric connections
+    flatten: :obj:`bool`
+        whether to return NR as a flattened matrix 
+        (excluding diagonal +/- interhemispheric connections)
+
+    Returns
+    -------
+    :obj:`np.ndarray`
+        Non-reversibility matrix. Shape: (nodes, nodes) or (n_node_pairs,)
+        if ``flatten`` is ``True``
+
+    Notes
+    -----
+    Original code provided by Sungmin Ji and Younghyun Oh
+    """
+    # z-score non-zero volumes in each node
+    outlier_vols = bold.sum(axis=0) == 0
+    bold[:, ~outlier_vols] = scipy.stats.zscore(bold[:, ~outlier_vols], axis=1)
+    # calculate non-reversibility matrix
+    nodes, vols = bold.shape
+    # forward direction
+    # TODO: consider making it more efficient by only calculating
+    # the correlations that are needed
+    # TODO: see if tau:vols should be tau:
+    fc_forward = np.corrcoef(bold[:, :vols - tau], bold[:, tau:vols])[:nodes, nodes:]
+    # reversed direction
+    bold_rev = bold[:, ::-1]
+    fc_reverse = np.corrcoef(bold_rev[:, :vols - tau], bold_rev[:, tau:vols])[:nodes, nodes:]
+    # mutual information estimation from correlation
+    itau_f = -0.5 * np.log(1 - fc_forward ** 2 + 1e-12)
+    itau_r = -0.5 * np.log(1 - fc_reverse ** 2 + 1e-12)
+    # FSdiff (NR) matrix
+    NR = (itau_f - itau_r) ** 2
+    # make sure there are no NaNs
+    assert np.isnan(NR).sum() == 0, \
+        "NR matrix contains NaNs."
+    # excluded interhemispheric connections
+    if exc_interhemispheric:
+        rh_idx = nodes // 2
+        NR[:rh_idx, rh_idx:] = np.NaN
+        NR[rh_idx:, :rh_idx] = np.NaN
+    # remove diagonal
+    NR[np.diag_indices_from(NR)] = np.nan
+    if flatten:
+        NR_flat = NR.flatten()
+        return NR_flat[~np.isnan(NR_flat)]
+    else:
+        return NR
 
 def fcd_ks_device(sim_fcd_trils, emp_fcd_tril, usable_mem=None):
     """

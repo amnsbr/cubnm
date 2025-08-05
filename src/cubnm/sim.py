@@ -37,6 +37,11 @@ WORST_SCORES = {
     "-fc_normec": -1.0,
     "-fcd_ks": -1.0,
     "+var_corr": -1.0,
+    "+nr_corr": -1.0,
+    # "-nr_diff": ??? 
+    # TODO: add worst score for nr_diff. It depends on the small
+    # number added to np.log(...) when calculating itau_f and itau_r
+    # For now we're leaving it as NaN (though NaNs may never happen)
 }
 
 class SimGroup:
@@ -58,6 +63,9 @@ class SimGroup:
         do_fcd=True,
         window_size=30,
         window_step=5,
+        nr_tau=3,
+        var_lag=1,
+        var_lam=1000,
         sim_seed=0,
         exc_interhemispheric=False,
         force_cpu=False,
@@ -130,7 +138,12 @@ class SimGroup:
             The actual window size is number of TRs + 1 (including center)
         window_step: :obj:`int`
             dynamic FC window step (in seconds)
-            will be converted to N TRs
+        nr_tau: :obj:`int`
+            nonreversibility tau (in TR)
+        var_lag: :obj:`int`
+            vector autoregression lag (in TR)
+        var_lam: :obj:`float`
+            vector autoregression lambda
         sim_seed: :obj:`int`
             seed used for the noise simulation
         exc_interhemispheric: :obj:`bool`
@@ -154,6 +167,8 @@ class SimGroup:
                 divided by max EC [sqrt(n_pairs*4)]
             - ``'+var_corr'``: Pearson correlation of vector autoregression
                 (VAR) matrices
+            - ``'+nr_corr'``: Pearson correlation of nonreversibility (NR) matrices
+            - ``'-nr_diff'``: negative absolute difference of NR means
 
         bw_params: {'friston2003' or 'heinzle2016-3T' or :obj:`dict`}
             see :func:`cubnm.utils.get_bw_params` for details
@@ -236,6 +251,9 @@ class SimGroup:
         self.do_fcd = do_fcd
         self.window_size = window_size
         self.window_step = window_step
+        self.nr_tau = nr_tau
+        self.var_lag = var_lag
+        self.var_lam = var_lam
         self.sim_seed = sim_seed
         self.exc_interhemispheric = exc_interhemispheric
         self.force_cpu = force_cpu
@@ -505,6 +523,14 @@ class SimGroup:
                                 " terms.")
 
     @property
+    def do_nr(self):
+        return len([self for t in self.gof_terms if t.startswith('+nr_') or t.startswith('-nr_')]) > 0
+
+    @property
+    def do_var(self):
+        return len([self for t in self.gof_terms if t.startswith('+var_') or t.startswith('-var_')]) > 0
+
+    @property
     def labels(self):
         """
         Labels of parameters and state variables
@@ -565,6 +591,9 @@ class SimGroup:
             "do_fcd": self.do_fcd,
             "window_size": self.window_size,
             "window_step": self.window_step,
+            "nr_tau": self.nr_tau,
+            "var_lag": self.var_lag,
+            "var_lam": self.var_lam,
             "window_size_TRs": self.window_size_TRs,
             "window_step_TRs": self.window_step_TRs,
             "sim_seed": self.sim_seed,
@@ -798,6 +827,33 @@ class SimGroup:
                 self.sim_states[state_name] = self._sim_states[state_i, :, :]
                 if self.states_ts:
                     self.sim_states[state_name] = self.sim_states[state_name].reshape(self.N, -1, self.nodes)
+        # calculate vector autoregression and non-reversibility if indicated
+        n_TRs_remove = int(self.bold_remove_s / self.TR)
+        ## number of pairs in VAR and NR matrices excluding
+        ## diagonal (= nodes) and interhemispheric connections
+        ## (= half_nodes squared * 2)
+        n_pairs = self.nodes * (self.nodes - 1)
+        if self.exc_interhemispheric:
+            n_pairs -= (((self.nodes // 2) ** 2) * 2)
+        if self.do_var:
+            self.sim_var = np.zeros((self.N, n_pairs), dtype=float)
+            for sim_idx in range(self.N):
+                self.sim_var[sim_idx] = utils.calculate_var(
+                    self.sim_bold[sim_idx, n_TRs_remove:, :].T,
+                    lag=self.var_lag,
+                    lam=self.var_lam,
+                    exc_interhemispheric=self.exc_interhemispheric,
+                    flatten=True
+                )
+        if self.do_nr:
+            self.sim_nr = np.zeros((self.N, n_pairs), dtype=float)
+            for sim_idx in range(self.N):
+                self.sim_nr[sim_idx] = utils.calculate_nr(
+                    self.sim_bold[sim_idx, n_TRs_remove:, :].T,
+                    tau=self.nr_tau,
+                    exc_interhemispheric=self.exc_interhemispheric,
+                    flatten=True
+                )
 
     def get_state_averages(self):
         """
@@ -1060,6 +1116,7 @@ class SimGroup:
             emp_fc_tril=None, 
             emp_fcd_tril=None,
             emp_var=None,
+            emp_nr=None,
             emp_bold=None, 
             force_cpu=False,
             usable_mem=None
@@ -1085,6 +1142,8 @@ class SimGroup:
             1D array of empirical FCD lower triangle. Shape: (window_pairs,)
         emp_var: :obj:`np.ndarray` or None
             1D flattened empirical VAR matrix, excluding diagonal. Shape: (node_pairs,)
+        emp_nr: :obj:`np.ndarray` or None
+            1D flattened empirical non-reversibility matrix, excluding diagonal. Shape: (node_pairs,)
         emp_bold: :obj:`np.ndarray` or None
             cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
             Motion outliers should either be excluded (not recommended as it disrupts
@@ -1105,10 +1164,15 @@ class SimGroup:
         """
         # calculate empirical FC and FCD if BOLD is provided
         if emp_bold is not None:
-            if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
+            if any([(q is not None) for q in [
+                    emp_fc_tril,
+                    emp_fcd_tril,
+                    emp_var,
+                    emp_nr,
+            ]]):
                 print(
-                    "Warning: Both empirical BOLD and empirical FC/FCD/VAR are"
-                    " provided. Empirical FC/FCD/VAR will be calculated based on"
+                    "Warning: Both empirical BOLD and empirical FC/FCD/VAR/NR are"
+                    " provided. Empirical FC/FCD/VAR/NR will be calculated based on"
                     " BOLD and will be overwritten."
                 )
             if self.do_fc:
@@ -1123,9 +1187,18 @@ class SimGroup:
                     return_tril=True,
                     return_dfc = False
                 )
-            if "+var_corr" in self.gof_terms:
+            if self.do_var:
                 emp_var = utils.calculate_var(
                     emp_bold,
+                    lag=self.var_lag,
+                    lam=self.var_lam,
+                    exc_interhemispheric=self.exc_interhemispheric,
+                    flatten=True
+                )
+            if self.do_nr:
+                emp_nr = utils.calculate_nr(
+                    emp_bold, 
+                    tau=self.nr_tau, 
                     exc_interhemispheric=self.exc_interhemispheric,
                     flatten=True
                 )
@@ -1143,7 +1216,10 @@ class SimGroup:
                 )
         if self.do_fcd and (emp_fcd_tril is not None):
             columns += list(set(["-fcd_ks"]) & set(self.gof_terms))
-        columns += list(set(["+var_corr"]) & set(self.gof_terms))
+        if self.do_nr and (emp_nr is not None):
+            columns += list(set(["+nr_corr", "-nr_diff"]) & set(self.gof_terms))
+        if self.do_var and (emp_var is not None):
+            columns += list(set(["+var_corr"]) & set(self.gof_terms))
         # GOF as the sum of all terms
         columns += ["+gof"]
         scores = pd.DataFrame(index=range(self.N), columns=columns, dtype=float)
@@ -1158,17 +1234,19 @@ class SimGroup:
                     self.sim_fc_trils - emp_fc_tril[None, :],
                     axis=1,
                 ) / (2 * np.sqrt(emp_fc_tril.size))
+            elif column == "-nr_diff":
+                scores.loc[:, column] = -np.abs(
+                    self.sim_nr.mean(axis=1) - emp_nr.mean()
+                )
+            elif column == "+nr_corr":
+                for idx in range(self.N):
+                    scores.loc[idx, column] = scipy.stats.pearsonr(
+                        self.sim_nr[idx], emp_nr
+                    ).statistic
             elif column == "+var_corr":
                 for idx in range(self.N):
-                    # calculate simulated VAR
-                    sim_var = utils.calculate_var(
-                        self.sim_bold[idx].T, # transpose to (nodes, time)
-                        exc_interhemispheric=self.exc_interhemispheric,
-                        flatten=True
-                    )
-                    # calculate correlation with empirical VAR
                     scores.loc[idx, column] = scipy.stats.pearsonr(
-                        sim_var, emp_var
+                        self.sim_var[idx], emp_var
                     ).statistic
         # calculation of fc_corr and fcd_ks per simulation on CPU
         # or in parallel batches on GPU (if available and CuPy is installled)
@@ -1502,6 +1580,7 @@ class rWWSimGroup(SimGroup):
             emp_fc_tril=None, 
             emp_fcd_tril=None, 
             emp_var=None,
+            emp_nr=None,
             emp_bold=None, 
             **kwargs
         ):
@@ -1519,6 +1598,8 @@ class rWWSimGroup(SimGroup):
             1D array of empirical FCD lower triangle. Shape: (window_pairs,)
         emp_var: :obj:`np.ndarray` or None
             1D flattened empirical VAR matrix, excluding diagonal. Shape: (node_pairs,)
+        emp_nr: :obj:`np.ndarray` or None
+            1D flattened empirical non-reversibility matrix, excluding diagonal. Shape: (node_pairs,)
         emp_bold: :obj:`np.ndarray` or None
             cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
             Motion outliers should either be excluded (not recommended as it disrupts
@@ -1536,6 +1617,7 @@ class rWWSimGroup(SimGroup):
             emp_fc_tril=emp_fc_tril, 
             emp_fcd_tril=emp_fcd_tril, 
             emp_var=emp_var,
+            emp_nr=emp_nr,
             emp_bold=emp_bold, 
             **kwargs
         )
