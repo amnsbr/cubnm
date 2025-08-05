@@ -219,12 +219,6 @@ class BNMProblem(Problem):
         # decide if parameters can be variable across nodes/groups
         # note that this is different from map-based heterogeneity
         self.is_node_based = self.node_grouping is not None
-        if self.is_node_based:
-            for param in self.het_params:
-                if not isinstance(params[param], tuple):
-                    raise ValueError(
-                        f"{param} is set to be heterogeneous based on groups but no range is provided"
-                    )
         # set up node_groups (ordered index of all unique groups)
         # and memberships (from node i to N, which group they belong to)
         if self.is_node_based:
@@ -251,27 +245,36 @@ class BNMProblem(Problem):
                 raise ValueError(
                     "Invalid node_grouping provided."
                 )
+            assert self.memberships.shape == (self.sim_group.nodes,), (
+                    f"Invalid node_grouping shape: {self.memberships.shape}."
+                )
             self.node_groups = np.unique(self.memberships)
 
         # set up global and regional (incl. bias) free parameters
+        # note that the `params` dictionary may include parameters
+        # that indicate fixed values of how heterogeneity should
+        # be applied to regional parameters (e.g. 'w_pscale0' or 'w_p0')
         for param, v in params.items():
-            if isinstance(v, tuple):
-                if (
-                    self.is_node_based
-                    & (param in self.regional_params)
-                    & (param in self.het_params)
-                ):
-                    # set up regional parameters which are regionally variable based on groups
-                    for group in self.node_groups:
-                        param_name = f"{param}{group}"
-                        self.free_params.append(param_name)
+            if param in self.global_params + self.regional_params:
+                if isinstance(v, tuple):
+                    if (
+                        self.is_node_based
+                        & (param in self.regional_params)
+                        & (param in self.het_params)
+                    ):
+                        # set up regional parameters which are regionally variable based on groups
+                        for group in self.node_groups:
+                            param_name = f"{param}{group}"
+                            if param_name not in params.keys():
+                                self.free_params.append(param_name)
+                                self.lb.append(v[0])
+                                self.ub.append(v[1])
+                            
+                    else:
+                        # is a global or bias parameter
+                        self.free_params.append(param)
                         self.lb.append(v[0])
                         self.ub.append(v[1])
-                else:
-                    # is a global or bias parameter
-                    self.free_params.append(param)
-                    self.lb.append(v[0])
-                    self.ub.append(v[1])
         self.fixed_params = list(set(self.params.keys()) - set(self.free_params))
 
         # set up map scaler parameters
@@ -288,33 +291,36 @@ class BNMProblem(Problem):
             ), f"Maps second dimension {self.maps.shape[1]} != nodes {self.sim_group.nodes}"
 
             # define map coefficients as free parameter
+            # unless they are specified in the input `params`
+            # dictionary
             for param in self.het_params:
                 for map_idx in range(self.maps.shape[0]):
-                    if self.maps_coef_range == 'auto':
-                        # identify the scaler range
-                        map_max = self.maps[map_idx, :].max()
-                        map_min = self.maps[map_idx, :].min()
-                        if (map_min < 0) & (map_max > 0):
-                            # e.g. z-scored
-                            scale_min = -1 / map_max
-                            scale_min = np.ceil(scale_min / 0.1) * 0.1  # round up
-                            scale_max = -1 / map_min
-                            scale_max = np.floor(scale_max / 0.1) * 0.1  # round down
-                        else:
-                            scale_min = 0.0
-                            scale_max = 1.0
-                    elif isinstance(self.maps_coef_range, tuple):
-                        scale_min, scale_max = self.maps_coef_range
-                    elif isinstance(self.maps_coef_range, list):
-                        scale_min, scale_max = self.maps_coef_range[map_idx]
-                    else:
-                        raise ValueError("Invalid maps_coef_range provided")
-                    # add the scaler as a free parameter
                     scaler_name = f"{param}scale{map_idx}"
-                    self.free_params.append(scaler_name)
-                    self.lb.append(scale_min)
-                    self.ub.append(scale_max)
-
+                    if scaler_name not in params.keys():
+                        # add the scaler as a free parameter
+                        # determine the scaler range
+                        if self.maps_coef_range == 'auto':
+                            # identify the scaler range
+                            map_max = self.maps[map_idx, :].max()
+                            map_min = self.maps[map_idx, :].min()
+                            if (map_min < 0) & (map_max > 0):
+                                # e.g. z-scored
+                                scale_min = -1 / map_max
+                                scale_min = np.ceil(scale_min / 0.1) * 0.1  # round up
+                                scale_max = -1 / map_min
+                                scale_max = np.floor(scale_max / 0.1) * 0.1  # round down
+                            else:
+                                scale_min = 0.0
+                                scale_max = 1.0
+                        elif isinstance(self.maps_coef_range, tuple):
+                            scale_min, scale_max = self.maps_coef_range
+                        elif isinstance(self.maps_coef_range, list):
+                            scale_min, scale_max = self.maps_coef_range[map_idx]
+                        else:
+                            raise ValueError("Invalid maps_coef_range provided")
+                        self.free_params.append(scaler_name)
+                        self.lb.append(scale_min)
+                        self.ub.append(scale_max)
             # define regional ranges
             if self.het_params_range == "same":
                 self._het_params_range = {}
@@ -333,14 +339,8 @@ class BNMProblem(Problem):
                         raise ValueError(
                             f"Parameter {param} is not defined in params"
                         )
-            elif isinstance(self.het_params_range, dict):
-                assert all(
-                    p in self.het_params_range for p in self.het_params
-                ), "All het_params must be defined in het_params_range"
+            elif isinstance(self.het_params_range, dict) or (self.het_params_range is None):
                 self._het_params_range = self.het_params_range
-            elif self.het_params_range is None:
-                # do not normalize the regional parameters
-                self._het_params_range = None
 
         # convert bounds to arrays
         self.lb = np.array(self.lb)
@@ -479,7 +479,7 @@ class BNMProblem(Problem):
                 param_lists[param] = np.repeat(
                     self.params[param], N
                 )
-            else:
+            elif param in self.regional_params:
                 param_lists[param] = np.tile(
                     self.params[param], (N, self.sim_group.nodes)
                 )
@@ -500,9 +500,15 @@ class BNMProblem(Problem):
                     param_scalers = np.ones(self.sim_group.nodes)
                     for map_idx in range(self.maps.shape[0]):
                         scaler_name = f"{param}scale{map_idx}"
-                        param_scalers += (
-                            self.maps[map_idx, :] * Xt.iloc[sim_idx].loc[scaler_name]
-                        )
+                        if scaler_name in self.fixed_params:
+                            param_scalers += (
+                                self.maps[map_idx, :] * self.params[scaler_name]
+                            )
+                        else:
+                            # free
+                            param_scalers += (
+                                self.maps[map_idx, :] * Xt.iloc[sim_idx].loc[scaler_name]
+                            )
                     # multiply it by the bias which is already put in param_lists
                     param_lists[param][sim_idx, :] *= param_scalers
                     # fix out-of-range parameter values if indicated
@@ -541,9 +547,12 @@ class BNMProblem(Problem):
                 curr_param_maps = np.zeros((Xt.shape[0], self.sim_group.nodes))
                 for group in self.node_groups:
                     param_name = f"{param}{group}"
-                    curr_param_maps[:, self.memberships == group] = Xt.loc[
-                        :, param_name
-                    ].values[:, np.newaxis]
+                    if param_name in self.fixed_params:
+                        curr_param_maps[:, self.memberships == group] = self.params[param_name]
+                    else:
+                        curr_param_maps[:, self.memberships == group] = Xt.loc[
+                            :, param_name
+                        ].values[:, np.newaxis]
                 param_lists[param] = curr_param_maps
         return param_lists
 
