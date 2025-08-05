@@ -1745,7 +1745,8 @@ class rWWSimGroup(SimGroup):
             # 0: no FIC
             # 1: analytical FIC
             # 2: analytical + numerical FIC
-            'do_fic': [0, 1, 2]
+            'do_fic': [0, 1, 2],
+            'use_pFF': [0, 1],
         })
         return configs
 
@@ -1765,12 +1766,26 @@ class rWWSimGroup(SimGroup):
             simulation group object of the test simulation
             which is not run yet
         """
+        # the following opts must not be passed
+        # directly to the SimGroup
+        do_fic = int(opts.pop('do_fic'))
+        use_pFF = bool(opts.pop('use_pFF'))
         # initialze sim group
         sim_group = super()._get_test_instance(opts)
         # set do_fic
-        sim_group.do_fic = opts['do_fic'] > 0
-        if opts['do_fic'] == 2:
+        sim_group.do_fic = do_fic > 0
+        if do_fic == 2:
             sim_group.max_fic_trials = 5
+        # set pFF
+        if use_pFF:
+            # create a random proportion of FF matrix
+            rng = np.random.default_rng(0)
+            pFF_tril = rng.random((sim_group.nodes*(sim_group.nodes-1))//2)
+            pFF = np.zeros((sim_group.nodes, sim_group.nodes))
+            pFF[np.tril_indices(sim_group.nodes, -1)] = pFF_tril
+            pFF[np.triu_indices(sim_group.nodes, 1)] = (1 - pFF.T)[np.triu_indices(sim_group.nodes, 1)]
+            sim_group.pFF = pFF
+            sim_group.input_pFF = pFF
         return sim_group
 
 class rWWExSimGroup(SimGroup):
