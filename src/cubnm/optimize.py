@@ -42,6 +42,8 @@ class BNMProblem(Problem):
         params,
         emp_fc_tril=None,
         emp_fcd_tril=None,
+        emp_var=None,
+        emp_nr=None,
         emp_bold=None,
         het_params=[],
         het_params_range='same',
@@ -71,6 +73,10 @@ class BNMProblem(Problem):
             lower triangular part of empirical FC. Shape: (edges,)
         emp_fcd_tril: :obj:`np.ndarray` or :obj:`None`
             lower triangular part of empirical FCD. Shape: (window_pairs,)
+        emp_var: :obj:`np.ndarray` or None
+            empirical vector autoregression matrix excluding the diagonal. Shape: (edges,)
+        emp_nr: :obj:`np.ndarray` or None
+            empirical non-reversibility matrix excluding the diagonal. Shape: (edges,)
         emp_bold: :obj:`np.ndarray` or None
             cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
             Motion outliers can either be excluded (not recommended as it disrupts
@@ -130,8 +136,6 @@ class BNMProblem(Problem):
         # set opts
         self.model = model 
         self.params = params
-        self.emp_fc_tril = emp_fc_tril
-        self.emp_fcd_tril = emp_fcd_tril
         self.emp_bold=emp_bold
         self.het_params = kwargs.pop("het_params", het_params)
         self.input_maps = kwargs.pop("maps", maps)
@@ -143,15 +147,20 @@ class BNMProblem(Problem):
         sim_group_cls = getattr(sim, f"{self.model}SimGroup")
         self.sim_group = sim_group_cls(**kwargs)
         # calculate or assign empirical FC, FCD and VAR
-        self.emp_fc_tril = None
-        self.emp_fcd_tril = None
-        self.emp_var = None
-        self.emp_nr = None
+        self.emp_fc_tril = emp_fc_tril
+        self.emp_fcd_tril = emp_fcd_tril
+        self.emp_var = emp_var
+        self.emp_nr = emp_nr
         if emp_bold is not None:
-            if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
+            if any([(q is not None) for q in [
+                    emp_fc_tril,
+                    emp_fcd_tril,
+                    emp_var,
+                    emp_nr,
+            ]]):
                 print(
-                    "Warning: Both empirical BOLD and empirical FC/FCD are"
-                    " provided. Empirical FC/FCD will be calculated based on"
+                    "Warning: Both empirical BOLD and empirical FC/FCD/VAR/NR are"
+                    " provided. Empirical FC/FCD/VAR/NR will be calculated based on"
                     " BOLD and will be overwritten."
                 )
             if self.sim_group.do_fc:
@@ -199,12 +208,16 @@ class BNMProblem(Problem):
                 self.sim_group.do_fcd = True
             else:
                 self.sim_group.do_fcd = False
-            # BOLD must always be provided for VAR calculation
-            if self.sim_group.do_var or self.sim_group.do_nr:
-                if self.emp_bold is None:
-                    raise ValueError(
-                        "Empirical BOLD must be provided to calculate VAR"
-                    )
+            if self.sim_group.do_var and (self.emp_var is None):
+                raise ValueError(
+                    "Empirical VAR or BOLD must be provided "
+                    "given a VAR-based GOF terms is used"
+                )
+            if self.sim_group.do_nr and (self.emp_nr is None):
+                raise ValueError(
+                    "Empirical NR or BOLD must be provided "
+                    "given a NR-based GOF terms is used"
+                )
         # node grouping and input maps cannot be used together
         if (self.node_grouping is not None) & (self.input_maps is not None):
             raise ValueError("Both `node_grouping` and `maps` cannot be used")
