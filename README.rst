@@ -37,8 +37,9 @@ and fit them to empirical neuroimaging data through integrated optimization algo
 GPU parallelization enables massive scaling of the simulations into higher number of
 simulations and nodes. Below you can see how computing time varies
 as a funciton of number of simulations and nodes on GPUs versus CPUs. For example,
-running 2^17 simulations (duration: 60s, nodes: 100) would take 15 days on a single
-CPU core, but only 19 minutes on an A100 GPU:
+running 32,768 simulations (duration: 60s, nodes: 100) would take 4 days on a single
+CPU thread, but only 5 minutes on Nvidia A100 GPU, and 22 minutes on Nvidia 
+GeForce RTX 4080 Super:
 
 .. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/scaling.png
     :alt: Scaling plots
@@ -70,7 +71,7 @@ At its core the toolbox runs highly parallelized simulations using C++/CUDA, whi
 user interface is written in Python and allows for user control over simulation 
 configurations:
 
-.. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/flowchart_extended.png
+.. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/flowchart.png
     :alt: Flowchart of the cuBNM program
 
 .. overview-end
