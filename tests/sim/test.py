@@ -1,7 +1,8 @@
 """
-Testing consistency of rJR model simulations
+Testing consistency of simulations across different versions of the code,
+between identical simulations on the same platform, and between identical
+simulations run on CPU vs GPU.
 """
-# TODO: consider testing all models in a single test file
 import pytest
 from cubnm import sim
 from cubnm.utils import avail_gpus
@@ -12,7 +13,6 @@ import gzip
 import itertools
 
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'sim')
-sel_state_var = 'theta'
 
 def no_gpu():
     # to skip GPU-dependent tests
@@ -35,7 +35,7 @@ def get_test_params(cpu_gpu_identity=False):
     """
     test_params = []
     # get all model names
-    model_names = [m.replace('SimGroup', '') for m in dir(sim) if 'SimGroup' in m]
+    model_names = [m.replace('SimGroup', '') for m in dir(sim) if m.endswith('SimGroup')]
     model_names.remove('')
     # get all possible combinations
     for model in model_names:

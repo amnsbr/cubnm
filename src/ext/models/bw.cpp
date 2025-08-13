@@ -1,8 +1,8 @@
 #include "cubnm/models/bw.hpp"
 BWConstants bwc;
 
-void init_bw_constants(BWConstants* bwc) {
-    bwc->dt = 0.001; // Time-step of Balloon-Windkessel model (s)
+void init_bw_constants(BWConstants* bwc, double dt) {
+    bwc->dt = dt; // Time-step of Balloon-Windkessel model (s)
     bwc->rho = 0.34;
     bwc->alpha = 0.32;
     bwc->tau = 0.98;
@@ -22,9 +22,9 @@ void init_bw_constants(BWConstants* bwc) {
 }
 
 void h_bw_step(
-        u_real& bw_x, u_real& bw_f, u_real& bw_nu, 
-        u_real& bw_q, u_real& tmp_f,
-        u_real& n_state
+        double& bw_x, double& bw_f, double& bw_nu, 
+        double& bw_q, double& tmp_f,
+        double& n_state
         ) {
     // Balloon-Windkessel model integration step
     bw_x  = bw_x  +  bwc.dt * (n_state - bwc.kappa * bw_x - bwc.y * (bw_f - 1.0));

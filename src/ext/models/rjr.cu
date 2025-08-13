@@ -2,8 +2,8 @@
 #include "cubnm/defines.h"
 #include "cubnm/models/rjr.cuh"
 __device__ __NOINLINE__ void rJRModel::init(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -16,8 +16,8 @@ __device__ __NOINLINE__ void rJRModel::init(
 }
 
 __device__ __NOINLINE__ void rJRModel::restart(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -29,10 +29,10 @@ __device__ __NOINLINE__ void rJRModel::restart(
 }
 
 __device__ void rJRModel::step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
+        double* _state_vars, double* _intermediate_vars,
+        double* _global_params, double* _regional_params,
+        double& tmp_globalinput,
+        double* noise, long& noise_idx
         ) {
     // d2EPSP/dt2 = He * Ke * R^2 * Fe / (1.0 + exp(Re * (V50e - (x))) -  Dr * Ke * 2 * R * EPSC - Ke^2 * R^2 * EPSP
     // where x = G * tmp_globalinput - C_EI * IPSP

@@ -2,8 +2,8 @@
 #include "cubnm/defines.h"
 #include "cubnm/models/kuramoto.cuh"
 __device__ __NOINLINE__ void KuramotoModel::init(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -11,8 +11,8 @@ __device__ __NOINLINE__ void KuramotoModel::init(
 }
 
 __device__ __NOINLINE__ void KuramotoModel::restart(
-    u_real* _state_vars, u_real* _intermediate_vars, 
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars, 
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -20,10 +20,10 @@ __device__ __NOINLINE__ void KuramotoModel::restart(
 }
 
 __device__ void KuramotoModel::step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
+        double* _state_vars, double* _intermediate_vars,
+        double* _global_params, double* _regional_params,
+        double& tmp_globalinput,
+        double* noise, long& noise_idx
         ) {
     // dtheta/dt = omega + G * global_input
     _intermediate_vars[0] = _regional_params[1] + _global_params[0] * tmp_globalinput;

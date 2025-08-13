@@ -2,8 +2,8 @@
 
 rJRModel::Constants rJRModel::mc;
 
-void rJRModel::init_constants() {
-    mc.dt = 0.0001;
+void rJRModel::init_constants(double dt) {
+    mc.dt = dt * 0.001; // converting dt to seconds
     mc.sqrt_dt = SQRT(mc.dt); 
     mc.Ke  = 100.0;
     mc.Ki = 50.0;
@@ -26,8 +26,8 @@ void rJRModel::init_constants() {
 }
 
 void rJRModel::h_init(
-    u_real* _state_vars, u_real* _intermediate_vars,
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars,
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -39,8 +39,8 @@ void rJRModel::h_init(
 }
 
 void rJRModel::_j_restart(
-    u_real* _state_vars, u_real* _intermediate_vars,
-    u_real* _global_params, u_real* _regional_params,
+    double* _state_vars, double* _intermediate_vars,
+    double* _global_params, double* _regional_params,
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
@@ -52,10 +52,10 @@ void rJRModel::_j_restart(
 }
 
 void rJRModel::h_step(
-        u_real* _state_vars, u_real* _intermediate_vars,
-        u_real* _global_params, u_real* _regional_params,
-        u_real& tmp_globalinput,
-        u_real* noise, long& noise_idx
+        double* _state_vars, double* _intermediate_vars,
+        double* _global_params, double* _regional_params,
+        double& tmp_globalinput,
+        double* noise, long& noise_idx
         ) {
     // d2EPSP/dt2 = He * Ke * R^2 * Fe / (1.0 + exp(Re * (V50e - (x))) -  Dr * Ke * 2 * R * EPSC - Ke^2 * R^2 * EPSP
     // where x = G * tmp_globalinput - C_EI * IPSP

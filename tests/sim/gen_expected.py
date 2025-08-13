@@ -47,8 +47,10 @@ def gen_expected(model):
         if opts_str in prev_test_data:
             for k in ['sim_bold', 'sim_fc_trils', 'sim_fcd_trils', 'sim_sel_state']:
                 if k in prev_test_data.get(opts_str, {}):
-                    if not np.isclose(test_data[opts_str][k], prev_test_data[opts_str][k], atol=1e-12).all():
-                        print(f"Warning: {opts_str} output has changed from the previous version")
+                    if test_data[opts_str][k].shape != prev_test_data[opts_str][k].shape:
+                        print(f"Warning: {opts_str} {k} shape has changed from the previous version")
+                    elif not np.isclose(test_data[opts_str][k], prev_test_data[opts_str][k], atol=1e-12).all():
+                        print(f"Warning: {opts_str} {k} has changed from the previous version")
     # save all
     with gzip.open(os.path.join(test_data_dir, f'{model}.pkl.gz'), 'wb') as f:
         pickle.dump(test_data, f)

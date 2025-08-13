@@ -39,8 +39,8 @@ In addition for GPU usage the following must be defined in
 __constant__ derivedModel::Constants d_derivedc;
 template void _run_simulations_gpu<derivedModel>(
     double*, double*, double*, 
-    u_real**, u_real**, u_real*, 
-    u_real**, int*, u_real*, 
+    double**, double**, double*, 
+    double**, int*, double*, 
     BaseModel*
 );
 
@@ -57,15 +57,21 @@ See rWWEx model as a simple example, and rWW as a more complex one.
                                  GLOBAL_PARAMS, REGIONAL_PARAMS, CONN_STATE_VAR_IDX, \
                                  BOLD_STATE_VAR_IDX, HAS_POST_BW, HAS_POST_INT, IS_OSC, \
                                  EXT_INT, EXT_BOOL, EXT_INT_SHARED, EXT_BOOL_SHARED, \
-                                 GLOBAL_OUT_INT, GLOBAL_OUT_BOOL, GLOBAL_OUT_UREAL, \
-                                 REGIONAL_OUT_INT, REGIONAL_OUT_BOOL, REGIONAL_OUT_UREAL) \
+                                 GLOBAL_OUT_INT, GLOBAL_OUT_BOOL, GLOBAL_OUT_DOUBLE, \
+                                 REGIONAL_OUT_INT, REGIONAL_OUT_BOOL, REGIONAL_OUT_DOUBLE) \
     using BaseModel::BaseModel; \
     ~CLASS_NAME() { \
         if (cpu_initialized) { \
             this->free_cpu(); \
+            if (cpu_noise_initialized) { \
+                this->free_cpu_noise(); \
+            } \
         } \
         if (gpu_initialized) { \
             this->free_gpu(); \
+            if (gpu_noise_initialized) { \
+                this->free_gpu_noise(); \
+            } \
         } \
     } \
     static constexpr char* name = NAME; \
@@ -82,72 +88,72 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     static constexpr int n_ext_bool_shared = EXT_BOOL_SHARED; \
     static constexpr int n_global_out_int = GLOBAL_OUT_INT; \
     static constexpr int n_global_out_bool = GLOBAL_OUT_BOOL; \
-    static constexpr int n_global_out_u_real = GLOBAL_OUT_UREAL; \
+    static constexpr int n_global_out_double = GLOBAL_OUT_DOUBLE; \
     static constexpr int n_regional_out_int = REGIONAL_OUT_INT; \
     static constexpr int n_regional_out_bool = REGIONAL_OUT_BOOL; \
-    static constexpr int n_regional_out_u_real = REGIONAL_OUT_UREAL; \
+    static constexpr int n_regional_out_double = REGIONAL_OUT_DOUBLE; \
     static constexpr bool has_post_bw_step = HAS_POST_BW; \
     static constexpr bool has_post_integration = HAS_POST_INT; \
     static constexpr bool is_osc = IS_OSC; \
     static Constants mc; \
     Config conf; \
-    static void init_constants(); \
+    static void init_constants(double dt = 0.1); \
     CUDA_CALLABLE_MEMBER void init( \
-        u_real* _state_vars, u_real* _intermediate_vars,  \
-        u_real* _global_params, u_real* _regional_params, \
+        double* _state_vars, double* _intermediate_vars,  \
+        double* _global_params, double* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared); \
     CUDA_CALLABLE_MEMBER void step( \
-        u_real* _state_vars, u_real* _intermediate_vars, \
-        u_real* _global_params, u_real* _regional_params, \
-        u_real& tmp_globalinput, \
-        u_real* noise, long& noise_idx); \
+        double* _state_vars, double* _intermediate_vars, \
+        double* _global_params, double* _regional_params, \
+        double& tmp_globalinput, \
+        double* noise, long& noise_idx); \
     CUDA_CALLABLE_MEMBER void post_bw_step( \
-        u_real* _state_vars, u_real* _intermediate_vars, \
+        double* _state_vars, double* _intermediate_vars, \
         int* _ext_int, bool* _ext_bool,  \
         int* _ext_int_shared, bool* _ext_bool_shared, \
         bool& restart, \
-        u_real* _global_params, u_real* _regional_params, \
+        double* _global_params, double* _regional_params, \
         int& ts_bold); \
     CUDA_CALLABLE_MEMBER void restart( \
-        u_real* _state_vars, u_real* _intermediate_vars,  \
-        u_real* _global_params, u_real* _regional_params, \
+        double* _state_vars, double* _intermediate_vars,  \
+        double* _global_params, double* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared); \
     CUDA_CALLABLE_MEMBER void post_integration( \
-        u_real ***state_vars_out,  \
+        double ***state_vars_out,  \
         int **global_out_int, bool **global_out_bool, \
-        u_real* _state_vars, u_real* _intermediate_vars,  \
+        double* _state_vars, double* _intermediate_vars,  \
         int* _ext_int, bool* _ext_bool,  \
         int* _ext_int_shared, bool* _ext_bool_shared, \
-        u_real** global_params, u_real** regional_params, \
-        u_real* _global_params, u_real* _regional_params, \
+        double** global_params, double** regional_params, \
+        double* _global_params, double* _regional_params, \
         int& sim_idx, const int& nodes, int& j); \
     void init_gpu(BWConstants bwc, bool force_reinit) override final { \
         _init_gpu<CLASS_NAME>(this, bwc, force_reinit); \
     } \
     void run_simulations_gpu( \
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out, \
-        u_real ** global_params, u_real ** regional_params, u_real * v_list, \
-        u_real ** SC, int * SC_indices, u_real * SC_dist) override final { \
+        double ** global_params, double ** regional_params, double * v_list, \
+        double ** SC, int * SC_indices, double * SC_dist) override final { \
         _run_simulations_gpu<CLASS_NAME>( \
             BOLD_ex_out, fc_trils_out, fcd_trils_out,  \
             global_params, regional_params, v_list, \
             SC, SC_indices, SC_dist, this); \
     } \
     void h_init( \
-        u_real* _state_vars, u_real* _intermediate_vars,  \
-        u_real* _global_params, u_real* _regional_params, \
+        double* _state_vars, double* _intermediate_vars,  \
+        double* _global_params, double* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void h_step( \
-        u_real* _state_vars, u_real* _intermediate_vars, \
-        u_real* _global_params, u_real* _regional_params, \
-        u_real& tmp_globalinput, \
-        u_real* noise, long& noise_idx) override final; \
+        double* _state_vars, double* _intermediate_vars, \
+        double* _global_params, double* _regional_params, \
+        double& tmp_globalinput, \
+        double* noise, long& noise_idx) override final; \
     void _j_restart( \
-        u_real* _state_vars, u_real* _intermediate_vars,  \
-        u_real* _global_params, u_real* _regional_params, \
+        double* _state_vars, double* _intermediate_vars,  \
+        double* _global_params, double* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void init_cpu(bool force_reinit) override final { \
@@ -155,8 +161,8 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     } \
     void run_simulations_cpu( \
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out, \
-        u_real ** global_params, u_real ** regional_params, u_real * v_list, \
-        u_real ** SC, int * SC_indices, u_real * SC_dist) override final { \
+        double ** global_params, double ** regional_params, double * v_list, \
+        double ** SC, int * SC_indices, double * SC_dist) override final { \
         _run_simulations_cpu<CLASS_NAME>( \
             BOLD_ex_out, fc_trils_out, fcd_trils_out,  \
             global_params, regional_params, v_list, \
@@ -185,12 +191,15 @@ See rWWEx model as a simple example, and rWW as a more complex one.
                                  GLOBAL_PARAMS, REGIONAL_PARAMS, CONN_STATE_VAR_IDX, \
                                  BOLD_STATE_VAR_IDX, HAS_POST_BW, HAS_POST_INT, \
                                  EXT_INT, EXT_BOOL, EXT_INT_SHARED, EXT_BOOL_SHARED, \
-                                 GLOBAL_OUT_INT, GLOBAL_OUT_BOOL, GLOBAL_OUT_UREAL, \
-                                 REGIONAL_OUT_INT, REGIONAL_OUT_BOOL, REGIONAL_OUT_UREAL) \
+                                 GLOBAL_OUT_INT, GLOBAL_OUT_BOOL, GLOBAL_OUT_DOUBLE, \
+                                 REGIONAL_OUT_INT, REGIONAL_OUT_BOOL, REGIONAL_OUT_DOUBLE) \
     using BaseModel::BaseModel; \
     ~CLASS_NAME() { \
         if (cpu_initialized) { \
             this->free_cpu(); \
+            if (cpu_noise_initialized) { \
+                this->free_cpu_noise(); \
+            } \
         } \
     } \
     static constexpr char* name = NAME; \
@@ -207,28 +216,28 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     static constexpr int n_ext_bool_shared = EXT_BOOL_SHARED; \
     static constexpr int n_global_out_int = GLOBAL_OUT_INT; \
     static constexpr int n_global_out_bool = GLOBAL_OUT_BOOL; \
-    static constexpr int n_global_out_u_real = GLOBAL_OUT_UREAL; \
+    static constexpr int n_global_out_double = GLOBAL_OUT_DOUBLE; \
     static constexpr int n_regional_out_int = REGIONAL_OUT_INT; \
     static constexpr int n_regional_out_bool = REGIONAL_OUT_BOOL; \
-    static constexpr int n_regional_out_u_real = REGIONAL_OUT_UREAL; \
+    static constexpr int n_regional_out_double = REGIONAL_OUT_DOUBLE; \
     static constexpr bool has_post_bw_step = HAS_POST_BW; \
     static constexpr bool has_post_integration = HAS_POST_INT; \
     static Constants mc; \
     Config conf; \
-    static void init_constants(); \
+    static void init_constants(double dt = 0.1); \
     void h_init( \
-        u_real* _state_vars, u_real* _intermediate_vars,  \
-        u_real* _global_params, u_real* _regional_params, \
+        double* _state_vars, double* _intermediate_vars,  \
+        double* _global_params, double* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void h_step( \
-        u_real* _state_vars, u_real* _intermediate_vars, \
-        u_real* _global_params, u_real* _regional_params, \
-        u_real& tmp_globalinput, \
-        u_real* noise, long& noise_idx) override final; \
+        double* _state_vars, double* _intermediate_vars, \
+        double* _global_params, double* _regional_params, \
+        double& tmp_globalinput, \
+        double* noise, long& noise_idx) override final; \
     void _j_restart( \
-        u_real* _state_vars, u_real* _intermediate_vars,  \
-        u_real* _global_params, u_real* _regional_params, \
+        double* _state_vars, double* _intermediate_vars,  \
+        double* _global_params, double* _regional_params, \
         int* _ext_int, bool* _ext_bool, \
         int* _ext_int_shared, bool* _ext_bool_shared) override final; \
     void init_cpu(bool force_reinit) override final { \
@@ -236,8 +245,8 @@ See rWWEx model as a simple example, and rWW as a more complex one.
     } \
     void run_simulations_cpu( \
         double * BOLD_ex_out, double * fc_trils_out, double * fcd_trils_out, \
-        u_real ** global_params, u_real ** regional_params, u_real * v_list, \
-        u_real ** SC, int * SC_indices, u_real * SC_dist) override final { \
+        double ** global_params, double ** regional_params, double * v_list, \
+        double ** SC, int * SC_indices, double * SC_dist) override final { \
         _run_simulations_cpu<CLASS_NAME>( \
             BOLD_ex_out, fc_trils_out, fcd_trils_out,  \
             global_params, regional_params, v_list, \

@@ -4,8 +4,8 @@
 __constant__ rJRModel::Constants d_rJRc;
 template void _run_simulations_gpu<rJRModel>(
     double*, double*, double*, 
-    u_real**, u_real**, u_real*, 
-    u_real**, int*, u_real*, 
+    double**, double**, double*, 
+    double**, int*, double*, 
     BaseModel*
 );
 

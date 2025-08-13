@@ -2,17 +2,27 @@
 #define UTILS_CUH
 #include "utils.hpp"
 
-#define CUDA_CHECK_RETURN(value) {											\
-	cudaError_t _m_cudaStat = value;										\
-	if (_m_cudaStat != cudaSuccess) {										\
-		fprintf(stderr, "Error %s at line %d in file %s\n",					\
-				cudaGetErrorString(_m_cudaStat), __LINE__, __FILE__);		\
-		exit(1);															\
-	} }
-
+inline void checkLast(const char* const file, const int line) {
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        throw std::runtime_error(std::string(
+            "CUDA Error (Kernel Launch) at " + std::string(file) + ":" +
+            std::to_string(line) + "\n" + 
+            cudaGetErrorName(err) + ": " + cudaGetErrorString(err)
+        ));
+    }
+}
+inline void checkReturn(cudaError_t value, const char* const file, const int line) {
+    if (value != cudaSuccess) {
+        throw std::runtime_error(std::string(
+            "CUDA Error (API Call) at " + std::string(file) + ":" +
+            std::to_string(line) + "\n" + 
+            cudaGetErrorName(value) + ": " + cudaGetErrorString(value)
+        ));
+    }
+}
+#define CUDA_CHECK_RETURN(value) checkReturn(value, __FILE__, __LINE__)
 #define CUDA_CHECK_LAST_ERROR() checkLast(__FILE__, __LINE__)
-void checkLast(const char* const file, const int line);
 
-__global__ void float2double(double **dst, float **src, size_t rows, size_t cols);
 cudaDeviceProp get_device_prop(int verbose = 1);
 #endif

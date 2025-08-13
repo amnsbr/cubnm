@@ -3,7 +3,7 @@
 
 {% endif %}
 :py:mod:`{{ obj.name }}`
-=========={{ "=" * obj.name|length }}
+#########{{ "#" * obj.name|length }}
 
 .. py:module:: {{ obj.name }}
 
@@ -17,8 +17,6 @@
 {% block subpackages %}
 {% set visible_subpackages = obj.subpackages|selectattr("display")|list %}
 {% if visible_subpackages %}
-Subpackages
------------
 .. toctree::
    :titlesonly:
    :maxdepth: 3
@@ -52,7 +50,6 @@ Subpackages
 {% set visible_children = obj.children|selectattr("display")|rejectattr("imported")|list %}
 {% endif %}
 {% if visible_children %}
-
 {% set visible_classes = visible_children|selectattr("type", "equalto", "class")|list %}
 {% set visible_functions = visible_children|selectattr("type", "equalto", "function")|list %}
 {% set visible_attributes = visible_children|selectattr("type", "equalto", "data")|list %}

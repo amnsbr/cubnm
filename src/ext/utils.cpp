@@ -8,8 +8,9 @@ int get_fc_n_pairs(int nodes, bool exc_interhemispheric) {
     int rh_idx;
     if (exc_interhemispheric) {
         if ((nodes % 2) != 0) {
-            std::cerr << "Error: exc_interhemispheric is set but number of nodes is not even" << std::endl;
-            exit(1);
+            throw std::runtime_error(std::string(
+                "exc_interhemispheric is set but number of nodes is not even"
+            ));
         }
         rh_idx = nodes / 2; // assumes symmetric number of parcels and L->R order
         n_pairs -= pow(rh_idx, 2); // exc the middle square
@@ -47,8 +48,7 @@ int get_dfc_windows(
         n_windows ++;
     }
     if (n_windows == 0) {
-        std::cerr << "Error: Number of dynamic FC windows is 0" << std::endl;
-        exit(1);
+        throw std::runtime_error(std::string("Number of dynamic FC windows is 0"));
     }
     return n_windows;
 }
@@ -73,7 +73,7 @@ int get_dfc_windows(
 
 void get_shuffled_nodes_ts(
         int **shuffled_nodes_p, int **shuffled_ts_p,
-        int nodes, int noise_time_steps, int noise_repeats,
+        int nodes, int noise_bw_it, int noise_repeats,
         std::mt19937 *rand_gen_p
     ) {
     // create shuffled nodes indices for each repeat of the 
@@ -86,10 +86,10 @@ void get_shuffled_nodes_ts(
     }
     // similarly create shuffled time point indices (msec)
     // for each repeat (column shuffling)
-    std::vector<int> ts_indices(noise_time_steps);
+    std::vector<int> ts_indices(noise_bw_it);
     std::iota(ts_indices.begin(), ts_indices.end(), 0);
     for (int i = 0; i < noise_repeats; i++) {
         std::shuffle(ts_indices.begin(), ts_indices.end(), *rand_gen_p);
-        std::copy(ts_indices.begin(), ts_indices.end(), *shuffled_ts_p+(i*noise_time_steps));
+        std::copy(ts_indices.begin(), ts_indices.end(), *shuffled_ts_p+(i*noise_bw_it));
     }
 }

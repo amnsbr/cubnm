@@ -11,26 +11,26 @@ public:
         // (unlike the others) are in sec or 1/sec rather 
         // than sec or 1/msec
         // TODO: harmonize it with the other models
-        u_real dt;            // Time step (sec)
-        u_real sqrt_dt;       // Square root of time step
-        u_real Ke;            // Inversion of time constant of the EPSP kernel (1/sec)
-        u_real Ki;            // Inversion of time constant of the IPSP kernel (1/sec)
-        u_real He;            // Maximal EPSP (mV)
-        u_real Hi;            // Maximal IPSP (mV)
-        u_real Fe;            // Maximal firing rate of excitatory population (Hz)
-        u_real Fi;            // Maximal firing rate of inhibitory population (Hz)
-        u_real Re;            // Slope of the sigmoid activation function for excitatory population (1/mV)
-        u_real Ri;            // Slope of the sigmoid activation function for inhibitory population (1/mV)
-        u_real V50e;          // EPSP that achieves a 50% firing rate of a neural population (mV)
-        u_real V50i;          // IPSP that achieves a 50% firing rate of a neural population (mV)
-        u_real Dr;            // Damping ratio = 1 for critical damping (Dr > 1: exponential decaying, Dr < 1: Oscillating)
-        u_real V0;            // Rest potential (mV) for PSP
-        u_real HeKe;
-        u_real HiKi;
-        u_real DrKe2;
-        u_real DrKi2;
-        u_real Ke_sq;
-        u_real Ki_sq;
+        double dt;            // Time step (sec)
+        double sqrt_dt;       // Square root of time step
+        double Ke;            // Inversion of time constant of the EPSP kernel (1/sec)
+        double Ki;            // Inversion of time constant of the IPSP kernel (1/sec)
+        double He;            // Maximal EPSP (mV)
+        double Hi;            // Maximal IPSP (mV)
+        double Fe;            // Maximal firing rate of excitatory population (Hz)
+        double Fi;            // Maximal firing rate of inhibitory population (Hz)
+        double Re;            // Slope of the sigmoid activation function for excitatory population (1/mV)
+        double Ri;            // Slope of the sigmoid activation function for inhibitory population (1/mV)
+        double V50e;          // EPSP that achieves a 50% firing rate of a neural population (mV)
+        double V50i;          // IPSP that achieves a 50% firing rate of a neural population (mV)
+        double Dr;            // Damping ratio = 1 for critical damping (Dr > 1: exponential decaying, Dr < 1: Oscillating)
+        double V0;            // Rest potential (mV) for PSP
+        double HeKe;
+        double HiKi;
+        double DrKe2;
+        double DrKi2;
+        double Ke_sq;
+        double Ki_sq;
     };
     struct Config {
     };

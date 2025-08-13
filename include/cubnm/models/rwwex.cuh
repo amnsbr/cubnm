@@ -4,8 +4,8 @@
 __constant__ rWWExModel::Constants d_rWWExc;
 template void _run_simulations_gpu<rWWExModel>(
     double*, double*, double*, 
-    u_real**, u_real**, u_real*, 
-    u_real**, int*, u_real*, 
+    double**, double**, double*, 
+    double**, int*, double*, 
     BaseModel*
 );
 
