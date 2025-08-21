@@ -19,13 +19,10 @@ __device__ __NOINLINE__ void JRModel::restart(
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
-    // call init
-    JRModel::init(
-        _state_vars, _intermediate_vars,
-        _global_params, _regional_params, 
-        _ext_int, _ext_bool, 
-        _ext_int_shared, _ext_bool_shared
-    );
+    // set all to 0.0
+    for (int i = 0; i < JRModel::n_state_vars; ++i) {
+        _state_vars[i] = 0.0;
+    }
 }
 
 __device__ void JRModel::step(

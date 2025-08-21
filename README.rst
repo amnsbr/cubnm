@@ -47,7 +47,7 @@ GPU usage is the primary focus of the toolbox but it also supports running the
 simulations on single or multiple cores of CPU. CPUs will be used if no GPUs are
 detected or if requested by the user.
 
-Currently three models (`rWW`, `rWWEx` and `Kuramoto`) are implemented, but the
+Currently four models (``rWW``, ``rWWEx``, ``JR`` and ``Kuramoto``) are implemented, but the
 modular design of the code makes it possible to add new models, and a guide
 is included on how to contribute new models. 
 

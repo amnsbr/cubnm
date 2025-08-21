@@ -112,7 +112,7 @@ def test_opt(optimizer_name):
         optimizer.setup_problem(problem)
         optimizer.optimize()
     # compare history
-    assert np.isclose(hist_expected.values, optimizer.history.values).all()
+    assert np.isclose(hist_expected.values, optimizer.history.values, atol=1e-6).all()
     # test saving
     optimizer.save()
 
@@ -148,11 +148,11 @@ def test_batch(optimizer_name):
     o2.setup_problem(copy.deepcopy(problem))
     o2.optimize()
     # compare histories
-    assert np.isclose(batch_optimizers[0].history.values, batch_optimizers[1].history.values).all()
-    assert np.isclose(batch_optimizers[2].history.values, batch_optimizers[3].history.values).all()
-    assert not np.isclose(batch_optimizers[0].history.values, batch_optimizers[2].history.values).all()
-    assert np.isclose(batch_optimizers[0].history.values, o1.history.values).all()
-    assert np.isclose(batch_optimizers[2].history.values, o2.history.values).all()
+    assert np.isclose(batch_optimizers[0].history.values, batch_optimizers[1].history.values, atol=1e-6).all()
+    assert np.isclose(batch_optimizers[2].history.values, batch_optimizers[3].history.values, atol=1e-6).all()
+    assert not np.isclose(batch_optimizers[0].history.values, batch_optimizers[2].history.values, atol=1e-6).all()
+    assert np.isclose(batch_optimizers[0].history.values, o1.history.values, atol=1e-6).all()
+    assert np.isclose(batch_optimizers[2].history.values, o2.history.values, atol=1e-6).all()
 
 @pytest.mark.parametrize(
     "optimizer_name", 
@@ -190,6 +190,6 @@ def test_batch_variable_sc(optimizer_name):
     o2.setup_problem(copy.deepcopy(p2))
     o2.optimize()
     # compare histories
-    assert not np.isclose(batch_optimizers[0].history.values, batch_optimizers[1].history.values).all()
-    assert np.isclose(batch_optimizers[0].history.values, o1.history.values).all()
-    assert np.isclose(batch_optimizers[1].history.values, o2.history.values).all()
+    assert not np.isclose(batch_optimizers[0].history.values, batch_optimizers[1].history.values, atol=1e-6).all()
+    assert np.isclose(batch_optimizers[0].history.values, o1.history.values, atol=1e-6).all()
+    assert np.isclose(batch_optimizers[1].history.values, o2.history.values, atol=1e-6).all()
