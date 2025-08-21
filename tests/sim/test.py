@@ -91,7 +91,8 @@ def test_single_sim(model, opts_str):
     sg = simgroup_cls._get_test_instance(opts)
     # run simulation
     sg.N = 1
-    sg._set_default_params()
+    sg.param_lists['G'] = np.array([0.5])
+    sg._set_default_params(missing=True)
     sg.run()
     # compare results and expected
     assert np.isclose(sg.sim_fc_trils, expected['sim_fc_trils'], atol=1e-6).all()
@@ -125,7 +126,8 @@ def test_identical_sims(model, opts_str):
     simgroup_cls = getattr(sim, f'{model}SimGroup')
     sg = simgroup_cls._get_test_instance(opts)
     sg.N = 2
-    sg._set_default_params()
+    sg.param_lists['G'] = np.array([0.5, 0.5])
+    sg._set_default_params(missing=True)
     sg.run()
     # compare results
     assert np.isclose(sg.sim_fc_trils[0], sg.sim_fc_trils[1], atol=1e-6).all()
@@ -158,7 +160,8 @@ def test_identical_cpu_gpu(model, opts_str):
     simgroup_cls = getattr(sim, f'{model}SimGroup')
     sg = simgroup_cls._get_test_instance(opts)
     sg.N = 1
-    sg._set_default_params()
+    sg.param_lists['G'] = np.array([0.5])
+    sg._set_default_params(missing=True)
     sim_bolds = {}
     sim_fc_trils = {}
     sim_fcd_trils = {}

@@ -24,7 +24,6 @@ public:
         double gamma_I;
         double tau_E;
         double tau_I;
-        double sigma_model;
         double I_0;
         double w_E;
         double w_I;
@@ -35,7 +34,6 @@ public:
         double b_a_ratio_E;
         double itau_E;
         double itau_I;
-        double sigma_model_sqrt_dt;
         double dt_itau_E;
         double dt_gamma_E;
         double dt_itau_I;
@@ -70,13 +68,13 @@ public:
     DEFINE_DERIVED_MODEL(
         rWWModel, // CLASS_NAME
         "rWW", // NAME
-        6, // STATE_VARS
+        6, // STATE_VARS: I_E, I_I, r_E, r_I, S_E, S_I
         7, // INTER_VARS
         2, // NOISE
-        1, // GLOBAL_PARAMS
-        3, // REGIONAL_PARAMS
-        4, // CONN_STATE_VAR_IDX
-        4, // BOLD_STATE_VAR_IDX
+        1, // GLOBAL_PARAMS: G
+        4, // REGIONAL_PARAMS: w_p, J_N, w_IE, sigma
+        4, // CONN_STATE_VAR_IDX: S_E
+        4, // BOLD_STATE_VAR_IDX: S_E
         true, // HAS_POST_BW
         true, // HAS_POST_INT
         false, // IS_OSC

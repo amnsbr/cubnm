@@ -35,7 +35,8 @@ def gen_expected(model):
             continue
         sg = ModelSimGroup._get_test_instance(opts_dict)
         sg.N = 1
-        sg._set_default_params()
+        sg.param_lists['G'] = np.array([0.5])
+        sg._set_default_params(missing=True)
         sg.run()
         test_data[opts_str] = {
             'sim_bold': sg.sim_bold,

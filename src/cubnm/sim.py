@@ -197,8 +197,11 @@ class SimGroup:
             n_noise: :obj:`int`
                 number of noise elements per node per time point
                 (e.g. 2 if there are noise to E and I neuronal populations)
-        And they must implement the following methods:
-            _set_default_params: set default (example) parameters for the simulations
+            default_params: :obj:`dict`
+                default parameter values for the simulations.
+                If a parameter's default is set to None,
+                it will be a required (fixed or free) parameter.
+                This is often the case with 'G' (global coupling).
         """
         self.input_sc = sc
         if isinstance(sc, (str, os.PathLike)):
@@ -502,13 +505,41 @@ class SimGroup:
         ----------
         missing: :obj:`bool`, optional
             If True (default), only sets parameters that are currently None
-            in self.param_lists. If False, overwrites all listed defaults.
+            or have an incorrect length in self.param_lists. 
+            If False, always overwrites all listed defaults.
         """
-        if self.do_delay:
-            if (not missing) or (self.param_lists["v"] is None):
-                # a low velocity is chosen to make the delay more visible
-                # in the tests
-                self.param_lists["v"] = np.repeat(0.5, self.N)
+        defaults = copy.copy(self.default_params)
+        if self.do_delay and ("v" not in defaults):
+            defaults["v"] = 0.5
+        for param, v in defaults.items():
+            if (
+                (not missing) or
+                (self.param_lists.get(param) is None) or 
+                (self.param_lists.get(param, np.array([0])).shape[0] != self.N)
+                # the last condition is to ensure that in subsequent generations
+                # of evolutionary algorithm the default regional parameters
+            ):
+                if v is None:
+                    raise ValueError(
+                        f"Parameter {param} does not have a default value"
+                        " and must be set as a fixed or free parameter"
+                    )
+                if param == "v" and self.do_delay:
+                    # v = 0.5 is used to push the simulations to a difficult
+                    # case (with prolonged history to be stored) to make sure
+                    # everything works in extreme cases, but biologically this
+                    # is a low conduction velocity
+                    print(
+                        "Warning: The default conduction velocity (v) is set to 0.5 m/s. "
+                        "Which may be biologically not realistic (too low). "
+                        "Consider setting it as a free parameter or use a higher fixed value."
+                    )
+                if param in self.global_param_names:
+                    self.param_lists[param] = np.repeat(v, self.N)
+                else:
+                    if (param == "wIE") and self.do_fic:
+                        continue
+                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
     def get_config(self, include_N=False, for_reinit=False):
         """
@@ -1237,10 +1268,17 @@ class SimGroup:
 class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ["G"]
-    regional_param_names = ["w_p", "J_N", "wIE"]
+    regional_param_names = ["w_p", "J_N", "wIE", "sigma"]
     state_names = ["I_E", "I_I", "r_E", "r_I", "S_E", "S_I"]
     sel_state_var = "r_E" # TODO: use all states
     n_noise = 2
+    default_params = {
+        "G": None, # required, and doesn't have a default
+        "w_p": 1.4,
+        "J_N": 0.15,
+        "sigma": 0.01,
+        "wIE": 1.0, # only used if do_fic is False
+    }
     def __init__(self, 
                  *args, 
                  do_fic = True,
@@ -1284,6 +1322,7 @@ class rWWSimGroup(SimGroup):
                 - ``'J_N'``: NMDA conductance. Shape: (N_SIMS, nodes)
                 - ``'wIE'``: local inhibitory to excitatory connection strength. 
                   By default it is determined based on FIC algorithm. Shape: (N_SIMS, nodes)
+                - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
@@ -1302,9 +1341,8 @@ class rWWSimGroup(SimGroup):
                 sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['w_p'] = np.full((N_SIMS, nodes), 1.4)
-            sim_group.param_lists['J_N'] = np.full((N_SIMS, nodes), 0.15)
+            sim_group.param_lists["G"] = np.array([0.5]) # set global coupling
+            sim_group._set_default_params() # set other parameters to default
             sim_group.run()
         """
         self.do_fic = do_fic
@@ -1364,6 +1402,7 @@ class rWWSimGroup(SimGroup):
             'w_p': r'$w^{p}$',
             'J_N': r'$J^{N}$',
             'wIE': r'$w^{IE}$',
+            'sigma': r'$\sigma$',
             'I_E': r'$I^E$',
             'I_I': r'$I^I$',
             'r_E': r'$r^E$',
@@ -1372,32 +1411,6 @@ class rWWSimGroup(SimGroup):
             'S_I': r'$S^I$',
         })
         return labels
-    
-    def _set_default_params(self, missing=True):
-        """
-        Set default parameters for the simulations.
-        
-        Parameters
-        ----------
-        missing: :obj:`bool`, optional
-            If True (default), only sets parameters that are currently None
-            in self.param_lists. If False, overwrites all listed defaults.
-        """
-        super()._set_default_params(missing=missing)
-        DEFAULTS = {
-            "G": 0.5,
-            "w_p": 1.4,
-            "J_N": 0.15,
-            "wIE": 1.0, # only used if do_fic is False
-        }
-        for param, v in DEFAULTS.items():
-            if (not missing) or (self.param_lists[param] is None):
-                if param in self.global_param_names:
-                    self.param_lists[param] = np.repeat(v, self.N)
-                else:
-                    if (param == "wIE") and self.do_fic:
-                        continue
-                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
     def _process_out(self, out):
         super()._process_out(out)
@@ -1595,6 +1608,13 @@ class rWWExSimGroup(SimGroup):
     state_names = ["x", "r", "S"]
     sel_state_var = 'r' # TODO: use all states
     n_noise = 1
+    default_params = {
+        "G": None, # required, and doesn't have a default
+        "w": 0.9,
+        "I0": 0.3,
+        "sigma": 0.001,
+    }
+
     def __init__(self, *args, **kwargs):
         """
         Group of reduced Wong-Wang simulations (excitatory only, Deco 2013) 
@@ -1631,37 +1651,11 @@ class rWWExSimGroup(SimGroup):
                 sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['w'] = np.full((N_SIMS, nodes), 0.9)
-            sim_group.param_lists['I0'] = np.full((N_SIMS, nodes), 0.3)
-            sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.001)
+            sim_group.param_lists["G"] = np.array([0.5])  # set global coupling
+            sim_group._set_default_params() # set other parameters to default
             sim_group.run()
         """
         super().__init__(*args, **kwargs)
-
-    def _set_default_params(self, missing=True):
-        """
-        Set default parameters for the simulations.
-        
-        Parameters
-        ----------
-        missing: :obj:`bool`, optional
-            If True (default), only sets parameters that are currently None
-            in self.param_lists. If False, overwrites all listed defaults.
-        """
-        super()._set_default_params(missing=missing)
-        DEFAULTS = {
-            "G": 0.5,
-            "w": 0.9,
-            "I0": 0.3,
-            "sigma": 0.001,
-        }
-        for param, v in DEFAULTS.items():
-            if (not missing) or (self.param_lists[param] is None):
-                if param in self.global_param_names:
-                    self.param_lists[param] = np.repeat(v, self.N)
-                else:
-                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
 class KuramotoSimGroup(SimGroup):
     model_name = "Kuramoto"
@@ -1670,6 +1664,11 @@ class KuramotoSimGroup(SimGroup):
     state_names = ["theta"]
     sel_state_var = "theta"
     n_noise = 1
+    default_params = {
+        "G": None, # required, and doesn't have a default
+        "omega": np.pi,
+        "sigma": 0.17,
+    }
     def __init__(self, 
                  *args, 
                  random_init_theta = True,
@@ -1712,9 +1711,8 @@ class KuramotoSimGroup(SimGroup):
                 sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['omega'] = np.full((N_SIMS, nodes), np.pi)
-            sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.17)
+            sim_group.param_lists["G"] = np.array([0.5])  # set global coupling
+            sim_group._set_default_params() # set other parameters to default
             sim_group.run()
         """
         super().__init__(*args, **kwargs)
@@ -1733,29 +1731,6 @@ class KuramotoSimGroup(SimGroup):
             self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
             print("Warning: init_theta is set to zero")
 
-    def _set_default_params(self, missing=True):
-        """
-        Set default parameters for the simulations.
-
-        Parameters
-        ----------
-        missing: :obj:`bool`, optional
-            If True (default), only sets parameters that are currently None
-            in self.param_lists. If False, overwrites all listed defaults.
-        """
-        super()._set_default_params(missing=missing)
-        DEFAULTS = {
-            "G": 0.5,
-            "omega": np.pi,
-            "sigma": 0.17,
-        }
-        for param, v in DEFAULTS.items():
-            if (not missing) or (self.param_lists[param] is None):
-                if param in self.global_param_names:
-                    self.param_lists[param] = np.repeat(v, self.N)
-                else:
-                    self.param_lists[param] = np.full((self.N, self.nodes), v)
-
 class JRSimGroup(SimGroup):
     # TODO: use clearer names for state variables
     # and parameters
@@ -1765,6 +1740,17 @@ class JRSimGroup(SimGroup):
     state_names = ["y0", "y1", "y2", "y3", "y4", "y5", "y1_y2", "s_y1_y2"]
     sel_state_var = "y1_y2"
     noise_elements = 1
+    # except sigma, defaults are based on TVB
+    default_params = {
+        "G": None,
+        "J": 135.0,
+        "a_1": 1.0,
+        "a_2": 0.8,
+        "a_3": 0.25,
+        "a_4": 0.25,
+        "sigma": 0.0001, 
+    }
+
     def __init__(self, *args, **kwargs):
         """
         Group of Jansen-Rit simulations that are executed in parallel
@@ -1793,34 +1779,6 @@ class JRSimGroup(SimGroup):
         ``JansenRit`` model.
         """
         super().__init__(*args, **kwargs)
-
-    def _set_default_params(self, missing=True):
-        """
-        Set default parameters for the simulations.
-
-        Parameters
-        ----------
-        missing: :obj:`bool`, optional
-            If True (default), only sets parameters that are currently None
-            in self.param_lists. If False, overwrites all listed defaults.
-        """
-        super()._set_default_params(missing=missing)
-        # except G and sigma, defaults are based on TVB
-        DEFAULTS = {
-            "G": 0.5,
-            "J": 135.0,
-            "a_1": 1.0,
-            "a_2": 0.8,
-            "a_3": 0.25,
-            "a_4": 0.25,
-            "sigma": 0.0001, 
-        }
-        for param, v in DEFAULTS.items():
-            if (not missing) or (self.param_lists[param] is None):
-                if param in self.global_param_names:
-                    self.param_lists[param] = np.repeat(v, self.N)
-                else:
-                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
 class MultiSimGroupMixin:
     def __init__(self, sim_groups):

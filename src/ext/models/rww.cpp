@@ -15,7 +15,6 @@ void rWWModel::init_constants(double dt) {
     mc.gamma_I = (double)1.0/(double)1000.0; // factor 1000 for expressing everything in ms
     mc.tau_E = 100; // (ms) Time constant of NMDA (excitatory)
     mc.tau_I = 10; // (ms) Time constant of GABA (inhibitory)
-    mc.sigma_model = 0.01; // (nA) Noise amplitude (named sigma_model to avoid confusion with CMAES sigma)
     mc.I_0 = 0.382; // (nA) overall effective external input
     mc.w_E = 1.0; // scaling of external input for excitatory pool
     mc.w_I = 0.7; // scaling of external input for inhibitory pool
@@ -26,7 +25,6 @@ void rWWModel::init_constants(double dt) {
     mc.b_a_ratio_E = mc.b_E / mc.a_E;
     mc.itau_E = 1.0/mc.tau_E;
     mc.itau_I = 1.0/mc.tau_I;
-    mc.sigma_model_sqrt_dt = mc.sigma_model * mc.sqrt_dt;
     mc.dt_itau_E = mc.dt * mc.itau_E;
     mc.dt_gamma_E = mc.dt * mc.gamma_E;
     mc.dt_itau_I = mc.dt * mc.itau_I;
@@ -207,12 +205,12 @@ void rWWModel::h_step(
     _state_vars[3] = _intermediate_vars[1] / (1 - EXP(-rWWModel::mc.d_I * _intermediate_vars[1]));
     // dS_E = noise * sigma * sqrt(dt) + dt * gamma_E * ((1 - S_E) * (r_E)) - dt * itau_E * S_E;
     _intermediate_vars[2] = 
-        noise[noise_idx] * rWWModel::mc.sigma_model_sqrt_dt 
+        noise[noise_idx] * _regional_params[3] * rWWModel::mc.sqrt_dt 
         + rWWModel::mc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) 
         - rWWModel::mc.dt_itau_E * _state_vars[4];
     // dS_I = noise * sigma * sqrt(dt) + dt * gamma_I * r_I - dt * itau_I * S_I;
     _intermediate_vars[3] = 
-        noise[noise_idx+1] * rWWModel::mc.sigma_model_sqrt_dt 
+        noise[noise_idx+1] * _regional_params[3] * rWWModel::mc.sqrt_dt 
         + rWWModel::mc.dt_gamma_I * _state_vars[3] 
         - rWWModel::mc.dt_itau_I * _state_vars[5];
     // S_E += dS_E;

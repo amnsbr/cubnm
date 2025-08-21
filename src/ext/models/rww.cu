@@ -62,12 +62,12 @@ __device__ void rWWModel::step(
     _state_vars[3] = _intermediate_vars[1] / (1 - EXP(-d_rWWc.d_I * _intermediate_vars[1]));
     // dS_E = noise * sigma * sqrt(dt) + dt * gamma_E * ((1 - S_E) * (r_E)) - dt * itau_E * S_E;
     _intermediate_vars[2] = 
-        noise[noise_idx] * d_rWWc.sigma_model_sqrt_dt 
+        noise[noise_idx] * _regional_params[3] * d_rWWc.sqrt_dt 
         + d_rWWc.dt_gamma_E * ((1 - _state_vars[4]) * _state_vars[2]) 
         - d_rWWc.dt_itau_E * _state_vars[4];
     // dS_I = noise * sigma * sqrt(dt) + dt * gamma_I * r_I - dt * itau_I * S_I;
     _intermediate_vars[3] = 
-        noise[noise_idx+1] * d_rWWc.sigma_model_sqrt_dt 
+        noise[noise_idx+1] * _regional_params[3] * d_rWWc.sqrt_dt 
         + d_rWWc.dt_gamma_I * _state_vars[3] 
         - d_rWWc.dt_itau_I * _state_vars[5];
     // S_E += dS_E;
