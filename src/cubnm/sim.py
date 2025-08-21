@@ -222,8 +222,11 @@ class SimGroup:
             n_noise: :obj:`int`
                 number of noise elements per node per time point
                 (e.g. 2 if there are noise to E and I neuronal populations)
-        And they must implement the following methods:
-            _set_default_params: set default (example) parameters for the simulations
+            default_params: :obj:`dict`
+                default parameter values for the simulations.
+                If a parameter's default is set to None,
+                it will be a required (fixed or free) parameter.
+                This is often the case with 'G' (global coupling).
         """
         self.input_sc = sc
         if isinstance(sc, (str, os.PathLike)):
@@ -552,15 +555,49 @@ class SimGroup:
             "Duration must be divisible by Ballon-Windkessel dt"
         )
 
-    def _set_default_params(self):
+    def _set_default_params(self, missing=True):
         """
         Set default parameters for the simulations.
-        This is used in tests.
+        
+        Parameters
+        ----------
+        missing: :obj:`bool`, optional
+            If True (default), only sets parameters that are currently None
+            or have an incorrect length in self.param_lists. 
+            If False, always overwrites all listed defaults.
         """
-        if self.do_delay:
-            # a low velocity is chosen to make the delay more visible
-            # in the tests
-            self.param_lists["v"] = np.repeat(0.5, self.N)
+        defaults = copy.copy(self.default_params)
+        if self.do_delay and ("v" not in defaults):
+            defaults["v"] = 0.5
+        for param, v in defaults.items():
+            if (
+                (not missing) or
+                (self.param_lists.get(param) is None) or 
+                (self.param_lists.get(param, np.array([0])).shape[0] != self.N)
+                # the last condition is to ensure that in subsequent generations
+                # of evolutionary algorithm the default regional parameters
+            ):
+                if v is None:
+                    raise ValueError(
+                        f"Parameter {param} does not have a default value"
+                        " and must be set as a fixed or free parameter"
+                    )
+                if param == "v" and self.do_delay:
+                    # v = 0.5 is used to push the simulations to a difficult
+                    # case (with prolonged history to be stored) to make sure
+                    # everything works in extreme cases, but biologically this
+                    # is a low conduction velocity
+                    print(
+                        "Warning: The default conduction velocity (v) is set to 0.5 m/s. "
+                        "Which may be biologically not realistic (too low). "
+                        "Consider setting it as a free parameter or use a higher fixed value."
+                    )
+                if param in self.global_param_names:
+                    self.param_lists[param] = np.repeat(v, self.N)
+                else:
+                    if (param == "wIE") and self.do_fic:
+                        continue
+                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
     def get_config(self, include_N=False, for_reinit=False):
         """
@@ -1381,10 +1418,25 @@ class SimGroup:
 class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ["G", "G_fb"]
-    regional_param_names = ["w_p", "J_N", "wIE", "theta_ff", "theta_fb"]
+    regional_param_names = ["w_p", "J_N", "wIE", "theta_ff", "theta_fb", "sigma"]
     state_names = ["I_E", "I_I", "r_E", "r_I", "S_E", "S_I"]
     sel_state_var = "r_E" # TODO: use all states
     n_noise = 2
+    default_params = {
+        "G": None, # required, and doesn't have a default
+        "G_fb": 0,
+        "w_p": 1.4,
+        "J_N": 0.15,
+        "sigma": 0.01,
+        "wIE": 1.0, # only used if do_fic is False
+        "theta_ff": 1.0,
+        "theta_fb": 0.0,
+        # set theta_ff to 1 and theta_fb to 0, i.e., make all FF connections excitatory
+        # and all FB connections inhibitory. This ensures backward compatiblity with
+        # simulations not using these two parameters
+        # In additon, when no pFF is applied (and all connections are FF) this ensures
+        # they are all excitatory, which is the behavior of the normal rWW model
+    }
     def __init__(self, 
                  *args, 
                  separate_G_fb = False,
@@ -1442,6 +1494,7 @@ class rWWSimGroup(SimGroup):
                 - ``'theta_fb'``: proportion of incoming FB connections targeting excitatory neurons.
                   Must be between 0 and 1. ``1 - theta_fb`` determines proportion of FB connections
                   targeting inhibitory neurons. Shape: (N_SIMS, nodes)
+                - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Example
@@ -1460,9 +1513,8 @@ class rWWSimGroup(SimGroup):
                 sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['w_p'] = np.full((N_SIMS, nodes), 1.4)
-            sim_group.param_lists['J_N'] = np.full((N_SIMS, nodes), 0.15)
+            sim_group.param_lists["G"] = np.array([0.5]) # set global coupling
+            sim_group._set_default_params() # set other parameters to default
             sim_group.run()
         """
         self.do_fic = do_fic
@@ -1498,13 +1550,6 @@ class rWWSimGroup(SimGroup):
         super(rWWSimGroup, rWWSimGroup).N.__set__(self, N)
         if self.do_fic:
             self.param_lists["wIE"] = np.zeros((self._N, self.nodes), dtype=float)
-        # set theta_ff to 1 and theta_fb to 0, i.e., make all FF connections excitatory
-        # and all FB connections inhibitory. This ensures backward compatiblity with
-        # simulations not using these two parameters
-        # In additon, when no pFF is applied (and all connections are FF) this ensures
-        # they are all excitatory, which is the behavior of the normal rWW model
-        self.param_lists["theta_ff"] = np.ones((self._N, self.nodes), dtype=float)
-        self.param_lists["theta_fb"] = np.zeros((self._N, self.nodes), dtype=float)
 
     def get_config(self, *args, **kwargs):
         config = super().get_config(*args, **kwargs)
@@ -1555,6 +1600,7 @@ class rWWSimGroup(SimGroup):
             'wIE': r'$w^{IE}$',
             'theta_ff': r'$\theta^{FF}$',
             'theta_fb': r'$\theta^{FB}$',
+            'sigma': r'$\sigma$',
             'I_E': r'$I^E$',
             'I_I': r'$I^I$',
             'r_E': r'$r^E$',
@@ -1563,22 +1609,6 @@ class rWWSimGroup(SimGroup):
             'S_I': r'$S^I$',
         })
         return labels
-    
-    def _set_default_params(self):
-        """
-        Set default parameters for the simulations.
-        This is used in tests.
-        """
-        super()._set_default_params()
-        self.param_lists["G"] = np.repeat(0.5, self.N)
-        if self.separate_G_fb:
-            self.param_lists["G_fb"] = np.repeat(0.25, self.N)
-        else:
-            self.param_lists["G_fb"] = np.repeat(0.5, self.N)
-        self.param_lists["w_p"] = np.full((self.N, self.nodes), 1.4)
-        self.param_lists["J_N"] = np.full((self.N, self.nodes), 0.15)
-        if not self.do_fic:
-            self.param_lists["wIE"] = np.full((self.N, self.nodes), 1.0)
 
     def _process_out(self, out):
         super()._process_out(out)
@@ -1810,6 +1840,13 @@ class rWWExSimGroup(SimGroup):
     state_names = ["x", "r", "S"]
     sel_state_var = 'r' # TODO: use all states
     n_noise = 1
+    default_params = {
+        "G": None, # required, and doesn't have a default
+        "w": 0.9,
+        "I0": 0.3,
+        "sigma": 0.001,
+    }
+
     def __init__(self, *args, **kwargs):
         """
         Group of reduced Wong-Wang simulations (excitatory only, Deco 2013) 
@@ -1846,24 +1883,11 @@ class rWWExSimGroup(SimGroup):
                 sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['w'] = np.full((N_SIMS, nodes), 0.9)
-            sim_group.param_lists['I0'] = np.full((N_SIMS, nodes), 0.3)
-            sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.001)
+            sim_group.param_lists["G"] = np.array([0.5])  # set global coupling
+            sim_group._set_default_params() # set other parameters to default
             sim_group.run()
         """
         super().__init__(*args, **kwargs)
-
-    def _set_default_params(self):
-        """
-        Set default parameters for the simulations.
-        This is used in tests.
-        """
-        super()._set_default_params()
-        self.param_lists["G"] = np.repeat(0.5, self.N)
-        self.param_lists["w"] = np.full((self.N, self.nodes), 0.9)
-        self.param_lists["I0"] = np.full((self.N, self.nodes), 0.3)
-        self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.001)
 
 class KuramotoSimGroup(SimGroup):
     model_name = "Kuramoto"
@@ -1872,6 +1896,11 @@ class KuramotoSimGroup(SimGroup):
     state_names = ["theta"]
     sel_state_var = "theta"
     n_noise = 1
+    default_params = {
+        "G": None, # required, and doesn't have a default
+        "omega": np.pi,
+        "sigma": 0.17,
+    }
     def __init__(self, 
                  *args, 
                  random_init_theta = True,
@@ -1914,9 +1943,8 @@ class KuramotoSimGroup(SimGroup):
                 sc=datasets.load_sc('strength', 'schaefer-100'),
             )
             sim_group.N = 1
-            sim_group.param_lists['G'] = np.repeat(0.5, N_SIMS)
-            sim_group.param_lists['omega'] = np.full((N_SIMS, nodes), np.pi)
-            sim_group.param_lists['sigma'] = np.full((N_SIMS, nodes), 0.17)
+            sim_group.param_lists["G"] = np.array([0.5])  # set global coupling
+            sim_group._set_default_params() # set other parameters to default
             sim_group.run()
         """
         super().__init__(*args, **kwargs)
@@ -1935,15 +1963,54 @@ class KuramotoSimGroup(SimGroup):
             self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
             print("Warning: init_theta is set to zero")
 
-    def _set_default_params(self):
+class JRSimGroup(SimGroup):
+    # TODO: use clearer names for state variables
+    # and parameters
+    model_name = "JR"
+    global_param_names = ["G"]
+    regional_param_names = ["J", "a_1", "a_2", "a_3", "a_4", "sigma"]
+    state_names = ["y0", "y1", "y2", "y3", "y4", "y5", "y1_y2", "s_y1_y2"]
+    sel_state_var = "y1_y2"
+    noise_elements = 1
+    # except sigma, defaults are based on TVB
+    default_params = {
+        "G": None,
+        "J": 135.0,
+        "a_1": 1.0,
+        "a_2": 0.8,
+        "a_3": 0.25,
+        "a_4": 0.25,
+        "sigma": 0.0001, 
+    }
+
+    def __init__(self, *args, **kwargs):
         """
-        Set default parameters for the simulations.
-        This is used in tests.
+        Group of Jansen-Rit simulations that are executed in parallel
+
+        Parameters
+        ---------
+        *args, **kwargs:
+            see :class:`cubnm.sim.SimGroup` for details
+
+        Attributes
+        ----------
+        param_lists: :obj:`dict` of :obj:`np.ndarray`
+            dictionary of parameter lists, including
+                - 'G': global coupling. Shape: (N_SIMS,)
+                - 'J': average number of synapses. Shape: (N_SIMS, nodes)
+                - 'a_1': average probability of synapses in feedback excitatory loop. Shape: (N_SIMS, nodes)
+                - 'a_2': average probability of synapses in slow feedback excitatory loop. Shape: (N_SIMS, nodes)
+                - 'a_3': average probability of synapses in feedback inhibitory loop. Shape: (N_SIMS, nodes)
+                - 'a_4': average probability of synapses in slow feedback inhibitory loop. Shape: (N_SIMS, nodes)
+                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
+                - 'v': conduction velocity. Shape: (N_SIMS,)
+        
+        Note
+        ----
+        The implementation and default values are based on TVB's
+        ``JansenRit`` model.
         """
-        super()._set_default_params()
-        self.param_lists["G"] = np.repeat(0.5, self.N)
-        self.param_lists["omega"] = np.full((self.N, self.nodes), np.pi)
-        self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.17)
+        super().__init__(*args, **kwargs)
 
 class MultiSimGroupMixin:
     def __init__(self, sim_groups):

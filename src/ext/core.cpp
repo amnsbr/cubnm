@@ -46,6 +46,8 @@
 #include "./models/rww_fic.cpp"
 #include "./models/rwwex.cpp"
 #include "./models/kuramoto.cpp"
+#include "./models/jr.cpp"
+// other models go here
 
 // create a pointer to the model object in current session
 // so that it can be reused in subsequent calls to run_simulations
@@ -280,6 +282,12 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
         } 
         else if (strcmp(model_name, "Kuramoto")==0) {
             model = new KuramotoModel(
+                nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
+                time_steps, do_delay, sim_seed, dt, bw_dt
+            );
+        }
+        else if (strcmp(model_name, "JR")==0) {
+            model = new JRModel(
                 nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
                 time_steps, do_delay, sim_seed, dt, bw_dt
             );

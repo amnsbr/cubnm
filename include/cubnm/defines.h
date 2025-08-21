@@ -17,12 +17,15 @@
 #ifndef MANY_NODES
     #define MAX_NODES MAX_NODES_REG
     #define __NOINLINE__ 
+    #define __FORCEINLINE__
 #else
     #define MAX_NODES MAX_NODES_MANY
     #define __NOINLINE__ __noinline__
     // in this case some __device__ kernels will be __noinline__ to avoid
     // using too much registers which would lead to 
     // "too many resources requested for launch"
+    #define __FORCEINLINE__ __forceinline__
+    // and some __device__ functions will be __forceinline__
 #endif
 
 #if defined(__CUDACC__) || defined(__HIPCC__)

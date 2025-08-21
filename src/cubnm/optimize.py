@@ -583,6 +583,8 @@ class BNMProblem(Problem):
             Shape: (N, ndim)
         """
         self.sim_group.param_lists.update(self._get_sim_params(X))
+        # set the other missing parameters to defaults
+        self.sim_group._set_default_params(missing=True)
 
     def _evaluate(self, X, out, *args, **kwargs):
         """
