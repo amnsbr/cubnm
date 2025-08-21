@@ -494,15 +494,21 @@ class SimGroup:
             "Duration must be divisible by Ballon-Windkessel dt"
         )
 
-    def _set_default_params(self):
+    def _set_default_params(self, missing=True):
         """
         Set default parameters for the simulations.
-        This is used in tests.
+        
+        Parameters
+        ----------
+        missing: :obj:`bool`, optional
+            If True (default), only sets parameters that are currently None
+            in self.param_lists. If False, overwrites all listed defaults.
         """
         if self.do_delay:
-            # a low velocity is chosen to make the delay more visible
-            # in the tests
-            self.param_lists["v"] = np.repeat(0.5, self.N)
+            if (not missing) or (self.param_lists["v"] is None):
+                # a low velocity is chosen to make the delay more visible
+                # in the tests
+                self.param_lists["v"] = np.repeat(0.5, self.N)
 
     def get_config(self, include_N=False, for_reinit=False):
         """
@@ -1367,17 +1373,31 @@ class rWWSimGroup(SimGroup):
         })
         return labels
     
-    def _set_default_params(self):
+    def _set_default_params(self, missing=True):
         """
         Set default parameters for the simulations.
-        This is used in tests.
+        
+        Parameters
+        ----------
+        missing: :obj:`bool`, optional
+            If True (default), only sets parameters that are currently None
+            in self.param_lists. If False, overwrites all listed defaults.
         """
-        super()._set_default_params()
-        self.param_lists["G"] = np.repeat(0.5, self.N)
-        self.param_lists["w_p"] = np.full((self.N, self.nodes), 1.4)
-        self.param_lists["J_N"] = np.full((self.N, self.nodes), 0.15)
-        if not self.do_fic:
-            self.param_lists["wIE"] = np.full((self.N, self.nodes), 1.0)
+        super()._set_default_params(missing=missing)
+        DEFAULTS = {
+            "G": 0.5,
+            "w_p": 1.4,
+            "J_N": 0.15,
+            "wIE": 1.0, # only used if do_fic is False
+        }
+        for param, v in DEFAULTS.items():
+            if (not missing) or (self.param_lists[param] is None):
+                if param in self.global_param_names:
+                    self.param_lists[param] = np.repeat(v, self.N)
+                else:
+                    if (param == "wIE") and self.do_fic:
+                        continue
+                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
     def _process_out(self, out):
         super()._process_out(out)
@@ -1619,16 +1639,29 @@ class rWWExSimGroup(SimGroup):
         """
         super().__init__(*args, **kwargs)
 
-    def _set_default_params(self):
+    def _set_default_params(self, missing=True):
         """
         Set default parameters for the simulations.
-        This is used in tests.
+        
+        Parameters
+        ----------
+        missing: :obj:`bool`, optional
+            If True (default), only sets parameters that are currently None
+            in self.param_lists. If False, overwrites all listed defaults.
         """
-        super()._set_default_params()
-        self.param_lists["G"] = np.repeat(0.5, self.N)
-        self.param_lists["w"] = np.full((self.N, self.nodes), 0.9)
-        self.param_lists["I0"] = np.full((self.N, self.nodes), 0.3)
-        self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.001)
+        super()._set_default_params(missing=missing)
+        DEFAULTS = {
+            "G": 0.5,
+            "w": 0.9,
+            "I0": 0.3,
+            "sigma": 0.001,
+        }
+        for param, v in DEFAULTS.items():
+            if (not missing) or (self.param_lists[param] is None):
+                if param in self.global_param_names:
+                    self.param_lists[param] = np.repeat(v, self.N)
+                else:
+                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
 class KuramotoSimGroup(SimGroup):
     model_name = "Kuramoto"
@@ -1700,15 +1733,94 @@ class KuramotoSimGroup(SimGroup):
             self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
             print("Warning: init_theta is set to zero")
 
-    def _set_default_params(self):
+    def _set_default_params(self, missing=True):
         """
         Set default parameters for the simulations.
-        This is used in tests.
+
+        Parameters
+        ----------
+        missing: :obj:`bool`, optional
+            If True (default), only sets parameters that are currently None
+            in self.param_lists. If False, overwrites all listed defaults.
         """
-        super()._set_default_params()
-        self.param_lists["G"] = np.repeat(0.5, self.N)
-        self.param_lists["omega"] = np.full((self.N, self.nodes), np.pi)
-        self.param_lists["sigma"] = np.full((self.N, self.nodes), 0.17)
+        super()._set_default_params(missing=missing)
+        DEFAULTS = {
+            "G": 0.5,
+            "omega": np.pi,
+            "sigma": 0.17,
+        }
+        for param, v in DEFAULTS.items():
+            if (not missing) or (self.param_lists[param] is None):
+                if param in self.global_param_names:
+                    self.param_lists[param] = np.repeat(v, self.N)
+                else:
+                    self.param_lists[param] = np.full((self.N, self.nodes), v)
+
+class JRSimGroup(SimGroup):
+    # TODO: use clearer names for state variables
+    # and parameters
+    model_name = "JR"
+    global_param_names = ["G"]
+    regional_param_names = ["J", "a_1", "a_2", "a_3", "a_4", "sigma"]
+    state_names = ["y0", "y1", "y2", "y3", "y4", "y5", "y1_y2", "s_y1_y2"]
+    sel_state_var = "y1_y2"
+    noise_elements = 1
+    def __init__(self, *args, **kwargs):
+        """
+        Group of Jansen-Rit simulations that are executed in parallel
+
+        Parameters
+        ---------
+        *args, **kwargs:
+            see :class:`cubnm.sim.SimGroup` for details
+
+        Attributes
+        ----------
+        param_lists: :obj:`dict` of :obj:`np.ndarray`
+            dictionary of parameter lists, including
+                - 'G': global coupling. Shape: (N_SIMS,)
+                - 'J': average number of synapses. Shape: (N_SIMS, nodes)
+                - 'a_1': average probability of synapses in feedback excitatory loop. Shape: (N_SIMS, nodes)
+                - 'a_2': average probability of synapses in slow feedback excitatory loop. Shape: (N_SIMS, nodes)
+                - 'a_3': average probability of synapses in feedback inhibitory loop. Shape: (N_SIMS, nodes)
+                - 'a_4': average probability of synapses in slow feedback inhibitory loop. Shape: (N_SIMS, nodes)
+                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
+                - 'v': conduction velocity. Shape: (N_SIMS,)
+        
+        Note
+        ----
+        The implementation and default values are based on TVB's
+        ``JansenRit`` model.
+        """
+        super().__init__(*args, **kwargs)
+
+    def _set_default_params(self, missing=True):
+        """
+        Set default parameters for the simulations.
+
+        Parameters
+        ----------
+        missing: :obj:`bool`, optional
+            If True (default), only sets parameters that are currently None
+            in self.param_lists. If False, overwrites all listed defaults.
+        """
+        super()._set_default_params(missing=missing)
+        # except G and sigma, defaults are based on TVB
+        DEFAULTS = {
+            "G": 0.5,
+            "J": 135.0,
+            "a_1": 1.0,
+            "a_2": 0.8,
+            "a_3": 0.25,
+            "a_4": 0.25,
+            "sigma": 0.0001, 
+        }
+        for param, v in DEFAULTS.items():
+            if (not missing) or (self.param_lists[param] is None):
+                if param in self.global_param_names:
+                    self.param_lists[param] = np.repeat(v, self.N)
+                else:
+                    self.param_lists[param] = np.full((self.N, self.nodes), v)
 
 class MultiSimGroupMixin:
     def __init__(self, sim_groups):

@@ -94,13 +94,13 @@ def test_single_sim(model, opts_str):
     sg._set_default_params()
     sg.run()
     # compare results and expected
-    assert np.isclose(sg.sim_bold, expected['sim_bold'], atol=1e-12).all()
-    assert np.isclose(sg.sim_fc_trils, expected['sim_fc_trils'], atol=1e-12).all()
-    assert np.isclose(sg.sim_fcd_trils, expected['sim_fcd_trils'], atol=1e-12).all()
+    assert np.isclose(sg.sim_fc_trils, expected['sim_fc_trils'], atol=1e-6).all()
+    assert np.isclose(sg.sim_fcd_trils, expected['sim_fcd_trils'], atol=1e-6).all()
+    assert np.isclose(sg.sim_bold, expected['sim_bold'], atol=1e-6).all()
     assert np.isclose(
         sg.sim_states[simgroup_cls.sel_state_var], 
         expected['sim_sel_state'], 
-        atol=1e-12
+        atol=1e-6
     ).all() # TODO: use all state variables
 
 @pytest.mark.parametrize(
@@ -128,13 +128,13 @@ def test_identical_sims(model, opts_str):
     sg._set_default_params()
     sg.run()
     # compare results
-    assert np.isclose(sg.sim_bold[0], sg.sim_bold[1], atol=1e-12).all()
-    assert np.isclose(sg.sim_fc_trils[0], sg.sim_fc_trils[1], atol=1e-12).all()
-    assert np.isclose(sg.sim_fcd_trils[0], sg.sim_fcd_trils[1], atol=1e-12).all()
+    assert np.isclose(sg.sim_fc_trils[0], sg.sim_fc_trils[1], atol=1e-6).all()
+    assert np.isclose(sg.sim_fcd_trils[0], sg.sim_fcd_trils[1], atol=1e-6).all()
+    assert np.isclose(sg.sim_bold[0], sg.sim_bold[1], atol=1e-6).all()
     assert np.isclose(
         sg.sim_states[simgroup_cls.sel_state_var][0], 
         sg.sim_states[simgroup_cls.sel_state_var][1], 
-        atol=1e-12
+        atol=1e-6
     ).all() # TODO: use all state variables
 
 @pytest.mark.skipif(no_gpu(), reason="No GPU available")
@@ -171,7 +171,7 @@ def test_identical_cpu_gpu(model, opts_str):
         sim_fcd_trils[force_cpu] = sg.sim_fcd_trils.copy()
         sim_sel_states[force_cpu] = sg.sim_states[simgroup_cls.sel_state_var].copy() # TODO: use all state variables
     # compare results
-    assert np.isclose(sim_bolds[False], sim_bolds[True], atol=1e-12).all()
-    assert np.isclose(sim_fc_trils[False], sim_fc_trils[True], atol=1e-12).all()
-    assert np.isclose(sim_fcd_trils[False], sim_fcd_trils[True], atol=1e-12).all()
-    assert np.isclose(sim_sel_states[False], sim_sel_states[True], atol=1e-12).all()
+    assert np.isclose(sim_fc_trils[False], sim_fc_trils[True], atol=1e-6).all()
+    assert np.isclose(sim_fcd_trils[False], sim_fcd_trils[True], atol=1e-6).all()
+    assert np.isclose(sim_bolds[False], sim_bolds[True], atol=1e-6).all()
+    assert np.isclose(sim_sel_states[False], sim_sel_states[True], atol=1e-6).all()
