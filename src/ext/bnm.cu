@@ -508,8 +508,26 @@ void _run_simulations_gpu(
     std::chrono::duration<double> duration;
     start = std::chrono::system_clock::now();
 
-    // copy model to device 
-    Model* h_model = (Model*)m; // cast BaseModel to its specific subclass, TODO: see if this is really needed
+    // check if running on wsl
+    // if so, will skip progress printing and
+    // memory prefetch and advise calls
+    // which lead to segmentation faults and other errors on
+    // WSL because they are not supported by Nvidia
+    // driver on Windows
+    // See  https://docs.nvidia.com/cuda/wsl-user-guide/index.html#wsl-2-support-constraints
+    // TODO: According to this document using unified memory on WSL can reduce
+    // performance, therefore, as a better fix, avoid using unified memory
+    // when the device/driver doesn't support it, based on cudaDeviceGetAttribute
+    bool on_wsl = is_running_on_wsl();
+    if (m->base_conf.verbose && on_wsl) {
+        std::cout << 
+        "Running on WSL. Progress bar and prefetching are not " <<
+        "supported on WSL and will be skipped." << std::endl;
+    }
+
+    // cast BaseModel to its specific subclass
+    Model* h_model = (Model*)m; 
+    // create a device copy of the model
     Model* d_model;
     CUDA_CHECK_RETURN(cudaMallocManaged(&d_model, sizeof(Model)));
     CUDA_CHECK_RETURN(cudaMemcpy(d_model, h_model, sizeof(Model), cudaMemcpyHostToDevice));
@@ -724,8 +742,12 @@ void _run_simulations_gpu(
             d_model->noise, progress);
     }
     // asynchroneously print out the progress
-    // if verbose
-    if (d_model->base_conf.verbose) {
+    // if verbose AND not on WSL (otherwise it crashes)
+    // Also supporting WSL is the reason we are accessing host
+    // copy of model for "verbose" in this line, because on WSL
+    // concurrent CPU/GPU access is not supported, and d_model
+    // at this point is being used on GPU
+    if ((!on_wsl) && h_model->base_conf.verbose) {
         uint last_progress = 0;
         uint no_progress_count = 0;
         while (*progress < progress_final) {
@@ -734,7 +756,7 @@ void _run_simulations_gpu(
                 << ((double)*progress / progress_final) * 100 << "%\r";
             std::cout.flush();
             // Sleep for interval ms
-            std::this_thread::sleep_for(std::chrono::milliseconds(d_model->base_conf.progress_interval));
+            std::this_thread::sleep_for(std::chrono::milliseconds(h_model->base_conf.progress_interval));
             // make sure it doesn't get stuck
             // by checking if there has been any progress
             if (*progress == last_progress) {
@@ -743,7 +765,7 @@ void _run_simulations_gpu(
                 no_progress_count = 0;
             }
             if (no_progress_count > 50) {
-                std::cout << "No progress detected in the last " << 50 * d_model->base_conf.progress_interval << " ms." << std::endl;
+                std::cout << "No progress detected in the last " << 50 * h_model->base_conf.progress_interval << " ms." << std::endl;
                 break;
             }
             last_progress = *progress;
@@ -753,13 +775,13 @@ void _run_simulations_gpu(
         } else {
             std::cout << "If no errors are shown, the simulation is still running "
                 "but the progress is not being updated as there was no progress in the "
-                "last " << d_model->base_conf.progress_interval <<  " ms, which may be too "
+                "last " << h_model->base_conf.progress_interval <<  " ms, which may be too "
                 "fast for current GPU and simulations" << std::endl;
         }
     }
     CUDA_CHECK_LAST_ERROR();
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-    if (d_model->base_conf.verbose) {
+    if (h_model->base_conf.verbose) {
         std::cout << "Simulations completed in ";
         end = std::chrono::system_clock::now();
         duration = end - start;
@@ -776,19 +798,21 @@ void _run_simulations_gpu(
             }
             start = std::chrono::system_clock::now();
         }
-        // advise BOLD to be read-only and prefetch arrays needed for (dynamic) FC calculation
+        // (except on WSL) advise BOLD to be read-only and prefetch arrays needed for (dynamic) FC calculation
         // this and additional prefetch and advise calls improve the performance especially when 
         // the amount of GPU memory used is close to the maximum available memory
-        CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->pairs_i, d_model->n_pairs*sizeof(int), 0, 0));
-        CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->pairs_j, d_model->n_pairs*sizeof(int), 0, 0));
-        for (int sim_idx=0; sim_idx<d_model->N_SIMS; sim_idx++) {
-            CUDA_CHECK_RETURN(cudaMemAdvise(d_model->BOLD[sim_idx], d_model->bold_size*sizeof(double), cudaMemAdviseSetReadMostly, 0));
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->BOLD[sim_idx], d_model->bold_size*sizeof(double), 0, 0));
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->mean_bold[sim_idx], d_model->nodes*sizeof(double), 0, 0));
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->ssd_bold[sim_idx], d_model->nodes*sizeof(double), 0, 0));
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->fc_trils[sim_idx], d_model->n_pairs*sizeof(double), 0, 0));
+        if (!on_wsl) {
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->pairs_i, d_model->n_pairs*sizeof(int), 0, 0));
+            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->pairs_j, d_model->n_pairs*sizeof(int), 0, 0));
+            for (int sim_idx=0; sim_idx<d_model->N_SIMS; sim_idx++) {
+                CUDA_CHECK_RETURN(cudaMemAdvise(d_model->BOLD[sim_idx], d_model->bold_size*sizeof(double), cudaMemAdviseSetReadMostly, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->BOLD[sim_idx], d_model->bold_size*sizeof(double), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->mean_bold[sim_idx], d_model->nodes*sizeof(double), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->ssd_bold[sim_idx], d_model->nodes*sizeof(double), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->fc_trils[sim_idx], d_model->n_pairs*sizeof(double), 0, 0));
+            }
+            CUDA_CHECK_RETURN(cudaDeviceSynchronize()); // prefetching is done
         }
-        CUDA_CHECK_RETURN(cudaDeviceSynchronize()); // prefetching is done
         // calculate mean and sd bold for FC calculation
         bold_stats<<<numBlocks, threadsPerBlock>>>(
             d_model->mean_bold, d_model->ssd_bold,
@@ -798,20 +822,22 @@ void _run_simulations_gpu(
         CUDA_CHECK_LAST_ERROR();
         CUDA_CHECK_RETURN(cudaDeviceSynchronize());
         if (d_model->base_conf.do_fcd) {
-            // prefetching arrays onto device for the reason described above
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_starts, d_model->n_windows*sizeof(int), 0, 0));
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_ends, d_model->n_windows*sizeof(int), 0, 0));
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_pairs_i, d_model->n_window_pairs*sizeof(int), 0, 0));
-            CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_pairs_j, d_model->n_window_pairs*sizeof(int), 0, 0));
-            for (int sim_idx=0; sim_idx<d_model->N_SIMS; sim_idx++) {
-                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_mean_bold[sim_idx], d_model->n_windows*d_model->nodes*sizeof(double), 0, 0));
-                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_ssd_bold[sim_idx], d_model->n_windows*d_model->nodes*sizeof(double), 0, 0));
-                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_fc_trils[sim_idx], d_model->n_windows*d_model->n_pairs*sizeof(double), 0, 0));
-                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_mean_fc[sim_idx], d_model->n_windows*sizeof(double), 0, 0));
-                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_ssd_fc[sim_idx], d_model->n_windows*sizeof(double), 0, 0));
-                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->fcd_trils[sim_idx], d_model->n_window_pairs*sizeof(double), 0, 0));
+            // (except on WSL) prefetching arrays onto device for the reason described above
+            if (!on_wsl) {
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_starts, d_model->n_windows*sizeof(int), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_ends, d_model->n_windows*sizeof(int), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_pairs_i, d_model->n_window_pairs*sizeof(int), 0, 0));
+                CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->window_pairs_j, d_model->n_window_pairs*sizeof(int), 0, 0));
+                for (int sim_idx=0; sim_idx<d_model->N_SIMS; sim_idx++) {
+                    CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_mean_bold[sim_idx], d_model->n_windows*d_model->nodes*sizeof(double), 0, 0));
+                    CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_ssd_bold[sim_idx], d_model->n_windows*d_model->nodes*sizeof(double), 0, 0));
+                    CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_fc_trils[sim_idx], d_model->n_windows*d_model->n_pairs*sizeof(double), 0, 0));
+                    CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_mean_fc[sim_idx], d_model->n_windows*sizeof(double), 0, 0));
+                    CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->windows_ssd_fc[sim_idx], d_model->n_windows*sizeof(double), 0, 0));
+                    CUDA_CHECK_RETURN(cudaMemPrefetchAsync(d_model->fcd_trils[sim_idx], d_model->n_window_pairs*sizeof(double), 0, 0));
+                }
+                CUDA_CHECK_RETURN(cudaDeviceSynchronize()); // prefetching is done TODO: see if this is beneficial
             }
-            CUDA_CHECK_RETURN(cudaDeviceSynchronize()); // prefetching is done TODO: see if this is beneficial
             // calculate window mean and sd bold for FCD calculations
             numBlocks.x = d_model->N_SIMS;
             numBlocks.y = d_model->n_windows;

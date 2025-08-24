@@ -25,4 +25,5 @@ inline void checkReturn(cudaError_t value, const char* const file, const int lin
 #define CUDA_CHECK_LAST_ERROR() checkLast(__FILE__, __LINE__)
 
 cudaDeviceProp get_device_prop(int verbose = 1);
+bool is_running_on_wsl();
 #endif

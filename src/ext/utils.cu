@@ -35,3 +35,38 @@ cudaDeviceProp get_device_prop(int verbose) {
     }
     return prop;
 }
+
+bool is_running_on_wsl() {
+    /* 
+    Checks whether on runtime the program is being run
+    on WSL.
+    This is needed to skip some parts of the program
+    which are not supported by the Nvidia driver for
+    Windows.
+    */
+    // looking for microsoft or WSL in /proc/version
+    std::ifstream procVersion("/proc/version");
+    if (procVersion.is_open()) {
+        std::string line;
+        std::getline(procVersion, line);
+        procVersion.close();
+        
+        if (line.find("Microsoft") != std::string::npos || 
+            line.find("microsoft") != std::string::npos ||
+            line.find("WSL") != std::string::npos) {
+            return true;
+        }
+    }
+
+    // look for WSLInterop file
+    std::ifstream wslInterop("/proc/sys/fs/binfmt_misc/WSLInterop");
+    if (wslInterop.good()) {
+        return true;
+    }
+    
+    // check environment variables
+    const char* wslDistroName = std::getenv("WSL_DISTRO_NAME");
+    const char* wslInteropEnv = std::getenv("WSL_INTEROP");
+    
+    return (wslDistroName != nullptr || wslInteropEnv != nullptr);
+}
