@@ -77,6 +77,7 @@ class SimGroup:
         ---------
         duration: :obj:`float`
             simulation duration (in seconds)
+            It must not have more than 3 decimal places.
         TR: :obj:`float`
             BOLD TR (in seconds)
         sc: :obj:`str` or :obj:`np.ndarray`
@@ -325,7 +326,15 @@ class SimGroup:
     @duration.setter
     def duration(self, duration):
         self._duration = duration
-        self.duration_msec = int(duration * 1000)
+        duration_decimal = Decimal(duration)
+        duration_msec_decimal = duration_decimal * Decimal(1000)
+        if duration_msec_decimal % 1 != 0:
+            raise ValueError(
+                f"Duration {duration} seconds equals {duration_msec_decimal} milliseconds, "
+                "which is not a whole number. Duration must be expressible in whole milliseconds, "
+                "i.e., must not have more than 3 decimal places."
+            )
+        self.duration_msec = int(duration_msec_decimal)
         if hasattr(self, "_noise_segment_length") and (self.noise_segment_length is None):
             self.noise_segment_length = self.duration
 
@@ -396,6 +405,21 @@ class SimGroup:
     def bw_dt(self, bw_dt):
         self._bw_dt = Decimal(bw_dt)
         self._check_dt()
+
+    @property
+    def bw_it(self):
+        """
+        Number of Balloon-Windkessel integration steps (outer loop)
+        """
+        return int(self.duration_msec / self.bw_dt)
+
+    @property
+    def inner_it(self):
+        """
+        Number of model integration steps (inner loop) within 
+        a Balloon-Windkessel integration step
+        """
+        return int(self.bw_dt / self.dt)
 
     @property
     def bw_params(self):
@@ -822,7 +846,7 @@ class SimGroup:
         Returns
         -------
         noise: :obj:`np.ndarray`
-            Noise segment array. Shape: (n_noise, nodes, time_steps, 10)
+            Noise segment array. Shape: (n_noise, nodes, bw_it, inner_it)
         """
         # raise an error if noise was not saved in the simulation
         if not self.noise_out:
@@ -835,25 +859,26 @@ class SimGroup:
             raise ValueError(
                 "Simulation must be run for the noise to be calculated"
                 )
-        # reshape the whole noise array into (nodes, ts) when
-        # noise segmenting is off
         if not noise_segment_flag:
+            # just reshape the whole noise array to the correct shape
             return (
                 self._noise.
-                reshape(int(self.duration*1000), 10, self.nodes, -1)
+                reshape(self.bw_it, self.inner_it, self.nodes, -1)
                 .transpose(3, 2, 0, 1)
             )
         # otherwise recreate the noise time series otherwise
-        # first reshape the noise into (noise_segment_length in msec, 10, nodes, n_noise)
+        # first reshape the noise into (noise_segment_outer_it, inner_it, nodes, n_noise)
+        # get number of outer (bw) time steps per noise segment
+        noise_segment_outer_it = int(int(self.noise_segment_length*1000) / self.bw_dt)
         noise_segment = self._noise.reshape(
-            int(self.noise_segment_length*1000), 10, self.nodes, -1
+            noise_segment_outer_it, self.inner_it, self.nodes, -1
         )
         # then shuffle the noise in each repeat based on the shuffling indices
         noise_all = []
         for r in range(self._shuffled_nodes.shape[0]):
             noise_all.append(
                 noise_segment[
-                    self._shuffled_ts[r] # shuffle time steps
+                    self._shuffled_ts[r] # shuffle outer time steps
                 ][
                     :, :, self._shuffled_nodes[r] # shuffle nodes
                 ]
@@ -861,8 +886,8 @@ class SimGroup:
         # conctaenate the shuffled noise repeats
         noise_all = np.concatenate(noise_all, axis=0)
         # crop the last part of the noise that is not used
-        noise_all = noise_all[:int(self.duration*1000)]
-        # transpose to (n_noise, nodes, time_steps, 10)
+        noise_all = noise_all[:self.bw_it]
+        # transpose to (n_noise, nodes, bw_it, inner_it)
         return noise_all.transpose(3, 2, 0, 1)
 
     def get_sim_fc(self, idx):

@@ -102,7 +102,7 @@ std::map<std::string, std::string> dict_to_map(PyObject *config_dict) {
 }
 
 template<typename T>
-void array_to_np_3d(T *** arr, PyObject * np_arr) {
+void array_3d_to_np(T *** arr, PyObject * np_arr) {
     // converts a 3d array to a 3d numpy array
     int dim1 = PyArray_DIM(np_arr, 0);
     int dim2 = PyArray_DIM(np_arr, 1);
@@ -119,7 +119,7 @@ void array_to_np_3d(T *** arr, PyObject * np_arr) {
 }
 
 template<typename T>
-void array_to_np_2d(T ** arr, PyObject * np_arr) {
+void array_2d_to_np(T ** arr, PyObject * np_arr) {
     // converts a 2d array to a 2d numpy array
     int dim1 = PyArray_DIM(np_arr, 0);
     int dim2 = PyArray_DIM(np_arr, 1);
@@ -133,7 +133,7 @@ void array_to_np_2d(T ** arr, PyObject * np_arr) {
 }
 
 template<typename T>
-void array_to_np_1d(T * arr, PyObject * np_arr) {
+void array_1d_to_np(T * arr, PyObject * np_arr) {
     // converts a 1d array to a nd numpy array
     // Note that unlike the other 2d and 3d functions
     // here np_arr can be n-dimensional
@@ -366,7 +366,7 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     npy_intp noise_dims[1] = {model->noise_size};
     #ifdef NOISE_SEGMENT
     npy_intp shuffled_nodes_dims[2] = {model->noise_repeats, model->nodes};
-    npy_intp shuffled_ts_dims[2] = {model->noise_repeats, model->base_conf.noise_time_steps};
+    npy_intp shuffled_ts_dims[2] = {model->noise_repeats, model->noise_bw_it};
     #endif
 
     PyObject *py_BOLD_ex_out, *py_fc_trils_out, *py_fcd_trils_out,
@@ -443,15 +443,15 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
 
     // Copy the output C arrays to NumPy arrays
     if (ext_out) {
-        array_to_np_3d<double>(model->states_out, py_states_out);
-        array_to_np_2d<bool>(model->global_out_bool, py_global_bools_out);
-        array_to_np_2d<int>(model->global_out_int, py_global_ints_out);
+        array_3d_to_np<double>(model->states_out, py_states_out);
+        array_2d_to_np<bool>(model->global_out_bool, py_global_bools_out);
+        array_2d_to_np<int>(model->global_out_int, py_global_ints_out);
     }
     if (noise_out) {
-        array_to_np_1d<double>(model->noise, py_noise_out);
+        array_1d_to_np<double>(model->noise, py_noise_out);
         #ifdef NOISE_SEGMENT
-        array_to_np_1d<int>(model->shuffled_nodes, py_shuffled_nodes_out);
-        array_to_np_1d<int>(model->shuffled_ts, py_shuffled_ts_out);
+        array_1d_to_np<int>(model->shuffled_nodes, py_shuffled_nodes_out);
+        array_1d_to_np<int>(model->shuffled_ts, py_shuffled_ts_out);
         #endif
     }
 
@@ -614,7 +614,7 @@ static PyMethodDef methods[] = {
         #ifdef NOISE_SEGMENT
         "shuffled_nodes (np.ndarray) (noise_repeats, nodes)\n"
             "\tshuffled nodes\n"
-        "shuffled_ts (np.ndarray) (noise_repeats, noise_time_steps)\n"
+        "shuffled_ts (np.ndarray) (noise_repeats, noise_bw_it)\n"
             "\tshuffled time series\n"
         #endif
     },

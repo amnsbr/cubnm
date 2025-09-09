@@ -671,7 +671,7 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
         #ifndef NOISE_SEGMENT
         // precalculate the entire noise needed; can use up a lot of memory
         // with high N of nodes and longer durations leads maxes out the memory
-        m->noise_size = m->nodes * m->bw_it * m->inner_it * Model::n_noise; // *10 for 0.1msec
+        m->noise_size = m->nodes * m->bw_it * m->inner_it * Model::n_noise;
         #else
         // otherwise precalculate a noise segment and arrays of shuffled
         // nodes and time points and reuse-shuffle the noise segment
@@ -701,7 +701,7 @@ void _init_cpu(BaseModel *m, bool force_reinit) {
                 "timepoints [columns] will be shuffled in each repeat)" << std::endl;
         }
         m->shuffled_nodes = (int*)malloc(m->noise_repeats * m->nodes * sizeof(int));
-        m->shuffled_ts = (int*)malloc(m->noise_repeats * m->base_conf.noise_time_steps * sizeof(int));
+        m->shuffled_ts = (int*)malloc(m->noise_repeats * m->noise_bw_it * sizeof(int));
         get_shuffled_nodes_ts(&(m->shuffled_nodes), &(m->shuffled_ts),
             m->nodes, m->noise_bw_it, m->noise_repeats, &rand_gen);
         #endif

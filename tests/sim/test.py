@@ -6,6 +6,7 @@ simulations run on CPU vs GPU.
 import pytest
 from cubnm import sim
 from cubnm.utils import avail_gpus
+from cubnm._setup_opts import noise_segment_flag
 import numpy as np
 import os
 import pickle
@@ -178,3 +179,76 @@ def test_identical_cpu_gpu(model, opts_str):
     assert np.isclose(sim_fcd_trils[False], sim_fcd_trils[True], atol=1e-6).all()
     assert np.isclose(sim_bolds[False], sim_bolds[True], atol=1e-6).all()
     assert np.isclose(sim_sel_states[False], sim_sel_states[True], atol=1e-6).all()
+
+@pytest.mark.skipif(not noise_segment_flag, reason="Only indicated for segmented noise")
+def test_get_noise():
+    """
+    Tests if the noise returned by `SimGroup.get_noise` is consistent
+    with the full noise array used in the simulation, by mimicking how
+    it is used in the simulation.
+    """
+    from decimal import Decimal
+    from tqdm import tqdm
+    # create a test simgroup with 10 fully connected nodes
+    nodes = 10
+    sc = np.ones((nodes, nodes), dtype=float)
+    np.fill_diagonal(sc, 0)
+    sg = sim.rWWSimGroup(
+        duration = 8,
+        noise_segment_length=3,
+        TR = 0.1,
+        dt = '0.2',
+        bw_dt = '0.8',
+        sc = sc,
+        do_fc = False,
+        do_fcd = False,
+        gof_terms = [],
+        force_cpu = True,
+        noise_out = True
+    )
+    # run simulation
+    sg.N = 1
+    sg.param_lists['G'] = np.array([0.5])
+    sg._set_default_params(missing=True)
+    sg.run()
+    # get noise array via get_noise
+    noise_recon = sg.get_noise()
+    # reconstruct noise using a loop mimicking
+    # the loop in the core code
+    noise_mimick = np.empty_like(noise_recon)
+
+    # preparations
+    bw_dt_s = sg.bw_dt / 1000 # in C++ bw_dt is in seconds
+    noise_bw_it = int((Decimal(sg.noise_segment_length*1000) / 1000) / bw_dt_s)
+    noise_repeats = int(np.ceil(sg.bw_it / noise_bw_it))
+    assert noise_repeats == sg._shuffled_nodes.shape[0]
+    # shuffled ts and shuffled nodes are flattened in C++
+    shuffled_ts = sg._shuffled_ts.flatten()
+    shuffled_nodes = sg._shuffled_nodes.flatten()
+
+    # main loop mimicking the C++/CUDA code
+    curr_noise_repeat = 0
+    for bw_i in tqdm(range(sg.bw_it)):
+        sh_ts_noise = shuffled_ts[
+            (bw_i % noise_bw_it)
+            +(curr_noise_repeat*noise_bw_it)
+        ]
+        for inner_i in range(sg.inner_it):
+            for j in range(sg.nodes):
+                sh_j = shuffled_nodes[curr_noise_repeat*sg.nodes + j]
+                noise_idx = (
+                    ((sh_ts_noise * sg.inner_it + inner_i)
+                        * sg.nodes * sg.n_noise)
+                    + (sh_j * sg.n_noise)
+                )
+                noise_mimick[0, j, bw_i, inner_i] = sg._noise[noise_idx]
+                noise_mimick[1, j, bw_i, inner_i] = sg._noise[noise_idx+1]
+        # reset noise segment time 
+        # and shuffle nodes if the segment
+        # has reached to the end
+        if ((bw_i+1) % noise_bw_it == 0):
+            if (bw_i+1 < sg.bw_it):
+                # at the last time point don't do this
+                # to avoid going over the extent of shuffled_nodes
+                curr_noise_repeat += 1
+    assert np.isclose(noise_recon, noise_mimick).all()
