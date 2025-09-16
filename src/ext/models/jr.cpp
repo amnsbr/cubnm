@@ -107,13 +107,13 @@ void JRModel::h_step(
         JRModel::mc.A * JRModel::mc.a * _intermediate_vars[0] - 
         2.0 * JRModel::mc.a * _state_vars[3] - 
         JRModel::mc.a * JRModel::mc.a * _state_vars[0];
-    // y4_dot = self.A * self.a * (self.mu + self.a_2 * self.J * sigm_y0_1 + lrc + short_range_coupling)
+    // y4_dot = self.A * self.a * (self.mu + self.a_2 * self.J * sigm_y0_1 + G * global_input)
     //            - 2.0 * self.a * y4 - self.a ** 2 * y1
     _intermediate_vars[7] = 
         JRModel::mc.A * JRModel::mc.a * (
             JRModel::mc.mu + 
             _regional_params[2] * _regional_params[0] * _intermediate_vars[1] + 
-            tmp_globalinput
+            _global_params[0] * tmp_globalinput
         ) - 
         2.0 * JRModel::mc.a * _state_vars[4] - 
         JRModel::mc.a * JRModel::mc.a * _state_vars[1];
