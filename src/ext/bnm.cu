@@ -28,6 +28,26 @@ Author: Amin Saberi, Feb 2023
 #include "cubnm/models/jr.cuh"
 // other models go here
 
+__device__ __forceinline__ int get_k_buff_idx(
+        const int& nodes, const int& j, const int& k, const int& buff_idx,
+        double** SC_dist, const int& SC_idx, 
+        const int& max_delay, int& curr_delay, const double& velocity
+        ) {
+    // first calculate the number of integration steps it takes
+    // for the signal to be transmitted between i and j
+    // but set minimum delay to 1 because a node
+    // cannot access instantaneous states of 
+    // other nodes, as they might not have been
+    // calculated yet
+    // Note that velocity is already (in `bnm`) multiplied by dt
+    // and indicates distance travelled (mm) in each integration step (not m/s)
+    curr_delay = max(1, (int)rintf(SC_dist[SC_idx][k*nodes+j]/velocity));
+    // calculates the correct index of the other region in the buffer based on j-k delay
+    // buffer is moving backward, therefore the delay timesteps back in history
+    // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
+    return (buff_idx + curr_delay) % max_delay;
+}
+
 __device__ void global_input_cond(
         double& tmp_globalinput, int& k_buff_idx,
         const int& nodes, const int& sim_idx, const int& SC_idx,
@@ -48,11 +68,8 @@ __device__ void global_input_cond(
     tmp_globalinput = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
-            curr_delay = rintf(SC_dist[SC_idx][k*nodes+j]/velocity); // how many integration steps between i and j
-            // calculate correct index of the other region in the buffer based on j-k delay
-            // buffer is moving backward, therefore the delay timesteps back in history
-            // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + curr_delay) % max_delay;
+            // get index of k in the buffer based on delay
+            k_buff_idx = get_k_buff_idx(nodes, j, k, buff_idx, SC_dist, SC_idx, max_delay, curr_delay, velocity);
             tmp_globalinput += SC[SC_idx][k*nodes+j] * conn_state_var_hist[sim_idx][k_buff_idx*nodes+k];
         }
     } else {
@@ -75,11 +92,8 @@ __device__ void global_input_osc(
     tmp_globalinput = 0;
     if (has_delay) {
         for (k=0; k<nodes; k++) {
-            curr_delay = rintf(SC_dist[SC_idx][k*nodes+j]/velocity);
-            // calculate correct index of the other region in the buffer based on j-k delay
-            // buffer is moving backward, therefore the delay timesteps back in history
-            // will be in +delay time steps in the buffer (then modulo max_delay as it is circular buffer)
-            k_buff_idx = (buff_idx + curr_delay) % max_delay;
+            // get index of k in the buffer based on delay
+            k_buff_idx = get_k_buff_idx(nodes, j, k, buff_idx, SC_dist, SC_idx, max_delay, curr_delay, velocity);
             tmp_globalinput += SC[SC_idx][k*nodes+j] * SIN(conn_state_var_hist[sim_idx][k_buff_idx*nodes+k] - conn_state_var_hist[sim_idx][buff_idx*nodes+j]);
         }
     } else {
@@ -157,7 +171,7 @@ __global__ void bnm(
     const int BOLD_TR_iters = model->BOLD_TR_iters;
     const int states_sampling_iters = model->states_sampling_iters;
     const int max_delay = max_delays[sim_idx];
-    const double velocity = v_list[sim_idx];
+    const double velocity = v_list[sim_idx] * model->dt; // how much signal travels in each integration step (mm)
 
     // set up noise shuffling if indicated
     #ifdef NOISE_SEGMENT
@@ -587,6 +601,12 @@ void _run_simulations_gpu(
                 min_velocity = curr_velocity;
             }
             d_model->max_delays[sim_idx] = (int)rintf(max_length/curr_velocity); // how many integration steps between two most distant nodes
+            // delay must be at least 1 because a node
+            // cannot access instantaneous states of 
+            // other nodes, as they might not have been
+            // calculated yet
+            d_model->max_delays[sim_idx] = std::max(d_model->max_delays[sim_idx], 1);
+
         }
     } else {
         for (int sim_idx=0; sim_idx < d_model->N_SIMS; sim_idx++) {
