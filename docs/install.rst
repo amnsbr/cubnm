@@ -21,14 +21,12 @@ Install via:
     
 In addition to the numerical simulations and FC/FCD calculation supported in the core functions, the package also supports calculation of empirical to simulated
 FC correlation as well as FCD Kolmogorov-Smirnov distance on GPUs. This is especially useful when working with very large grids. 
-To use these additional features, `CuPy <https://docs.cupy.dev/en/stable/install.html#installing-cupy>`_ and `Numba <https://numba.readthedocs.io/en/stable/user/installing.html>`_ 
-in addition to CUDA Toolkit must also be available. ``cupy`` and ``numba`` can be additionally installed with the package using:
+To use these additional features, `CuPy <https://docs.cupy.dev/en/stable/install.html#installing-cupy>`_ and `Numba CUDA <https://nvidia.github.io/numba-cuda/user/installation.html>`_ 
+in addition to CUDA Toolkit must also be available. ``cupy`` and ``numba-cuda`` can be additionally installed with the package using:
 
 .. code-block:: bash
 
-    pip install cubnm[cupy-cuda11x] # for CUDA 11.x
-    # or
-    pip install cubnm[cupy-cuda12x] # for CUDA 12.x
+    pip install cubnm[cuXY] # XY: 11, 12, or 13 depending on your CUDA version
 
 .. _from-source:
 
@@ -49,6 +47,9 @@ Additional requirements for GPU functionality:
 * NVIDIA GPU: In theory GPU devices with Compute Capability >= 2.x should be supported, but the code is not tested using devices with Compute Capability < 6.0.
 * CUDA Toolkit: Pre-built wheels were compiled using version 11.8 but alternative versions can be used.
 
+When building from source, AMD GPU/APUs are also experimentally supported. In this case ROCm toolkit must be installed and ``hipcc`` must be available in ``$PATH``. 
+The code for AMD support is not regularly maintained and tested, and therefore, support for AMD GPUs/APUs is not guaranteed.
+
 The package can be installed from source using:
 
 .. code-block:: bash
@@ -57,20 +58,18 @@ The package can be installed from source using:
 
 Using Docker or Singularity/Apptainer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Docker images are available for the development and stable versions (except v0.0.1).
+Docker images are available for the stable versions (except v0.0.1). Container support is experimental and we recommend installing
+the package via pip.
 
 .. image:: https://img.shields.io/badge/docker-amnsbr/cubnm-blue.svg?logo=docker
   :target: https://hub.docker.com/r/amnsbr/cubnm
 
-* Stable (``amnsbr/cubnm:v*``): These are more lightweight and smaller in size. The output simulations given the same input data and random seed should be reproducible across platforms.  
-* Development (``amnsbr/cubnm:dev``): This includes latest changes of the code but is not updated after each commit. The output of identical simulations with the same random seed may be different across platforms, and therefore, tests of expected simulations may fail.
-
-Pull the container via ``docker pull amnsbr/cubnm:<version>`` or ``singularity pull /path/to/cubnm-<version>.sif docker://amnsbr/cubnm:<version>``. 
+Pull the container via ``docker pull amnsbr/cubnm:v<version>`` or ``singularity pull /path/to/cubnm-<version>.sif docker://amnsbr/cubnm:v<version>``. 
 
 The containers can be used in two modes:
 
-* Interactively: ``docker run -it --entrypoint /bin/bash amnsbr/cubnm:<version>`` or ``singularity shell /path/to/cubnm-<version>.sif``. ``cubnm`` is installed and can be imported in ``python3.10`` (stable versions) or ``/opt/miniconda/bin/python`` (development version).
-* Using :doc:`command line interface </cli>`: ``docker run amnsbr/cubnm:*`` or ``singularity run /path/to/cubnm-<version>.sif``. Command line interface is not available in ``v0.0.2``.
+* Interactively: ``docker run -it --entrypoint /bin/bash amnsbr/cubnm:<version>`` or ``singularity shell /path/to/cubnm-<version>.sif``. ``cubnm`` is installed and can be imported in ``python3.10`` (stable versions).
+* Using :doc:`command line interface </cli>`: ``docker run amnsbr/cubnm:<version>`` or ``singularity run /path/to/cubnm-<version>.sif``. Command line interface is not available in ``v0.0.2``.
 
 Remember to bind your input and output directories to the container via ``-v`` in Docker and ``-B`` in Singularity.
     
