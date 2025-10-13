@@ -1,10 +1,7 @@
 model_name: Kuramoto
 is_osc: true
 gpu_enabled: true
-has_post_bw_step: false
-has_post_integration: false
 
-# State variables used for connectivity and BOLD
 conn_state_var: theta
 bold_state_var: theta
 
@@ -41,12 +38,12 @@ constants:
   - type: double
     name: dt
     value: dt
-    description: time step
+    description: integration step
     
   - type: double
     name: sqrt_dt
     value: sqrt(mc.dt)
-    description: square root of time step
+    description: square root of integration step
     
   - type: double
     name: twopi

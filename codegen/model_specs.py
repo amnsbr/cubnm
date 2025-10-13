@@ -138,10 +138,7 @@ class ModelSpec:
                     conn_state_var_idx = var.index
                 if self.bold_state_var == name:
                     bold_state_var_idx = var.index
-        
-        assert(len(self.config) == 0), \
-            "config options are not supported yet."
-
+    
         return {
             'model_name': self.model_name,
             **counts,
@@ -149,12 +146,14 @@ class ModelSpec:
             'bold_state_var_idx': bold_state_var_idx,
             'has_post_bw_step': self.has_post_bw_step,
             'has_post_integration': self.has_post_integration,
+            'has_prep_params': self.has_prep_params,
             'is_osc': self.is_osc,
             'gpu_enabled': self.gpu_enabled,
-            'external_declarations': self.external_declarations,
             'constants': self.constants,
             'config': self.config,
-            'additional_methods': self.additional_methods,
+            'external_declarations': self.external_declarations,
+            'cpp_includes': self.cpp_includes,
+            'custom_methods': self.custom_methods,
             'variables': self.variables,
             'var_indices': self._var_indices,
             'var_arrays': self._var_arrays,
@@ -192,12 +191,7 @@ def load_model_from_yaml(yaml_file):
     spec.is_osc = data.get('is_osc', False)
     spec.has_post_bw_step = data.get('has_post_bw_step', False)
     spec.has_post_integration = data.get('has_post_integration', False)
-
-    if spec.has_post_bw_step or spec.has_post_integration:
-        raise NotImplementedError(
-            "Code generation for BOLD hook and post "
-            "integration hooks are not implemented yet."
-        )
+    spec.has_prep_params = data.get('has_prep_params', False)
     
     # set connectivity and BOLD state variables
     spec.conn_state_var = data['conn_state_var']
@@ -216,6 +210,12 @@ def load_model_from_yaml(yaml_file):
         (c['type'], c['name'], c['value'], c.get('description', ''))
         for c in data.get('constants', [])
     ]
+
+    # add configs
+    spec.config = [
+        (c['type'], c['name'], c['value'], c.get('description', ''))
+        for c in data.get('config', [])
+    ]
     
     # add equations
     # split multi-line strings into lists of individual lines
@@ -231,10 +231,41 @@ def load_model_from_yaml(yaml_file):
         equations = data['step_equations']
         spec.step_equations = equations.strip().split('\n') if isinstance(equations, str) else equations
     
-    # optional fields
-    spec.config = data.get('config', [])
+    # external declarations and helper functions
+    # (currently only used for rWW-FIC)
     spec.external_declarations = data.get('external_declarations')
-    spec.additional_methods = data.get('additional_methods')
+    spec.cpp_includes = data.get('cpp_includes', '')
+
+    # # additional implementations
+    # # (currently only used for rWW-FIC)
+    spec.custom_methods = data.get('custom_methods', {})
+    # ensure required custom methods are provided
+    if len(spec.config) > 0:
+        assert 'set_conf' in spec.custom_methods, \
+            "If config parameters are defined, a custom method 'set_conf' must be provided."
+    if spec.has_prep_params:
+        assert 'prep_params' in spec.custom_methods, \
+            "If 'has_prep_params' is True, a custom method 'prep_params' must be provided."
+    # TODO: define post_bw_step and post_integration hooks using pseudocode similar
+    # to init, restart, and step equations
+    if spec.has_post_bw_step:
+        required_methods = {'_j_post_bw_step', 'h_post_bw_step', 'post_bw_step'}
+        missing = required_methods - set(data.get('custom_methods', {}))
+        assert not missing, (
+            f"Missing required custom methods: {', '.join(missing)}. "
+            "If 'has_post_bw_step' is True, you must define all: "
+            f"{', '.join(required_methods)}."
+        )
+    if spec.has_post_bw_step:
+        required_methods = {'h_post_integration', 'post_integration'}
+        missing = required_methods - set(data.get('custom_methods', {}))
+        assert not missing, (
+            f"Missing required custom methods: {', '.join(missing)}. "
+            "If 'has_post_integration' is True, you must define all: "
+            f"{', '.join(required_methods)}."
+        )        
+
+
     
     return spec
 

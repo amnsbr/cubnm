@@ -1,0 +1,650 @@
+model_name: rWW
+is_osc: false
+gpu_enabled: true
+has_prep_params: true
+has_post_bw_step: true
+has_post_integration: true
+
+conn_state_var: S_E
+bold_state_var: S_E
+
+variables:
+  - name: I_E
+    type: state_var
+    description: excitatory input current
+    
+  - name: I_I
+    type: state_var
+    description: inhibitory input current
+    
+  - name: r_E
+    type: state_var
+    description: excitatory firing rate
+    
+  - name: r_I
+    type: state_var
+    description: inhibitory firing rate
+    
+  - name: S_E
+    type: state_var
+    description: excitatory synaptic gating variable
+    
+  - name: S_I
+    type: state_var
+    description: inhibitory synaptic gating variable
+    
+  - name: aIb_E
+    type: intermediate_var
+    description: a_E * I_E - b_E
+    
+  - name: aIb_I
+    type: intermediate_var
+    description: a_I * I_I - b_I
+    
+  - name: dS_E
+    type: intermediate_var
+    description: derivative of S_E
+    
+  - name: dS_I
+    type: intermediate_var
+    description: derivative of S_I
+    
+  - name: mean_I_E
+    type: intermediate_var
+    description: mean excitatory input for FIC
+    
+  - name: delta
+    type: intermediate_var
+    description: FIC adjustment step size
+    
+  - name: I_E_ba_diff
+    type: intermediate_var
+    description: difference from target for FIC
+    
+  - name: G
+    type: global_param
+    description: global coupling strength
+    
+  - name: w_p
+    type: regional_param
+    description: local excitatory recurrence
+    
+  - name: J_N
+    type: regional_param
+    description: synaptic coupling strength
+    
+  - name: w_IE
+    type: regional_param
+    description: inhibitory to excitatory weight
+    
+  - name: sigma
+    type: regional_param
+    description: noise amplitude
+    
+  - name: noise_S_E
+    type: noise
+    description: noise for S_E
+
+  - name: noise_S_I
+    type: noise
+    description: noise for S_I
+
+  - name: _adjust_fic
+    type: ext_bool_shared
+    description: whether to adjust FIC
+
+  - name: fic_failed
+    type: ext_bool_shared
+    description: FIC failure flag
+
+  - name: fic_trial
+    type: ext_int_shared
+    description: current FIC trial number
+
+  - name: fic_unstable_global
+    type: global_out_bool
+    description: FIC unstability flag
+  
+  - name: fic_failed_global
+    type: global_out_bool
+    description: FIC failure flag (output)
+  
+  - name: fic_ntrials_global
+    type: global_out_int
+    description: number of attempted FIC trials
+
+constants:
+  - type: double
+    name: dt
+    value: dt
+    description: integration step
+    
+  - type: double
+    name: sqrt_dt
+    value: sqrt(mc.dt)
+    description: square root of integration step
+    
+  - type: double
+    name: a_E
+    value: "310"
+    description: excitatory input-output parameter a (n/C)
+    
+  - type: double
+    name: b_E
+    value: "125"
+    description: excitatory input-output parameter b (Hz)
+    
+  - type: double
+    name: d_E
+    value: "0.16"
+    description: excitatory input-output parameter d (s)
+    
+  - type: double
+    name: a_I
+    value: "615"
+    description: inhibitory input-output parameter a (n/C)
+    
+  - type: double
+    name: b_I
+    value: "177"
+    description: inhibitory input-output parameter b (Hz)
+    
+  - type: double
+    name: d_I
+    value: "0.087"
+    description: inhibitory input-output parameter d (s)
+    
+  - type: double
+    name: gamma_E
+    value: "(double)0.641/(double)1000.0"
+    description: excitatory kinetic parameter
+    
+  - type: double
+    name: gamma_I
+    value: "(double)1.0/(double)1000.0"
+    description: inhibitory kinetic parameter
+    
+  - type: double
+    name: tau_E
+    value: "100"
+    description: NMDA time constant (ms)
+    
+  - type: double
+    name: tau_I
+    value: "10"
+    description: GABA time constant (ms)
+    
+  - type: double
+    name: I_0
+    value: "0.382"
+    description: overall effective external input (nA)
+    
+  - type: double
+    name: w_E
+    value: "1.0"
+    description: scaling of external input for excitatory pool
+    
+  - type: double
+    name: w_I
+    value: "0.7"
+    description: scaling of external input for inhibitory pool
+    
+  - type: double
+    name: w_II
+    value: "1.0"
+    description: inhibitory self-coupling
+    
+  - type: double
+    name: I_ext
+    value: "0.0"
+    description: external input (nA)
+    
+  - type: double
+    name: w_E__I_0
+    value: mc.w_E * mc.I_0
+    description: pre-calculated w_E * I_0
+    
+  - type: double
+    name: w_I__I_0
+    value: mc.w_I * mc.I_0
+    description: pre-calculated w_I * I_0
+    
+  - type: double
+    name: b_a_ratio_E
+    value: mc.b_E / mc.a_E
+    description: pre-calculated b_E / a_E
+    
+  - type: double
+    name: itau_E
+    value: 1.0/mc.tau_E
+    description: inverse of tau_E
+    
+  - type: double
+    name: itau_I
+    value: 1.0/mc.tau_I
+    description: inverse of tau_I
+    
+  - type: double
+    name: dt_itau_E
+    value: mc.dt * mc.itau_E
+    description: dt / tau_E
+    
+  - type: double
+    name: dt_gamma_E
+    value: mc.dt * mc.gamma_E
+    description: dt * gamma_E
+    
+  - type: double
+    name: dt_itau_I
+    value: mc.dt * mc.itau_I
+    description: dt / tau_I
+    
+  - type: double
+    name: dt_gamma_I
+    value: mc.dt * mc.gamma_I
+    description: dt * gamma_I
+    
+  - type: double
+    name: tau_E_s
+    value: "0.1"
+    description: tau_E in seconds for FIC
+    
+  - type: double
+    name: tau_I_s
+    value: "0.01"
+    description: tau_I in seconds for FIC
+    
+  - type: double
+    name: gamma_E_s
+    value: "0.641"
+    description: gamma_E for FIC
+    
+  - type: double
+    name: gamma_I_s
+    value: "1.0"
+    description: gamma_I for FIC
+    
+  - type: double
+    name: r_I_ss
+    value: "3.9218448633"
+    description: steady-state inhibitory firing rate (Hz)
+    
+  - type: double
+    name: r_E_ss
+    value: "3.0773270642"
+    description: steady-state excitatory firing rate (Hz)
+    
+  - type: double
+    name: I_I_ss
+    value: "0.2528951325"
+    description: steady-state inhibitory current (nA)
+    
+  - type: double
+    name: I_E_ss
+    value: "0.3773805650"
+    description: steady-state excitatory current (nA)
+    
+  - type: double
+    name: S_I_ss
+    value: "0.0392184486"
+    description: steady-state inhibitory gating
+    
+  - type: double
+    name: S_E_ss
+    value: "0.1647572075"
+    description: steady-state excitatory gating
+
+config:
+  - type: bool
+    name: do_fic
+    value: "true"
+    description: whether to apply feedback inhibition control
+
+  - type: int
+    name: max_fic_trials
+    value: 0
+    description: maximum number of numerical FIC trials
+  
+  - type: bool
+    name: fic_verbose
+    value: "false"
+    description: FIC verbosity
+  
+  - type: int
+    name: I_SAMPLING_START
+    value: 1000
+    description: starting time of numerical FIC I_E sampling (bw iteration)
+  
+  - type: int
+    name: I_SAMPLING_END
+    value: 10000
+    description: end time of numerical FIC I_E sampling (bw iteration)
+  
+  - type: int
+    name: I_SAMPLING_DURATION
+    value: "I_SAMPLING_END - I_SAMPLING_START + 1"
+    description: duration of numerical FIC I_E sampliing (bw iterations)
+
+  - type: double
+    name: init_delta
+    value: 0.02
+    description: initial delta for numerical FIC adjustment
+
+init_equations: |
+  S_E = 0.001
+  S_I = 0.001
+  # Numerical FIC initialization
+  mean_I_E = 0.0
+  delta = init_delta
+  fic_trial = 0
+  _adjust_fic = do_fic & (max_fic_trials > 0)
+  fic_failed = false
+
+restart_equations: |
+  S_E = 0.001
+  S_I = 0.001
+  # Numerical FIC reset
+  mean_I_E = 0.0
+
+step_equations: |
+  # Calculate input currents
+  I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - w_IE * S_I
+  I_I = w_I__I_0 + J_N * S_E - w_II * S_I
+  
+  # Input-output functions
+  aIb_E = a_E * I_E - b_E
+  aIb_I = a_I * I_I - b_I
+  r_E = aIb_E / (1 - exp(-d_E * aIb_E))
+  r_I = aIb_I / (1 - exp(-d_I * aIb_I))
+  
+  # Synaptic dynamics with noise
+  dS_E = noise_S_E * sigma * sqrt_dt + dt_gamma_E * ((1 - S_E) * r_E) - dt_itau_E * S_E
+  dS_I = noise_S_I * sigma * sqrt_dt + dt_gamma_I * r_I - dt_itau_I * S_I
+  
+  S_E += dS_E
+  S_I += dS_I
+  
+  # Clip to valid range
+  S_E = max(0.0, min(1.0, S_E))
+  S_I = max(0.0, min(1.0, S_I))
+
+external_declarations: |
+  extern void analytical_fic_het(
+          gsl_matrix * sc, double G, double * w_EE, double * w_EI,
+          gsl_vector * w_IE_out, bool * _unstable
+          );
+
+# Include helper functions from external file
+cpp_includes: |
+  #include "rww_fic.cpp"
+
+# Custom implementations for special methods
+custom_methods:
+  set_conf: |
+    void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
+        set_base_conf(config_map);
+        for (const auto& pair : config_map) {
+            if (pair.first == "do_fic") {
+                this->conf.do_fic = (bool)std::stoi(pair.second);
+                this->modifies_params = true;
+            } else if (pair.first == "max_fic_trials") {
+                this->conf.max_fic_trials = std::stoi(pair.second);
+            } else if (pair.first == "fic_verbose") {
+                this->conf.fic_verbose = (bool)std::stoi(pair.second);
+            } else if (pair.first == "I_SAMPLING_START") {
+                this->conf.I_SAMPLING_START = (std::stoi(pair.second) / 1000) / this->bw_dt;
+            } else if (pair.first == "I_SAMPLING_END") {
+                this->conf.I_SAMPLING_END = (std::stoi(pair.second) / 1000) / this->bw_dt;
+            } else if (pair.first == "init_delta") {
+                this->conf.init_delta = std::stod(pair.second);
+            }
+            this->conf.I_SAMPLING_DURATION = this->conf.I_SAMPLING_END - this->conf.I_SAMPLING_START + 1;
+        }
+    }
+
+  prep_params: |
+    void rWWModel::prep_params(
+            double ** global_params, double ** regional_params, double * v_list,
+            double ** SC, int * SC_indices, double * SC_dist,
+            bool ** global_out_bool, int ** global_out_int
+            ) {
+        // Set wIE to output of analytical FIC
+        // if FIC is enabled
+        if (!(this->conf.do_fic)) {
+            return;
+        }
+        // copy SC to SCs_gsl
+        std::vector<gsl_matrix*> SCs_gsl;
+        #ifdef OMP_ENABLED
+        #pragma omp critical
+        #endif
+        {
+            for (int SC_idx=0; SC_idx<this->N_SCs; SC_idx++) {
+                gsl_matrix* SC_gsl = gsl_matrix_alloc(this->nodes, this->nodes);
+                for (int j = 0; j < this->nodes; j++) {
+                    for (int k = 0; k < this->nodes; k++) {
+                        // while copying transpose it from the shape (source, target) to (target, source)
+                        // as this is the format expected by the FIC function
+                        gsl_matrix_set(SC_gsl, j, k, SC[SC_idx][k*nodes + j]);
+                    }
+                }
+                SCs_gsl.push_back(SC_gsl);
+            }
+        }
+        gsl_vector * curr_w_IE = gsl_vector_alloc(this->nodes);
+        double *curr_w_EE = (double *)malloc(this->nodes * sizeof(double));
+        double *curr_w_EI = (double *)malloc(this->nodes * sizeof(double));
+        for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
+            // assign regional wEE and wEI
+            // i.e., convert TVB-style parameters to
+            // Demirtas et al. style parameters which
+            // are used for the FIC
+            // TODO: adapt the code in FIC to use TVB-style
+            // parameters instead.
+            for (int j=0; j<this->nodes; j++) {
+                // w_EI = J_N
+                curr_w_EI[j] = (double)(regional_params[1][sim_idx*this->nodes+j]);
+                // w_EE = w_p * J_N
+                curr_w_EE[j] = (double)(regional_params[0][sim_idx*this->nodes+j]) * curr_w_EI[j];
+            }
+            // do FIC for the current particle
+            global_out_bool[0][sim_idx] = false;
+            analytical_fic_het(
+                SCs_gsl[SC_indices[sim_idx]], global_params[0][sim_idx], 
+                curr_w_EE, curr_w_EI,
+                curr_w_IE, global_out_bool[0]+sim_idx);
+            if (global_out_bool[0][sim_idx]) {
+                std::cerr << "In simulation #" << sim_idx << 
+                    " analytical FIC failed. Setting wIE to 1 in all nodes" << std::endl;
+                for (int j=0; j<this->nodes; j++) {
+                    regional_params[2][sim_idx*this->nodes+j] = 1.0;
+                }
+            } else {
+                // copy to w_IE_fic which will be passed on to the device
+                for (int j=0; j<this->nodes; j++) {
+                    regional_params[2][sim_idx*this->nodes+j] = (double)gsl_vector_get(curr_w_IE, j);
+                }
+            }
+        }
+        #ifdef OMP_ENABLED
+        #pragma omp critical
+        #endif
+        {
+            // free SCs_gsl and empty the vector
+            for (auto &SC_gsl : SCs_gsl) {
+                gsl_matrix_free(SC_gsl);
+            }
+            SCs_gsl.clear();
+        }
+    }
+
+  _j_post_bw_step: |
+    void rWWModel::_j_post_bw_step(
+            double* _state_vars, double* _intermediate_vars,
+            int* _ext_int, bool* _ext_bool, 
+            int* _ext_int_shared, bool* _ext_bool_shared,
+            bool& restart,
+            double* _global_params, double* _regional_params,
+            int& bw_i
+            ) {
+        if (_ext_bool_shared[0]) {
+            if (((bw_i+1) >= this->conf.I_SAMPLING_START) & ((bw_i+1) <= this->conf.I_SAMPLING_END)) {
+                _intermediate_vars[4] += _state_vars[0];
+            }
+            if ((bw_i+1) == this->conf.I_SAMPLING_END) {
+                restart = false;
+                _intermediate_vars[4] /= this->conf.I_SAMPLING_DURATION;
+                _intermediate_vars[6] = _intermediate_vars[4] - rWWModel::mc.b_a_ratio_E;
+                if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
+                    restart = true;
+                    if (_ext_int_shared[0] < this->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
+                        // up- or downregulate inhibition
+                        if ((_intermediate_vars[6]) < -0.026) {
+                            _regional_params[2] -= _intermediate_vars[5];
+                            _intermediate_vars[5] -= 0.001;
+                            _intermediate_vars[5] = fmax(_intermediate_vars[5], 0.001);
+                        } else {
+                            _regional_params[2] += _intermediate_vars[5];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+  h_post_bw_step: |
+    void rWWModel::h_post_bw_step(double** _state_vars, double** _intermediate_vars,
+            int** _ext_int, bool** _ext_bool, 
+            int* _ext_int_shared, bool* _ext_bool_shared,
+            bool& restart,
+            double* _global_params, double** _regional_params,
+            int& bw_i) {
+        BaseModel::h_post_bw_step(
+            _state_vars, _intermediate_vars, 
+            _ext_int, _ext_bool, 
+            _ext_int_shared, _ext_bool_shared,
+            restart, 
+            _global_params, _regional_params, 
+            bw_i);
+        // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
+        // the simulation until the end
+        if ((_ext_bool_shared[0]) && ((bw_i+1) == this->conf.I_SAMPLING_END)) {
+            if (restart) {
+                if (_ext_int_shared[0] < (this->conf.max_fic_trials)) {
+                    _ext_int_shared[0]++; // increment fic_trial
+                } else {
+                    // continue the simulation and
+                    // declare FIC failed
+                    restart = false;
+                    _ext_bool_shared[0] = false; // _adjust_fic
+                    _ext_bool_shared[1] = true; // fic_failed
+                }
+            } else {
+                // if no node needs fic adjustment don't run
+                // this block of code any more
+                _ext_bool_shared[0] = false;
+            }
+        }
+    }
+
+  post_bw_step: |
+    __device__ __NOINLINE__ void rWWModel::post_bw_step(
+            double* _state_vars, double* _intermediate_vars,
+            int* _ext_int, bool* _ext_bool, 
+            int* _ext_int_shared, bool* _ext_bool_shared,
+            bool& restart,
+            double* _global_params, double* _regional_params,
+            int& bw_i
+            ) {
+        if (_ext_bool_shared[0]) {
+            if (((bw_i+1) >= this->conf.I_SAMPLING_START) & ((bw_i+1) <= this->conf.I_SAMPLING_END)) {
+                _intermediate_vars[4] += _state_vars[0];
+            }
+            if ((bw_i+1) == this->conf.I_SAMPLING_END) {
+                restart = false;
+                __syncthreads(); // all threads must be at the same time point here given needs_fic_adjustment is shared
+                _intermediate_vars[4] /= this->conf.I_SAMPLING_DURATION;
+                _intermediate_vars[6] = _intermediate_vars[4] - d_rWWc.b_a_ratio_E;
+                if (abs(_intermediate_vars[6] + 0.026) > 0.005) {
+                    restart = true;
+                    if (_ext_int_shared[0] < this->conf.max_fic_trials) { // only do the adjustment if max trials is not exceeded
+                        // up- or downregulate inhibition
+                        if ((_intermediate_vars[6]) < -0.026) {
+                            _regional_params[2] -= _intermediate_vars[5];
+                            // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
+                            _intermediate_vars[5] -= 0.001;
+                            _intermediate_vars[5] = CUDA_MAX(_intermediate_vars[5], 0.001);
+                        } else {
+                            _regional_params[2] += _intermediate_vars[5];
+                            // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
+                        }
+                    }
+                }
+                __syncthreads(); // wait to see if needs_fic_adjustment in any node
+                // if needs_fic_adjustment in any node do another trial or declare fic failure and continue
+                // the simulation until the end
+                if (restart) {
+                    if (_ext_int_shared[0] < (this->conf.max_fic_trials)) {
+                        if (threadIdx.x == 0) _ext_int_shared[0]++; // increment fic_trial
+                    } else {
+                        // continue the simulation and
+                        // declare FIC failed
+                        restart = false;
+                        _ext_bool_shared[0] = false; // _adjust_fic
+                        _ext_bool_shared[1] = true; // fic_failed
+                    }
+                } else {
+                    // if no node needs fic adjustment don't run
+                    // this block of code any more
+                    _ext_bool_shared[0] = false;
+                }
+                __syncthreads();
+            }
+        }
+    }
+
+  h_post_integration: |
+    void rWWModel::h_post_integration(
+            double ***state_vars_out, 
+            int **global_out_int, bool **global_out_bool,
+            double* _state_vars, double* _intermediate_vars, 
+            int* _ext_int, bool* _ext_bool, 
+            int* _ext_int_shared, bool* _ext_bool_shared,
+            double** global_params, double** regional_params,
+            double* _global_params, double* _regional_params,
+            int& sim_idx, const int& nodes, int& j
+        ) {
+        if (this->conf.do_fic) {
+            // save the wIE adjustment results
+            // modified wIE array
+            regional_params[2][sim_idx*nodes+j] = _regional_params[2];
+            if (j == 0) {
+                // number of trials and fic failure
+                global_out_int[0][sim_idx] = _ext_int_shared[0];
+                global_out_bool[1][sim_idx] = _ext_bool_shared[1];
+            }
+        }
+    }
+
+  post_integration: |
+    __device__ __NOINLINE__ void rWWModel::post_integration(
+            double ***state_vars_out, 
+            int **global_out_int, bool **global_out_bool,
+            double* _state_vars, double* _intermediate_vars, 
+            int* _ext_int, bool* _ext_bool,
+            int* _ext_int_shared, bool* _ext_bool_shared,
+            double** global_params, double** regional_params,
+            double* _global_params, double* _regional_params,
+            int& sim_idx, const int& nodes, int& j
+        ) {
+        if (this->conf.do_fic) {
+            // save the wIE adjustment results
+            // modified wIE array
+            regional_params[2][sim_idx*nodes+j] = _regional_params[2];
+            // number of trials and fic failure
+            if (j == 0) {
+                global_out_int[0][sim_idx] = _ext_int_shared[0];
+                global_out_bool[1][sim_idx] = _ext_bool_shared[1];
+            }
+        }
+    }

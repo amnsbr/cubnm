@@ -1,7 +1,7 @@
 <%!
 import re
 
-def get_var_access(var_name, var_arrays, var_indices, variables, constants_dict, model_name):
+def get_var_access(var_name, var_arrays, var_indices, variables, constants_names, config_names, model_name):
     """
     Get C++ array access for a variable.
     """
@@ -27,13 +27,17 @@ def get_var_access(var_name, var_arrays, var_indices, variables, constants_dict,
         return f"{array}[{index}]"
     
     # constants
-    if var_name in constants_dict:
+    if var_name in constants_names:
         return f"d_{model_name}c.{var_name}"
+    
+    # configs
+    if var_name in config_names:
+        return f"this->conf.{var_name}"
     
     # otherwise return as-is
     return var_name
 
-def process_equation(equation, var_arrays, var_indices, variables, constants_dict, model_name):
+def process_equation(equation, var_arrays, var_indices, variables, constants_names, config_names, model_name):
     """
     Process an equation, replacing variable names with array accesses.
     """
@@ -57,8 +61,8 @@ def process_equation(equation, var_arrays, var_indices, variables, constants_dic
                 lhs = parts[0].strip()
                 rhs = parts[1].strip()
                 
-                lhs_code = get_var_access(lhs, var_arrays, var_indices, variables, constants_dict, model_name)
-                rhs_code = process_expression(rhs, var_arrays, var_indices, variables, constants_dict, model_name)
+                lhs_code = get_var_access(lhs, var_arrays, var_indices, variables, constants_names, config_names, model_name)
+                rhs_code = process_expression(rhs, var_arrays, var_indices, variables, constants_names, config_names, model_name)
                 
                 return f"{lhs_code} {op} {rhs_code};"
     else:
@@ -66,12 +70,12 @@ def process_equation(equation, var_arrays, var_indices, variables, constants_dic
         lhs = parts[0].strip()
         rhs = parts[1].strip()
         
-        lhs_code = get_var_access(lhs, var_arrays, var_indices, variables, constants_dict, model_name)
-        rhs_code = process_expression(rhs, var_arrays, var_indices, variables, constants_dict, model_name)
+        lhs_code = get_var_access(lhs, var_arrays, var_indices, variables, constants_names, config_names, model_name)
+        rhs_code = process_expression(rhs, var_arrays, var_indices, variables, constants_names, config_names, model_name)
         
         return f"{lhs_code} = {rhs_code};"
 
-def process_expression(expr, var_arrays, var_indices, variables, constants_dict, model_name):
+def process_expression(expr, var_arrays, var_indices, variables, constants_names, config_names, model_name):
     """
     Process an expression, replacing variable names with array accesses.
     """
@@ -85,12 +89,12 @@ def process_expression(expr, var_arrays, var_indices, variables, constants_dict,
                    'log', 'floor', 'ceil', 'EXP', 'SQRT', 'POW', 'ABS'}
         if name in keywords:
             return name
-        return get_var_access(name, var_arrays, var_indices, variables, constants_dict, model_name)
+        return get_var_access(name, var_arrays, var_indices, variables, constants_names, config_names, model_name)
     
     result = re.sub(identifier_pattern, replace_identifier, expr)
     return result
 
-def format_equations(equations, var_arrays, var_indices, variables, constants_dict, model_name, indent='    '):
+def format_equations(equations, var_arrays, var_indices, variables, constants_names, config_names, model_name, indent='    '):
     """
     Format a list of equations with proper indentation and comments.
     """
@@ -104,28 +108,33 @@ def format_equations(equations, var_arrays, var_indices, variables, constants_di
             lines.append(f"{indent}{eq.replace('#', '//')}")
         else:
             # Equation
-            processed = process_equation(eq, var_arrays, var_indices, variables, constants_dict, model_name)
+            processed = process_equation(eq, var_arrays, var_indices, variables, constants_names, config_names, model_name)
             lines.append(f"{indent}// {eq}")
             lines.append(f"{indent}{processed}")
     return '\n'.join(lines)
 
-def get_constants_dict(constants):
+def get_constants_names(constants):
     """
-    Create a dictionary of constant names
+    Create a list of constant names
     """
-    const_dict = {}
+    const_list = []
     for const in constants:
-        if isinstance(const, tuple):
-            const_dict[const[1]] = True
-        else:
-            parts = const.strip().rstrip(';').split()
-            if len(parts) >= 2:
-                const_dict[parts[1]] = True
-    return const_dict
+        const_list.append(const[1])
+    return const_list
+
+def get_config_names(config):
+    """
+    Create a list of constant names
+    """
+    conf_list = []
+    for conf in config:
+        conf_list.append(conf[1])
+    return conf_list
 %>\
 <%
-# build constants dictionary
-constants_dict = get_constants_dict(constants)
+# get names of constants and configs
+constants_names = get_constants_names(constants)
+config_names = get_config_names(config)
 %>\
 /* 
     Autogenerated using:
@@ -144,7 +153,7 @@ __device__ __NOINLINE__ void ${model_name}Model::init(
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
-${format_equations(init_equations, var_arrays, var_indices, variables, constants_dict, model_name)}
+${format_equations(init_equations, var_arrays, var_indices, variables, constants_names, config_names, model_name)}
 }
 
 __device__ __NOINLINE__ void ${model_name}Model::restart(
@@ -153,7 +162,7 @@ __device__ __NOINLINE__ void ${model_name}Model::restart(
     int* _ext_int, bool* _ext_bool,
     int* _ext_int_shared, bool* _ext_bool_shared
 ) {
-${format_equations(restart_equations, var_arrays, var_indices, variables, constants_dict, model_name)}
+${format_equations(restart_equations, var_arrays, var_indices, variables, constants_names, config_names, model_name)}
 }
 
 __device__ void ${model_name}Model::step(
@@ -162,5 +171,11 @@ __device__ void ${model_name}Model::step(
         double& tmp_globalinput,
         double* noise, long& noise_idx
         ) {
-${format_equations(step_equations, var_arrays, var_indices, variables, constants_dict, model_name)}
+${format_equations(step_equations, var_arrays, var_indices, variables, constants_names, config_names, model_name)}
 }
+% if has_post_bw_step:
+${custom_methods.get('post_bw_step', '')}
+% endif
+% if has_post_integration:
+${custom_methods.get('post_integration', '')}
+% endif

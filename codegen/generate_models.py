@@ -22,7 +22,13 @@ def generate_from_template(model_spec_dict, template_path, output_path):
     model_spec_dict.update({
         'template_path': template_path_rel
     })
-    code_content = template.render(**model_spec_dict)
+    try:
+        code_content = template.render(**model_spec_dict)
+    except Exception as e:
+        print(f"Error during template rendering: {e}", file=sys.stderr)
+        from mako import exceptions
+        print(exceptions.text_error_template().render(), file=sys.stderr)
+        raise
     # save
     output_dir = os.path.dirname(output_path)
     os.makedirs(output_dir, exist_ok=True)
@@ -62,7 +68,7 @@ def main():
             generate_from_template(model_spec, template, output_path)
     
     # Generate models.cpp and models.cu
-    models = ['rWW'] + list(models_to_generate) # Add 'rWW' which is not auto-generated
+    models = list(models_to_generate)
     for k in ['cpp', 'cu']:
         template = os.path.join(PACKAGE_ROOT, 'src', 'ext', f'models.{k}.mako')
         template_path_rel = os.path.relpath(template, start=PACKAGE_ROOT)
