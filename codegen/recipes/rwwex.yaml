@@ -1,0 +1,127 @@
+model_name: rWWEx
+is_osc: false
+gpu_enabled: true
+has_post_bw_step: false
+has_post_integration: false
+
+# State variables used for connectivity and BOLD
+conn_state_var: S
+bold_state_var: S
+
+variables:
+  - name: x
+    type: state_var
+    description: total input current
+    
+  - name: r
+    type: state_var
+    description: firing rate
+    
+  - name: S
+    type: state_var
+    description: synaptic gating variable
+    
+  - name: axb
+    type: intermediate_var
+    description: a*x - b
+    
+  - name: dSdt
+    type: intermediate_var
+    description: derivative of S
+    
+  - name: G
+    type: global_param
+    description: global coupling strength
+    
+  - name: w
+    type: regional_param
+    description: local excitatory recurrence
+    
+  - name: I0
+    type: regional_param
+    description: external input current
+    
+  - name: sigma
+    type: regional_param
+    description: noise amplitude
+    
+  - name: noise
+    type: noise
+    description: noise for S
+
+constants:
+  - type: double
+    name: dt
+    value: dt
+    description: time step
+    
+  - type: double
+    name: sqrt_dt
+    value: sqrt(mc.dt)
+    description: square root of time step
+    
+  - type: double
+    name: J_N
+    value: "0.2609"
+    description: synaptic coupling
+    
+  - type: double
+    name: a
+    value: "270"
+    description: input-output function parameter a
+    
+  - type: double
+    name: b
+    value: "108"
+    description: input-output function parameter b
+    
+  - type: double
+    name: d
+    value: "0.154"
+    description: input-output function parameter d
+    
+  - type: double
+    name: gamma
+    value: "(double)0.641/(double)1000.0"
+    description: kinetic parameter
+    
+  - type: double
+    name: tau
+    value: "100"
+    description: synaptic time constant
+    
+  - type: double
+    name: itau
+    value: 1.0/mc.tau
+    description: inverse of tau (1/tau)
+    
+  - type: double
+    name: dt_itau
+    value: mc.dt * mc.itau
+    description: ""
+    
+  - type: double
+    name: dt_gamma
+    value: mc.dt * mc.gamma
+    description: ""
+
+init_equations: |
+  S = 0.001
+
+restart_equations: |
+  S = 0.001
+
+step_equations: |
+  # Calculate total input
+  x = w * J_N * S + G * J_N * globalinput + I0
+  
+  # Input-output function
+  axb = a * x - b
+  r = axb / (1 - exp(-d * axb))
+  
+  # Synaptic dynamics with noise
+  dSdt = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
+  S += dSdt
+  
+  # Clip S to valid range [0, 1]
+  S = max(0.0, min(1.0, S))

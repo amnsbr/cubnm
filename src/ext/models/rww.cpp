@@ -1,4 +1,5 @@
 #include "cubnm/models/rww.hpp"
+#include "rww_fic.cpp"
 
 rWWModel::Constants rWWModel::mc;
 

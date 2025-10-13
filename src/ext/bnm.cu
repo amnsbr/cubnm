@@ -22,10 +22,7 @@ Author: Amin Saberi, Feb 2023
 #include "cubnm/models/base.cuh"
 #include "cubnm/fc.cuh"
 #include "cubnm/bnm.cuh"
-#include "cubnm/models/rww.cuh"
-#include "cubnm/models/rwwex.cuh"
-#include "cubnm/models/kuramoto.cuh"
-#include "cubnm/models/jr.cuh"
+#include "models.cu"
 // other models go here
 
 __device__ __forceinline__ int get_k_buff_idx(
@@ -1005,18 +1002,7 @@ void _init_gpu(BaseModel *m, BWConstants bwc, bool force_reinit) {
     // copy constants and configs from CPU
     // TODO: make these members of the model class
     CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_bwc, &bwc, sizeof(BWConstants)));
-    if (strcmp(Model::name, "rWW")==0) {
-        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWc, &Model::mc, sizeof(typename Model::Constants)));
-    } 
-    else if (strcmp(Model::name, "rWWEx")==0) {
-        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWExc, &Model::mc, sizeof(typename Model::Constants)));
-    }
-    else if (strcmp(Model::name, "Kuramoto")==0) {
-        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_Kuramotoc, &Model::mc, sizeof(typename Model::Constants)));
-    }
-    else if (strcmp(Model::name, "JR")==0) {
-        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_JRc, &Model::mc, sizeof(typename Model::Constants)));
-    }
+    copy_constants_to_device<Model>();
     // allocate device memory for SC
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC), sizeof(double*) * m->N_SCs));
     CUDA_CHECK_RETURN(cudaMallocManaged((void**)&(m->d_SC_dist), sizeof(double*) * m->nodes*m->nodes));

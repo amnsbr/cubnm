@@ -8,6 +8,7 @@
 #include <numpy/arrayobject.h>
 #include <vector>
 #include <map>
+#include <functional>
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_statistics.h>
 #include <gsl/gsl_matrix_double.h>
@@ -34,7 +35,6 @@
 #include <complex>
 #include <algorithm>
 #include <memory>
-#include <iomanip>
 #include <stdexcept>
 #include "cubnm/defines.h"
 #include "utils.cpp"
@@ -42,12 +42,11 @@
 #include "./models/base.cpp"
 #include "fc.cpp"
 #include "bnm.cpp"
-#include "./models/rww.cpp"
-#include "./models/rww_fic.cpp"
-#include "./models/rwwex.cpp"
-#include "./models/kuramoto.cpp"
-#include "./models/jr.cpp"
-// other models go here
+
+using std::max; // TODO: find a better fix; This is to be able to use "max" in model equations (similar to cuda)
+using std::min;
+
+#include "models.cpp"
 
 // create a pointer to the model object in current session
 // so that it can be reused in subsequent calls to run_simulations
@@ -265,31 +264,11 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
         if (model != nullptr) {
             delete model; // delete the old model to ensure only one model object exists
         }
-        if (strcmp(model_name, "rWW")==0) {
-            model = new rWWModel(
-                nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, sim_seed, dt, bw_dt
-            );
-        } 
-        else if (strcmp(model_name, "rWWEx")==0) {
-            model = new rWWExModel(
-                nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, sim_seed, dt, bw_dt
-            );
-        } 
-        else if (strcmp(model_name, "Kuramoto")==0) {
-            model = new KuramotoModel(
-                nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, sim_seed, dt, bw_dt
-            );
-        }
-        else if (strcmp(model_name, "JR")==0) {
-            model = new JRModel(
-                nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
-                time_steps, do_delay, sim_seed, dt, bw_dt
-            );
-        }
-        else {
+        auto it = model_factory.find(model_name);
+        if (it != model_factory.end()) {
+            model = it->second(nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, 
+                            time_steps, do_delay, sim_seed, dt, bw_dt);
+        } else {
             std::cerr << "Model " << model_name << " not found" << std::endl;
             Py_RETURN_NONE;
         }

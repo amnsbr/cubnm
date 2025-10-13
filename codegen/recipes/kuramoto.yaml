@@ -1,0 +1,66 @@
+model_name: Kuramoto
+is_osc: true
+gpu_enabled: true
+has_post_bw_step: false
+has_post_integration: false
+
+# State variables used for connectivity and BOLD
+conn_state_var: theta
+bold_state_var: theta
+
+variables:
+  - name: theta
+    type: state_var
+    description: phase angle
+    
+  - name: theta_dot
+    type: intermediate_var
+    description: phase velocity
+    
+  - name: G
+    type: global_param
+    description: global coupling strength
+    
+  - name: init_theta
+    type: regional_param
+    description: initial phase angle
+
+  - name: omega
+    type: regional_param
+    description: natural frequency
+
+  - name: sigma
+    type: regional_param
+    description: noise amplitude
+
+  - name: noise
+    type: noise
+    description: noise for theta
+
+constants:
+  - type: double
+    name: dt
+    value: dt
+    description: time step
+    
+  - type: double
+    name: sqrt_dt
+    value: sqrt(mc.dt)
+    description: square root of time step
+    
+  - type: double
+    name: twopi
+    value: 2.0 * M_PI
+    description: ""
+
+init_equations: |
+  theta = init_theta
+
+restart_equations: |
+  theta = init_theta
+
+step_equations: |
+  theta_dot = omega + G * globalinput
+  theta = theta + dt * theta_dot + sqrt_dt * noise * sigma
+  # Phase reset
+  theta = fmod(theta, twopi)
