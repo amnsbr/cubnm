@@ -1,12 +1,47 @@
 model_name: rWW
 full_name: reduced Wong-Wang (excitatory-inhibitory)
-is_osc: false
-gpu_enabled: true
-has_prep_params: true
-has_post_bw_step: true
-has_post_integration: true
+
+init_equations: |
+  S_E = 0.001
+  S_I = 0.001
+  # Numerical FIC initialization
+  mean_I_E = 0.0
+  delta = init_delta
+  fic_trial = 0
+  _adjust_fic = do_fic & (max_fic_trials > 0)
+  fic_failed = false
+
+restart_equations: |
+  S_E = 0.001
+  S_I = 0.001
+  # Numerical FIC reset
+  mean_I_E = 0.0
+
+step_equations: |
+  # Calculate input currents
+  I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
+  I_I = w_I__I_0 + J_N * S_E - w_II * S_I
+  
+  # Input-output functions
+  aIb_E = a_E * I_E - b_E
+  aIb_I = a_I * I_I - b_I
+  r_E = aIb_E / (1 - exp(-d_E * aIb_E))
+  r_I = aIb_I / (1 - exp(-d_I * aIb_I))
+  
+  # Synaptic dynamics with noise
+  dS_E = noise_S_E * sigma * sqrt_dt + dt_gamma_E * ((1 - S_E) * r_E) - dt_itau_E * S_E
+  dS_I = noise_S_I * sigma * sqrt_dt + dt_gamma_I * r_I - dt_itau_I * S_I
+  
+  S_E += dS_E
+  S_I += dS_I
+  
+  # Clip to valid range
+  S_E = max(0.0, min(1.0, S_E))
+  S_I = max(0.0, min(1.0, S_I))
 
 conn_state_var: S_E
+is_osc: false
+
 bold_state_var: S_E
 
 variables:
@@ -314,12 +349,12 @@ config:
   - type: int
     name: I_SAMPLING_START
     value: 1000
-    description: starting time of numerical FIC I_E sampling (bw iteration)
+    description: starting time of numerical FIC I_E sampling (msec)
   
   - type: int
     name: I_SAMPLING_END
     value: 10000
-    description: end time of numerical FIC I_E sampling (bw iteration)
+    description: end time of numerical FIC I_E sampling (msec)
   
   - type: int
     name: I_SAMPLING_DURATION
@@ -336,43 +371,10 @@ config:
     value: 0.5
     description: how much deviation from FIC target mean rE of 3 Hz is penalized. Set to 0 to disable FIC penalty.
 
-init_equations: |
-  S_E = 0.001
-  S_I = 0.001
-  # Numerical FIC initialization
-  mean_I_E = 0.0
-  delta = init_delta
-  fic_trial = 0
-  _adjust_fic = do_fic & (max_fic_trials > 0)
-  fic_failed = false
-
-restart_equations: |
-  S_E = 0.001
-  S_I = 0.001
-  # Numerical FIC reset
-  mean_I_E = 0.0
-
-step_equations: |
-  # Calculate input currents
-  I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
-  I_I = w_I__I_0 + J_N * S_E - w_II * S_I
-  
-  # Input-output functions
-  aIb_E = a_E * I_E - b_E
-  aIb_I = a_I * I_I - b_I
-  r_E = aIb_E / (1 - exp(-d_E * aIb_E))
-  r_I = aIb_I / (1 - exp(-d_I * aIb_I))
-  
-  # Synaptic dynamics with noise
-  dS_E = noise_S_E * sigma * sqrt_dt + dt_gamma_E * ((1 - S_E) * r_E) - dt_itau_E * S_E
-  dS_I = noise_S_I * sigma * sqrt_dt + dt_gamma_I * r_I - dt_itau_I * S_I
-  
-  S_E += dS_E
-  S_I += dS_I
-  
-  # Clip to valid range
-  S_E = max(0.0, min(1.0, S_E))
-  S_I = max(0.0, min(1.0, S_I))
+# Advanced C++/CUDA specificaitons
+has_prep_params: true
+has_post_bw_step: true
+has_post_integration: true
 
 external_declarations: |
   extern void analytical_fic_het(

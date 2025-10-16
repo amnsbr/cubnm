@@ -44,9 +44,9 @@ class rWWSimGroup(SimGroup):
         max_fic_trials: :obj:`int`
             maximum number of numerical FIC trials. If set to 0, FIC will be done only analytically
         I_SAMPLING_START: :obj:`int`
-            starting time of numerical FIC I_E sampling (bw iteration)
+            starting time of numerical FIC I_E sampling (msec)
         I_SAMPLING_END: :obj:`int`
-            end time of numerical FIC I_E sampling (bw iteration)
+            end time of numerical FIC I_E sampling (msec)
         init_delta: :obj:`float`
             initial delta for numerical FIC adjustment
         fic_penalty_scale: :obj:`float`

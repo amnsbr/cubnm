@@ -1,9 +1,51 @@
 model_name: JR
 full_name: Jansen Rit
-is_osc: false
-gpu_enabled: true
+
+init_equations: |
+  y0 = 0.0
+  y1 = 0.0
+  y2 = 0.0
+  y3 = 0.0
+  y4 = 0.0
+  y5 = 0.0
+  y1_y2 = 0.0
+  s_y1_y2 = 0.0
+
+step_equations: |
+  # Sigmoid terms
+  sigm_y1_y2 = 2.0 * nu_max / (1.0 + exp(r * (v0 - (y1 - y2))))
+  sigm_y0_1  = 2.0 * nu_max / (1.0 + exp(r * (v0 - (a_1 * J * y0))))
+  sigm_y0_3  = 2.0 * nu_max / (1.0 + exp(r * (v0 - (a_3 * J * y0))))
+  
+  # State variable derivatives
+  y0_dot = y3
+  y1_dot = y4
+  y2_dot = y5
+  y3_dot = A * a * sigm_y1_y2 - 2.0 * a * y3 - (pow(a, 2)) * y0
+  y4_dot = A * a * (mu + a_2 * J * sigm_y0_1 + G * globalinput) - 2.0 * a * y4 - (pow(a, 2)) * y1
+  y5_dot = B * b * (a_4 * J * sigm_y0_3) - 2.0 * b * y5 - (pow(b, 2)) * y2
+  
+  # Integration step
+  y0 += dt * y0_dot
+  y1 += dt * y1_dot
+  y2 += dt * y2_dot
+  y3 += dt * y3_dot + sqrt_dt * noise * sigma
+  y4 += dt * y4_dot
+  y5 += dt * y5_dot
+  
+  # Calculate y1_y2 and s(y1_y2) which
+  # are the non-integrated state variables
+  # needed for BOLD and connectivity
+  y1_y2 = y1 - y2
+  # s_y1_y2 is the sigmoid of y1_y2 which will be the
+  # connectivity state variable, i.e., the output to
+  # the other connected nodes. This is calculated based
+  # on SigmoidalJansenRit.pre() method in TVB
+  s_y1_y2 = cmin + (cmax - cmin) / (1.0 + exp(r * (midpoint - (y1_y2))))
 
 conn_state_var: s_y1_y2
+is_osc: false
+
 bold_state_var: y1_y2
 
 variables:
@@ -189,58 +231,6 @@ constants:
     name: midpoint
     value: "6.0"
     description: midpoint of the linear portion of the sigmoid function
-
-init_equations: |
-  y0 = 0.0
-  y1 = 0.0
-  y2 = 0.0
-  y3 = 0.0
-  y4 = 0.0
-  y5 = 0.0
-  y1_y2 = 0.0
-  s_y1_y2 = 0.0
-
-restart_equations: |
-  y0 = 0.0
-  y1 = 0.0
-  y2 = 0.0
-  y3 = 0.0
-  y4 = 0.0
-  y5 = 0.0
-  y1_y2 = 0.0
-  s_y1_y2 = 0.0
-
-step_equations: |
-  # Sigmoid terms
-  sigm_y1_y2 = 2.0 * nu_max / (1.0 + exp(r * (v0 - (y1 - y2))))
-  sigm_y0_1  = 2.0 * nu_max / (1.0 + exp(r * (v0 - (a_1 * J * y0))))
-  sigm_y0_3  = 2.0 * nu_max / (1.0 + exp(r * (v0 - (a_3 * J * y0))))
-  
-  # State variable derivatives
-  y0_dot = y3
-  y1_dot = y4
-  y2_dot = y5
-  y3_dot = A * a * sigm_y1_y2 - 2.0 * a * y3 - (pow(a, 2)) * y0
-  y4_dot = A * a * (mu + a_2 * J * sigm_y0_1 + G * globalinput) - 2.0 * a * y4 - (pow(a, 2)) * y1
-  y5_dot = B * b * (a_4 * J * sigm_y0_3) - 2.0 * b * y5 - (pow(b, 2)) * y2
-  
-  # Integration step
-  y0 += dt * y0_dot
-  y1 += dt * y1_dot
-  y2 += dt * y2_dot
-  y3 += dt * y3_dot + sqrt_dt * noise * sigma
-  y4 += dt * y4_dot
-  y5 += dt * y5_dot
-  
-  # Calculate y1_y2 and s(y1_y2) which
-  # are the non-integrated state variables
-  # needed for BOLD and connectivity
-  y1_y2 = y1 - y2
-  # s_y1_y2 is the sigmoid of y1_y2 which will be the
-  # connectivity state variable, i.e., the output to
-  # the other connected nodes. This is calculated based
-  # on SigmoidalJansenRit.pre() method in TVB
-  s_y1_y2 = cmin + (cmax - cmin) / (1.0 + exp(r * (midpoint - (y1_y2))))
 
 python_config:
   sel_state_var: y1_y2

@@ -1,9 +1,18 @@
 model_name: Kuramoto
 full_name: Kuramoto
-is_osc: true
-gpu_enabled: true
+
+init_equations: |
+  theta = init_theta
+
+step_equations: |
+  theta_dot = omega + G * globalinput
+  theta = theta + dt * theta_dot + sqrt_dt * noise * sigma
+  # Phase reset
+  theta = fmod(theta, twopi)
 
 conn_state_var: theta
+is_osc: true
+
 bold_state_var: theta
 
 variables:
@@ -61,18 +70,6 @@ config:
     value: "true"
     description: set initial theta by randomly sampling from a uniform distribution
     # only used in Python
-
-init_equations: |
-  theta = init_theta
-
-restart_equations: |
-  theta = init_theta
-
-step_equations: |
-  theta_dot = omega + G * globalinput
-  theta = theta + dt * theta_dot + sqrt_dt * noise * sigma
-  # Phase reset
-  theta = fmod(theta, twopi)
 
 # Python class generation configuration
 python_config:

@@ -1,9 +1,29 @@
 model_name: rWWEx
 full_name: reduced Wong Wang (excitatory)
-is_osc: false
-gpu_enabled: true
+citations:
+  - Deco et al. 2013 Journal of Neuroscience (10.1523/JNEUROSCI.1091-13.2013)
+
+init_equations: |
+  S = 0.001
+
+step_equations: |
+  # Calculate total input
+  x = w * J_N * S + G * J_N * globalinput + I0
+  
+  # Input-output function
+  axb = a * x - b
+  r = axb / (1 - exp(-d * axb))
+  
+  # Synaptic dynamics with noise
+  dSdt = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
+  S += dSdt
+  
+  # Clip S to valid range [0, 1]
+  S = max(0.0, min(1.0, S))
 
 conn_state_var: S
+is_osc: false
+
 bold_state_var: S
 
 variables:
@@ -106,27 +126,6 @@ constants:
     name: dt_gamma
     value: mc.dt * mc.gamma
     description: ""
-
-init_equations: |
-  S = 0.001
-
-restart_equations: |
-  S = 0.001
-
-step_equations: |
-  # Calculate total input
-  x = w * J_N * S + G * J_N * globalinput + I0
-  
-  # Input-output function
-  axb = a * x - b
-  r = axb / (1 - exp(-d * axb))
-  
-  # Synaptic dynamics with noise
-  dSdt = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
-  S += dSdt
-  
-  # Clip S to valid range [0, 1]
-  S = max(0.0, min(1.0, S))
 
 # Python class generation configuration
 python_config:

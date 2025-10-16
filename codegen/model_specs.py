@@ -245,6 +245,8 @@ def load_model_from_yaml(yaml_file):
     if 'restart_equations' in data:
         equations = data['restart_equations']
         spec.restart_equations = equations.strip().split('\n') if isinstance(equations, str) else equations
+    else:
+        spec.restart_equations = spec.init_equations.copy()
     
     if 'step_equations' in data:
         equations = data['step_equations']
