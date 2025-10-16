@@ -208,8 +208,6 @@ def add_shared_arguments(parser):
                         help='Simulation noise seed')
     parser.add_argument('--noise_segment_length', type=int, default=30, 
                         help='Noise segment length (seconds)')
-    parser.add_argument('--no_ext_out', action='store_true', 
-                        help='Do not return model state variables')
     parser.add_argument('--states_ts', action='store_true',
                         help='Return model states timeseries')
     parser.add_argument('--states_sampling', type=float, 

@@ -39,8 +39,7 @@ def main():
     args.do_fc = not args.no_fc
     args.do_fcd = not args.no_fcd
     args.fcd_drop_edges = not args.fcd_keep_edges
-    args.ext_out = not args.no_ext_out
-    del args.no_fc, args.no_fcd, args.fcd_keep_edges, args.no_ext_out
+    del args.no_fc, args.no_fcd, args.fcd_keep_edges
 
     # add +/- to gof terms
     for i, term in enumerate(args.gof_terms):
