@@ -1,5 +1,6 @@
 sphinx==7.2.6
 sphinx-autoapi==3.0.0
+astroid~=3.0 # to fix rtd build errors since Oct 2025; following https://github.com/readthedocs/sphinx-autoapi/pull/538
 # sphinx-rtd-theme==2.0.0
 furo==2024.8.6
 sphinx-argparse
