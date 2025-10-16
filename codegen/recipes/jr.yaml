@@ -1,5 +1,8 @@
 model_name: JR
 full_name: Jansen Rit
+citations:
+  - Jansen and Rit 1995 Biological Cybernetics (10.1007/BF00199471) # original description
+  - Ritter et al. 2013 Brain Connectivity (10.1089/brain.2012.0120) # TVB: implementation
 
 init_equations: |
   y0 = 0.0

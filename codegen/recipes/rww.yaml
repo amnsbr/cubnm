@@ -1,5 +1,9 @@
 model_name: rWW
 full_name: reduced Wong-Wang (excitatory-inhibitory)
+citations:
+  - Deco et al. 2014 Journal of Neuroscience (10.1523/JNEUROSCI.5068-13.2014) # main model equations + numerical FIC
+  - Demirtas et al. 2019 Neuron (10.1016/j.neuron.2019.01.017) # analytical FIC
+  - Deco et al. 2018 Current Biology (10.1016/j.cub.2018.07.083) # part of implementation
 
 init_equations: |
   S_E = 0.001
@@ -79,11 +83,11 @@ variables:
     
   - name: dS_E
     type: intermediate_var
-    description: derivative of S_E
+    description: S_E update
     
   - name: dS_I
     type: intermediate_var
-    description: derivative of S_I
+    description: S_I update
     
   - name: mean_I_E
     type: intermediate_var

@@ -47,6 +47,11 @@ class KuramotoSimGroup(SimGroup):
                 - ``'omega'``: natural frequency. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        References
+        ----------        
+        * Kuramoto et al. 1984 "Chemical Oscillations, Waves, and Turbulence"
+        * Cabral et al. 2011 NeuroImage (10.1016/j.neuroimage.2011.04.010)
         """
         self.random_init_theta = random_init_theta
         # parent init must be called after setting

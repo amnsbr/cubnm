@@ -40,6 +40,10 @@ class rWWExSimGroup(SimGroup):
                 - ``'I0'``: external input current. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        References
+        ----------        
+        * Deco et al. 2013 Journal of Neuroscience (10.1523/JNEUROSCI.1091-13.2013)
         """
         # parent init must be called after setting
         # model-specific attributes because

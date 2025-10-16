@@ -184,6 +184,14 @@ class ${class_name}(SimGroup):
             sim_group._set_default_params() # set other parameters to default
             sim_group.run()
 % endif
+% if citations:
+
+        References
+        ----------        
+        % for citation in citations:
+        * ${citation}
+        % endfor
+% endif
         """
 % for cfg in init_configs:
         self.${cfg['name']} = ${cfg['name']}

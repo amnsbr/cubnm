@@ -46,6 +46,11 @@ class JRSimGroup(SimGroup):
                 - ``'a_4'``: average probability of synapses in slow feedback inhibitory loop. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        References
+        ----------        
+        * Jansen and Rit 1995 Biological Cybernetics (10.1007/BF00199471)
+        * Ritter et al. 2013 Brain Connectivity (10.1089/brain.2012.0120)
         """
         # parent init must be called after setting
         # model-specific attributes because

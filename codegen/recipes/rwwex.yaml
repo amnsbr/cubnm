@@ -15,8 +15,8 @@ step_equations: |
   r = axb / (1 - exp(-d * axb))
   
   # Synaptic dynamics with noise
-  dSdt = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
-  S += dSdt
+  dS = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
+  S += dS
   
   # Clip S to valid range [0, 1]
   S = max(0.0, min(1.0, S))
@@ -43,9 +43,9 @@ variables:
     type: intermediate_var
     description: a*x - b
     
-  - name: dSdt
+  - name: dS
     type: intermediate_var
-    description: derivative of S
+    description: S update
     
   - name: G
     type: global_param

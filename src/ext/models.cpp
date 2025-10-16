@@ -7,12 +7,14 @@
 #include "./models/kuramoto.cpp"
 #include "./models/rww.cpp"
 #include "./models/rwwex.cpp"
+#include "./models/wc.cpp"
 
 const std::vector<std::string> MODELS = {
     "JR",
     "Kuramoto",
     "rWW",
     "rWWEx",
+    "WC",
 };
 
 std::map<std::string, std::function<BaseModel*(int, int, int, double, int, int, bool, int, double, double)>> model_factory = {
@@ -31,5 +33,9 @@ std::map<std::string, std::function<BaseModel*(int, int, int, double, int, int, 
     {"rWWEx", [](int nodes, int N_SIMS, int N_SCs, double BOLD_TR, int states_sampling, 
                     int time_steps, bool do_delay, int sim_seed, double dt, double bw_dt) {
         return new rWWExModel(nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, time_steps, do_delay, sim_seed, dt, bw_dt);
+    }},
+    {"WC", [](int nodes, int N_SIMS, int N_SCs, double BOLD_TR, int states_sampling, 
+                    int time_steps, bool do_delay, int sim_seed, double dt, double bw_dt) {
+        return new WCModel(nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, time_steps, do_delay, sim_seed, dt, bw_dt);
     }},
 };

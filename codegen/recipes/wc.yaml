@@ -1,0 +1,180 @@
+model_name: WC
+full_name: Wilson-Cowan
+citations:
+  - Wilson et al. 1972 Biophysical Journal (10.1016/S0006-3495(72)86068-5)
+  - Papadopoulos et al. 2020 PLOS Computational Biology (10.1371/journal.pcbi.1008144) # source of equations and variable values
+
+init_equations: |
+  E = 0.001
+  I = 0.001
+
+step_equations: |
+  # Calculate sigmoid activations
+  S_E = 1.0 / (1.0 + exp(-a_E * (c_EE * E - c_IE * I + G * globalinput + P_E - mu_E)))
+  S_I = 1.0 / (1.0 + exp(-a_I * (c_EI * E - c_II * I + P_I - mu_I)))
+  
+  # Calculate derivatives
+  E_dot = (-E + (1.0 - E) * S_E) * itau_E
+  I_dot = (-I + (1.0 - I) * S_I) * itau_I
+  
+  # Update state variables with noise
+  E += dt * E_dot + sqrt_dt * noise_E * sigma_E
+  I += dt * I_dot + sqrt_dt * noise_I * sigma_I
+  
+  # Clip to valid range [0, 1]
+  E = max(0.0, min(1.0, E))
+  I = max(0.0, min(1.0, I))
+
+conn_state_var: E
+is_osc: false
+
+bold_state_var: E
+
+variables:
+  # State variables
+  - name: E
+    type: state_var
+    description: excitatory population firing rate
+  
+  - name: I
+    type: state_var
+    description: inhibitory population firing rate
+  
+  # Intermediate variables
+  - name: S_E
+    type: intermediate_var
+    description: excitatory sigmoid activation
+  
+  - name: S_I
+    type: intermediate_var
+    description: inhibitory sigmoid activation
+  
+  - name: E_dot
+    type: intermediate_var
+    description: derivative of E
+  
+  - name: I_dot
+    type: intermediate_var
+    description: derivative of I
+  
+  # Global parameter
+  - name: G
+    type: global_param
+    description: global coupling strength
+  
+  # Regional parameters
+  - name: c_EE
+    type: regional_param
+    description: local E to E coupling
+    value: 16
+  
+  - name: c_IE
+    type: regional_param
+    description: local I to E coupling
+    value: 12
+  
+  - name: c_EI
+    type: regional_param
+    description: local E to I coupling
+    value: 15
+  
+  - name: c_II
+    type: regional_param
+    description: local I to I coupling
+    value: 3
+  
+  - name: P_E
+    type: regional_param
+    description: excitatory background drive
+    value: 0.5
+  
+  - name: P_I
+    type: regional_param
+    description: inhibitory background drive
+    value: 0.0
+  
+  - name: sigma_E
+    type: regional_param
+    description: excitatory noise strength
+    value: 0.00005
+  
+  - name: sigma_I
+    type: regional_param
+    description: inhibitory noise strength
+    value: 0.00005
+  
+  # Noise
+  - name: noise_E
+    type: noise
+    description: noise for E
+  
+  - name: noise_I
+    type: noise
+    description: noise for I
+
+constants:
+  - type: double
+    name: dt
+    value: dt
+    description: integration step
+  
+  - type: double
+    name: sqrt_dt
+    value: sqrt(mc.dt)
+    description: square root of integration step
+  
+  - type: double
+    name: tau_E
+    value: "2.5"
+    description: excitatory time constant (ms)
+  
+  - type: double
+    name: tau_I
+    value: "3.75"
+    description: inhibitory time constant (ms)
+  
+  - type: double
+    name: itau_E
+    value: 1.0/mc.tau_E
+    description: inverse of tau_E
+  
+  - type: double
+    name: itau_I
+    value: 1.0/mc.tau_I
+    description: inverse of tau_I
+    
+  - type: double
+    name: a_E
+    value: "1.5"
+    description: excitatory gain
+  
+  - type: double
+    name: a_I
+    value: "1.5"
+    description: inhibitory gain
+  
+  - type: double
+    name: mu_E
+    value: "3.0"
+    description: excitatory firing threshold
+  
+  - type: double
+    name: mu_I
+    value: "3.0"
+    description: inhibitory firing threshold
+
+python_config:
+  sel_state_var: E
+  
+  labels:
+    G: 'G'
+    E: 'E'
+    I: 'I'
+    c_EE: '$c_{EE}$'
+    c_IE: '$c_{IE}$'
+    c_EI: '$c_{EI}$'
+    c_II: '$c_{II}$'
+    P_E: '$P_E$'
+    P_I: '$P_I$'
+    sigma_E: '$\sigma_E$'
+    sigma_I: '$\sigma_I$'

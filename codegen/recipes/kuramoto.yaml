@@ -1,5 +1,8 @@
 model_name: Kuramoto
 full_name: Kuramoto
+citations:
+  - Kuramoto et al. 1984 "Chemical Oscillations, Waves, and Turbulence"
+  - Cabral et al. 2011 NeuroImage (10.1016/j.neuroimage.2011.04.010)
 
 init_equations: |
   theta = init_theta

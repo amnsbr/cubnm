@@ -117,13 +117,13 @@ that are incrementally modified through time steps. The step equations for ``rWW
       r = axb / (1 - exp(-d * axb))
       
       # Eq. 3
-      dSdt = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
-      S += dSdt
+      dS = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
+      S += dS
       # Clip S to valid range [0, 1]
       S = max(0.0, min(1.0, S))
 
 On the left-hand side of equations, state variables and their updates are defined. We also
-define ``intermediate`` variables such as ``axb`` and ``dSdt``, which are not state variables but
+define ``intermediate`` variables such as ``axb`` and ``dS``, which are not state variables but
 are useful for breaking down complex calculations into simpler steps and avoiding repeated computations
 (thereby improving efficiency). On the right-hand side, we can use state variables,
 intermediate variables, noise variables, model parameters, constants, config variables (see below), and the
@@ -227,7 +227,7 @@ The variables section for ``rWWEx`` is:
       - name: axb
         type: intermediate_var
         description: a*x - b
-      - name: dSdt
+      - name: dS
         type: intermediate_var
         description: derivative of S
       - name: G

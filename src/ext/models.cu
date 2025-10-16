@@ -7,12 +7,14 @@
 #include "cubnm/models/kuramoto.cuh"
 #include "cubnm/models/rww.cuh"
 #include "cubnm/models/rwwex.cuh"
+#include "cubnm/models/wc.cuh"
 
 const std::vector<std::string> MODELS = {
     "JR",
     "Kuramoto",
     "rWW",
     "rWWEx",
+    "WC",
 };
 
 // Helper function to copy constants to device
@@ -32,6 +34,10 @@ void copy_constants_to_device() {
     }
     if (strcmp(Model::name, "rWWEx") == 0) {
         CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_rWWExc, &Model::mc, sizeof(typename Model::Constants)));
+        return;
+    }
+    if (strcmp(Model::name, "WC") == 0) {
+        CUDA_CHECK_RETURN(cudaMemcpyToSymbol(d_WCc, &Model::mc, sizeof(typename Model::Constants)));
         return;
     }
 }

@@ -46,9 +46,9 @@ __device__ void rWWExModel::step(
     _state_vars[1] = _intermediate_vars[0] / (1 - exp(-d_rWWExc.d * _intermediate_vars[0]));
 
     // Synaptic dynamics with noise
-    // dSdt = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
+    // dS = dt_gamma * ((1 - S) * r) - dt_itau * S + noise * sqrt_dt * sigma
     _intermediate_vars[1] = d_rWWExc.dt_gamma * ((1 - _state_vars[2]) * _state_vars[1]) - d_rWWExc.dt_itau * _state_vars[2] + noise[noise_idx] * d_rWWExc.sqrt_dt * _regional_params[2];
-    // S += dSdt
+    // S += dS
     _state_vars[2] += _intermediate_vars[1];
 
     // Clip S to valid range [0, 1]

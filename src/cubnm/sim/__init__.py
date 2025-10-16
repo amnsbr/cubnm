@@ -9,6 +9,7 @@ from .jr import JRSimGroup
 from .kuramoto import KuramotoSimGroup
 from .rww import rWWSimGroup
 from .rwwex import rWWExSimGroup
+from .wc import WCSimGroup
 
 __all__ = [
     'SimGroup',
@@ -16,4 +17,5 @@ __all__ = [
     'KuramotoSimGroup',
     'rWWSimGroup',
     'rWWExSimGroup',
+    'WCSimGroup',
 ]

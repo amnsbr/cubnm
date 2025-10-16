@@ -64,6 +64,12 @@ class rWWSimGroup(SimGroup):
                 - ``'wIE'``: inhibitory to excitatory weight. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        References
+        ----------        
+        * Deco et al. 2014 Journal of Neuroscience (10.1523/JNEUROSCI.5068-13.2014)
+        * Demirtas et al. 2019 Neuron (10.1016/j.neuron.2019.01.017)
+        * Deco et al. 2018 Current Biology (10.1016/j.cub.2018.07.083)
         """
         self.do_fic = do_fic
         self.max_fic_trials = max_fic_trials
