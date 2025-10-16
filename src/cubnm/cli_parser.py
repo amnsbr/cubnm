@@ -123,23 +123,46 @@ def get_models():
     :obj:`list` of :obj:`str`
     """
     if os.environ.get("READTHEDOCS") == "True":
-        # as I'm not sure what is the cwd when docs are being built
-        # on readthedocs, I'm using the repository path as a more
-        # certain way to get the path to sim.py
-        sim_py_path = os.path.join(os.environ["READTHEDOCS_REPOSITORY_PATH"], "src", "cubnm", "sim.py")
+        init_py_path = os.path.join(
+            os.environ["READTHEDOCS_REPOSITORY_PATH"], 
+            "src", "cubnm", "sim", "__init__.py"
+        )
     else:
         try:
             # when user runs the CLI
-            sim_py_path = os.path.abspath(files("cubnm").joinpath("sim.py").as_posix())
+            init_py_path = os.path.abspath(
+                files("cubnm").joinpath("sim", "__init__.py").as_posix()
+            )
         except ModuleNotFoundError:
             # when running sphinx locally current directory is docs
-            sim_py_path = os.path.abspath(os.path.join("..", "src", "cubnm", "sim.py"))
-    # get class names of sim.py without importing it
-    class_names = get_class_names(sim_py_path)
-    # get model names from SimGroup classes
-    model_names = [c.replace("SimGroup", "") for c in class_names if c.endswith("SimGroup")]
-    # remove the empty string corresponding to the base class
-    model_names.remove('')
+            init_py_path = os.path.abspath(
+                os.path.join("..", "src", "cubnm", "sim", "__init__.py")
+            )
+    
+    # parse __all__ from __init__.py
+    with open(init_py_path, "r", encoding="utf-8") as file:
+        tree = ast.parse(file.read(), filename=init_py_path)
+    
+    model_names = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == '__all__':
+                    if isinstance(node.value, ast.List):
+                        model_names = [
+                            elt.s if hasattr(elt, 's') else elt.value 
+                            for elt in node.value.elts 
+                            if isinstance(elt, (ast.Str, ast.Constant))
+                        ]
+                    break
+    
+    # Filter to only keep SimGroup classes (excluding base SimGroup)
+    model_names = [
+        name.replace("SimGroup", "") 
+        for name in model_names 
+        if name.endswith("SimGroup") and name != "SimGroup"
+    ]
+    
     return model_names
 
 
