@@ -13,10 +13,11 @@ class ModelVariable:
     """
     Model variable with its properties.
     """
-    def __init__(self, name, var_type, description=None):
+    def __init__(self, name, var_type, value=None, description=None):
         self.name = name
         self.var_type = var_type
         self.description = description
+        self.value = value
         # index across variables of the same type
         # will be determined later
         self.index = None
@@ -49,16 +50,21 @@ class ModelSpec:
 
         self.variables = OrderedDict()
         
+        # Python class generation configuration
+        self.python_config = {}
+        
         # will be computed automatically
         self._var_indices = {}
         self._var_arrays = {}
 
+        # TODO: add model citations
+
     
-    def add_variable(self, name, var_type, description=None):
+    def add_variable(self, name, var_type, value=None, description=None):
         """
         Add a variable to the model.
         """
-        var = ModelVariable(name, var_type, description)
+        var = ModelVariable(name, var_type, value, description)
         self.variables[name] = var
         return var
     
@@ -124,6 +130,7 @@ class ModelSpec:
     def to_dict(self):
         """
         Convert to dictionary for mako template rendering.
+        Returns a flat dictionary suitable for direct use as mako context.
         """
         counts = self.get_counts()
         
@@ -132,15 +139,24 @@ class ModelSpec:
             "conn_state_var must be defined in the model specification"
         assert (self.bold_state_var is not None), \
             "bold_state_var must be defined in the model specification"
+        
+        conn_state_var_idx = None
+        bold_state_var_idx = None
         for name, var in self.variables.items():
             if var.var_type == 'state_var':
                 if self.conn_state_var == name:
                     conn_state_var_idx = var.index
                 if self.bold_state_var == name:
                     bold_state_var_idx = var.index
+        
+        assert conn_state_var_idx is not None, \
+            f"conn_state_var '{self.conn_state_var}' not found in state variables"
+        assert bold_state_var_idx is not None, \
+            f"bold_state_var '{self.bold_state_var}' not found in state variables"
     
         return {
             'model_name': self.model_name,
+            'full_name': getattr(self, 'full_name', self.model_name),
             **counts,
             'conn_state_var_idx': conn_state_var_idx,
             'bold_state_var_idx': bold_state_var_idx,
@@ -161,6 +177,7 @@ class ModelSpec:
             'step_equations': self.step_equations,
             'restart_equations': self.restart_equations,
             'yaml_path': getattr(self, 'yaml_path', 'N/A'),
+            'python_config': self.python_config,
         }
 
 
@@ -184,6 +201,7 @@ def load_model_from_yaml(yaml_file):
     
     # create ModelSpec
     spec = ModelSpec(data['model_name'])
+    spec.full_name = data.get('full_name', spec.model_name)
 
     spec.yaml_path = os.path.relpath(yaml_file, PACKAGE_ROOT)
     
@@ -202,7 +220,8 @@ def load_model_from_yaml(yaml_file):
         spec.add_variable(
             var['name'], 
             var['type'], 
-            var.get('description', ''),
+            var.get('value', None),
+            var.get('description', '')
         )
     
     # add constants
@@ -232,40 +251,35 @@ def load_model_from_yaml(yaml_file):
         spec.step_equations = equations.strip().split('\n') if isinstance(equations, str) else equations
     
     # external declarations and helper functions
-    # (currently only used for rWW-FIC)
     spec.external_declarations = data.get('external_declarations')
-    spec.cpp_includes = data.get('cpp_includes', '')
+    spec.cpp_includes = data.get('cpp_includes')
 
-    # # additional implementations
-    # # (currently only used for rWW-FIC)
+    # custom C++ methods
     spec.custom_methods = data.get('custom_methods', {})
+    
+    # python <Model>SimGroup configuration
+    spec.python_config = data.get('python_config', {})
+    
     # ensure required custom methods are provided
-    if len(spec.config) > 0:
-        assert 'set_conf' in spec.custom_methods, \
-            "If config parameters are defined, a custom method 'set_conf' must be provided."
     if spec.has_prep_params:
         assert 'prep_params' in spec.custom_methods, \
             "If 'has_prep_params' is True, a custom method 'prep_params' must be provided."
-    # TODO: define post_bw_step and post_integration hooks using pseudocode similar
-    # to init, restart, and step equations
     if spec.has_post_bw_step:
         required_methods = {'_j_post_bw_step', 'h_post_bw_step', 'post_bw_step'}
-        missing = required_methods - set(data.get('custom_methods', {}))
+        missing = required_methods - set(spec.custom_methods.keys())
         assert not missing, (
             f"Missing required custom methods: {', '.join(missing)}. "
             "If 'has_post_bw_step' is True, you must define all: "
             f"{', '.join(required_methods)}."
         )
-    if spec.has_post_bw_step:
+    if spec.has_post_integration:
         required_methods = {'h_post_integration', 'post_integration'}
-        missing = required_methods - set(data.get('custom_methods', {}))
+        missing = required_methods - set(spec.custom_methods.keys())
         assert not missing, (
             f"Missing required custom methods: {', '.join(missing)}. "
             "If 'has_post_integration' is True, you must define all: "
             f"{', '.join(required_methods)}."
-        )        
-
-
+        )
     
     return spec
 

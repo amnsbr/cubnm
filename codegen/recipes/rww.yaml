@@ -1,4 +1,5 @@
 model_name: rWW
+full_name: reduced Wong-Wang (excitatory-inhibitory)
 is_osc: false
 gpu_enabled: true
 has_prep_params: true
@@ -64,22 +65,27 @@ variables:
   - name: G
     type: global_param
     description: global coupling strength
+    # has no default
     
   - name: w_p
     type: regional_param
     description: local excitatory recurrence
+    value: 1.4
     
   - name: J_N
     type: regional_param
     description: synaptic coupling strength
+    value: 0.15
     
-  - name: w_IE
+  - name: wIE
     type: regional_param
     description: inhibitory to excitatory weight
+    value: 1.0
     
   - name: sigma
     type: regional_param
     description: noise amplitude
+    value: 0.01
     
   - name: noise_S_E
     type: noise
@@ -298,18 +304,13 @@ config:
   - type: bool
     name: do_fic
     value: "true"
-    description: whether to apply feedback inhibition control
+    description: whether to apply feedback inhibition control. If provided wIE parameters will be ignored
 
   - type: int
     name: max_fic_trials
     value: 0
-    description: maximum number of numerical FIC trials
-  
-  - type: bool
-    name: fic_verbose
-    value: "false"
-    description: FIC verbosity
-  
+    description: maximum number of numerical FIC trials. If set to 0, FIC will be done only analytically
+    
   - type: int
     name: I_SAMPLING_START
     value: 1000
@@ -330,6 +331,11 @@ config:
     value: 0.02
     description: initial delta for numerical FIC adjustment
 
+  - type: double # only used in Python code
+    name: fic_penalty_scale
+    value: 0.5
+    description: how much deviation from FIC target mean rE of 3 Hz is penalized. Set to 0 to disable FIC penalty.
+
 init_equations: |
   S_E = 0.001
   S_I = 0.001
@@ -348,7 +354,7 @@ restart_equations: |
 
 step_equations: |
   # Calculate input currents
-  I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - w_IE * S_I
+  I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
   I_I = w_I__I_0 + J_N * S_E - w_II * S_I
   
   # Input-output functions
@@ -389,8 +395,6 @@ custom_methods:
                 this->modifies_params = true;
             } else if (pair.first == "max_fic_trials") {
                 this->conf.max_fic_trials = std::stoi(pair.second);
-            } else if (pair.first == "fic_verbose") {
-                this->conf.fic_verbose = (bool)std::stoi(pair.second);
             } else if (pair.first == "I_SAMPLING_START") {
                 this->conf.I_SAMPLING_START = (std::stoi(pair.second) / 1000) / this->bw_dt;
             } else if (pair.first == "I_SAMPLING_END") {
@@ -571,12 +575,10 @@ custom_methods:
                         // up- or downregulate inhibition
                         if ((_intermediate_vars[6]) < -0.026) {
                             _regional_params[2] -= _intermediate_vars[5];
-                            // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
                             _intermediate_vars[5] -= 0.001;
                             _intermediate_vars[5] = CUDA_MAX(_intermediate_vars[5], 0.001);
                         } else {
                             _regional_params[2] += _intermediate_vars[5];
-                            // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
                         }
                     }
                 }
@@ -648,3 +650,218 @@ custom_methods:
             }
         }
     }
+
+# Python class generation configuration
+python_config:
+  sel_state_var: r_E
+  
+  modifiable_params:
+    - wIE
+  
+  exclude_configs:
+    - I_SAMPLING_DURATION
+  
+  labels:
+    G: 'G'
+    w_p: '$w^{p}$'
+    J_N: '$J^{N}$'
+    wIE: '$w^{IE}$'
+    sigma: '$\sigma$'
+    I_E: '$I^E$'
+    I_I: '$I^I$'
+    r_E: '$r^E$'
+    r_I: '$r^I$'
+    S_E: '$S^E$'
+    S_I: '$S^I$'
+  
+  custom_methods:
+    N_setter: |
+      @SimGroup.N.setter
+      def N(self, N):
+          super(rWWSimGroup, rWWSimGroup).N.__set__(self, N)
+          if self.do_fic:
+              self.param_lists["wIE"] = np.zeros((self._N, self.nodes), dtype=float)
+
+    _process_out: |
+      def _process_out(self, out):
+          super()._process_out(out)
+          if self.do_fic:
+              # FIC stats
+              self.fic_unstable = self._global_bools[0]
+              self.fic_failed = self._global_bools[1]
+              self.fic_ntrials = self._global_ints[0]
+              # write FIC (+ numerical adjusted) wIE to param_lists
+              self.param_lists["wIE"] = self._regional_params[2].reshape(self.N, -1)
+
+    score: |
+      def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, **kwargs):
+          """
+          Calculates individual goodness-of-fit terms and aggregates them.
+          In FIC models also calculates fic_penalty. Note that while 
+          FIC penalty is included in the cost function of optimizer, 
+          it is not included in the aggregate GOF.
+
+          Parameters
+          --------
+          emp_fc_tril: :obj:`np.ndarray`
+              1D array of empirical FC lower triangle. Shape: (edges,)
+          emp_fcd_tril: :obj:`np.ndarray`
+              1D array of empirical FCD lower triangle. Shape: (window_pairs,)
+          emp_bold: :obj:`np.ndarray` or None
+              cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
+              Motion outliers should either be excluded (not recommended as it disrupts
+              the temporal structure) or replaced with zeros.
+              If provided emp_fc_tril and emp_fcd_tril will be ignored.
+          **kwargs:
+              keyword arguments passed to `cubnm.sim.SimGroup.score`
+
+          Returns
+          -------
+          scores: :obj:`pd.DataFrame`
+              The goodness of fit measures (columns) of each simulation (rows)
+          """
+          scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold, **kwargs)
+          # calculate FIC penalty
+          if self.do_fic & (self.fic_penalty_scale > 0):
+              # calculate time-averaged r_E in each simulation-node
+              if self.states_ts:
+                  mean_r_E = self.sim_states["r_E"][:, self.n_states_samples_remove:].mean(axis=1)
+              else:
+                  mean_r_E = self.sim_states["r_E"]
+              for idx in range(self.N):
+                  # absolute deviation from target of 3 Hz
+                  diff_r_E = np.abs(mean_r_E[idx, :] - 3)
+                  if (diff_r_E > 1).sum() > 0:
+                      # at least one node has a deviation greater than 1
+                      # only consider deviations greater than 1
+                      # in the penalty
+                      diff_r_E[diff_r_E <= 1] = np.NaN
+                      # within each node the FIC penalty decreases
+                      # exponentially as the deviations gets smaller
+                      # the penalty max value in each node is 1
+                      # which is then scaled by fic_penalty_scale
+                      # and averaged across nodes (with 0s/NaNs)
+                      # in node with no deviation > 1 Hz
+                      scores.loc[idx, "-fic_penalty"] = (
+                          -np.nansum(1 - np.exp(-0.05 * (diff_r_E - 1)))
+                          * self.fic_penalty_scale / self.nodes
+                      )
+                  else:
+                      scores.loc[idx, "-fic_penalty"] = 0
+          return scores
+
+    _get_save_data: |
+      def _get_save_data(self):
+          """
+          Get the simulation outputs and parameters to be saved to disk
+
+          Returns
+          -------
+          out_data: :obj:`dict`
+              dictionary of simulation outputs and parameters
+          """
+          out_data = super()._get_save_data()
+          if self.do_fic:
+              out_data.update(
+                  fic_unstable=self.fic_unstable,
+                  fic_failed=self.fic_failed,
+                  fic_ntrials=self.fic_ntrials,
+              )
+          return out_data
+
+    _problem_init: |
+      def _problem_init(self, problem):
+          """
+          Extends BNMProblem initialization and includes FIC penalty
+          if indicated.
+
+          Parameters
+          ----------
+          problem: :obj:`cubnm.optimize.BNMProblem`
+              optimization problem object
+          """
+          if (self.do_fic) & ("wIE" in problem.het_params):
+              raise ValueError(
+                  "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
+              )
+          if problem.multiobj:
+              if self.do_fic & (self.fic_penalty_scale > 0):
+                  problem.obj_names.append("-fic_penalty")
+                  problem.n_obj += 1
+
+    _problem_evaluate: |
+      def _problem_evaluate(self, problem, X, out, *args, **kwargs):
+          """
+          Extends BNMProblem evaluation and includes FIC penalty
+          in the cost function if indicated.
+
+          Parameters
+          ----------
+          X: :obj:`np.ndarray`
+              the normalized parameters of current population in range [0, 1]. 
+              Shape: (N, ndim)
+          out: :obj:`dict`
+              the output dictionary to store the results with keys ``'F'`` and ``'G'``.
+              Currently only ``'F'`` (cost) is used.
+          *args, **kwargs
+          """
+          # Note: scores (inidividual GOF measures) is passed on in kwargs 
+          # in the internal mechanism of pymoo evaluation function
+          scores = kwargs["scores"][-1]
+          if self.do_fic & (self.fic_penalty_scale > 0):
+              if problem.multiobj:
+                  out["F"] = np.concatenate(
+                      [out["F"], -scores.loc[:, ["-fic_penalty"]].values], axis=1
+                  )
+              else:
+                  out["F"] -= scores.loc[:, "-fic_penalty"].values
+    _get_test_configs: |
+      @classmethod
+      def _get_test_configs(cls, cpu_gpu_identity=False):
+          """
+          Get configs for testing the simulations
+
+          Parameters
+          ----------
+          cpu_gpu_identity: :obj:`bool`
+              indicates whether configs are for CPU/GPU identity tests
+              in which case force_cpu is not included in the configs
+              since tests will be done on both CPU and GPU
+
+          Returns
+          -------
+          configs: :obj:`dict` of :obj:`list`
+          """
+          configs = super()._get_test_configs(cpu_gpu_identity)
+          configs.update({
+              # 0: no FIC
+              # 1: analytical FIC
+              # 2: analytical + numerical FIC
+              'do_fic': [0, 1, 2]
+          })
+          return configs
+
+    _get_test_instance: |
+      @classmethod
+      def _get_test_instance(cls, opts):
+          """
+          Initializes an instance that is used in tests
+
+          Parameters
+          ----------
+          opts: :obj:`dict`
+              dictionary of test options
+
+          Returns
+          -------
+          sim_group: :obj:`cubnm.sim.rWWSimGroup`
+              simulation group object of the test simulation
+              which is not run yet
+          """
+          # initialze sim group
+          sim_group = super()._get_test_instance(opts)
+          # set do_fic
+          sim_group.do_fic = opts['do_fic'] > 0
+          if opts['do_fic'] == 2:
+              sim_group.max_fic_trials = 5
+          return sim_group

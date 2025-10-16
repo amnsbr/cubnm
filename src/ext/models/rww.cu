@@ -54,7 +54,7 @@ __device__ void rWWModel::step(
         double* noise, long& noise_idx
         ) {
     // Calculate input currents
-    // I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - w_IE * S_I
+    // I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
     _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _regional_params[1] * _state_vars[4] + tmp_globalinput * _global_params[0] * _regional_params[1] - _regional_params[2] * _state_vars[5];
     // I_I = w_I__I_0 + J_N * S_E - w_II * S_I
     _state_vars[1] = d_rWWc.w_I__I_0 + _regional_params[1] * _state_vars[4] - d_rWWc.w_II * _state_vars[5];
@@ -109,12 +109,10 @@ __device__ __NOINLINE__ void rWWModel::post_bw_step(
                     // up- or downregulate inhibition
                     if ((_intermediate_vars[6]) < -0.026) {
                         _regional_params[2] -= _intermediate_vars[5];
-                        // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by -%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
                         _intermediate_vars[5] -= 0.001;
                         _intermediate_vars[5] = CUDA_MAX(_intermediate_vars[5], 0.001);
                     } else {
                         _regional_params[2] += _intermediate_vars[5];
-                        // printf("sim %d node %d (trial %d): %f ==> adjusting w_IE by +%f ==> %f\n", sim_idx, j, fic_trial, I_E_ba_diff, delta, w_IE);
                     }
                 }
             }
@@ -162,3 +160,4 @@ __device__ __NOINLINE__ void rWWModel::post_integration(
         }
     }
 }
+

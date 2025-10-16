@@ -1,4 +1,5 @@
 model_name: Kuramoto
+full_name: Kuramoto
 is_osc: true
 gpu_enabled: true
 
@@ -17,18 +18,22 @@ variables:
   - name: G
     type: global_param
     description: global coupling strength
+    # no default
     
   - name: init_theta
     type: regional_param
     description: initial phase angle
+    # will be set randomly in Python
 
   - name: omega
     type: regional_param
     description: natural frequency
+    value: np.pi
 
   - name: sigma
     type: regional_param
     description: noise amplitude
+    value: 0.17
 
   - name: noise
     type: noise
@@ -50,6 +55,13 @@ constants:
     value: 2.0 * M_PI
     description: ""
 
+config:
+  - type: bool
+    name: random_init_theta
+    value: "true"
+    description: set initial theta by randomly sampling from a uniform distribution
+    # only used in Python
+
 init_equations: |
   theta = init_theta
 
@@ -61,3 +73,24 @@ step_equations: |
   theta = theta + dt * theta_dot + sqrt_dt * noise * sigma
   # Phase reset
   theta = fmod(theta, twopi)
+
+# Python class generation configuration
+python_config:
+  sel_state_var: theta
+    
+  # TODO: labels
+
+  custom_methods:
+    N_setter: |
+      @SimGroup.N.setter
+      def N(self, N):
+          super(KuramotoSimGroup, KuramotoSimGroup).N.__set__(self, N)
+          if self.random_init_theta:
+              # sample from uniform distribution of [0, 2*pi] across nodes and
+              # repeat it across simulations
+              # use the same random seed as the simulation noise
+              rng = np.random.default_rng(self.sim_seed)
+              self.param_lists["init_theta"] = np.tile(rng.uniform(0, 2 * np.pi, self.nodes), (self._N, 1))
+          else:
+              self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
+              print("Warning: init_theta is set to zero")

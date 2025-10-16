@@ -59,13 +59,13 @@ public:
 
     // Config struct - must always be defined even if empty
     struct Config {
-        bool do_fic{true}; // whether to apply feedback inhibition control
-        int max_fic_trials{0}; // maximum number of numerical FIC trials
-        bool fic_verbose{false}; // FIC verbosity
+        bool do_fic{true}; // whether to apply feedback inhibition control. If provided wIE parameters will be ignored
+        int max_fic_trials{0}; // maximum number of numerical FIC trials. If set to 0, FIC will be done only analytically
         int I_SAMPLING_START{1000}; // starting time of numerical FIC I_E sampling (bw iteration)
         int I_SAMPLING_END{10000}; // end time of numerical FIC I_E sampling (bw iteration)
         int I_SAMPLING_DURATION{I_SAMPLING_END - I_SAMPLING_START + 1}; // duration of numerical FIC I_E sampliing (bw iterations)
         double init_delta{0.02}; // initial delta for numerical FIC adjustment
+        double fic_penalty_scale{0.5}; // how much deviation from FIC target mean rE of 3 Hz is penalized. Set to 0 to disable FIC penalty.
     };
 
     using BaseModel::BaseModel;

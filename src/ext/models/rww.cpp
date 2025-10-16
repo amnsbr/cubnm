@@ -59,8 +59,6 @@ void rWWModel::set_conf(std::map<std::string, std::string> config_map) {
             this->modifies_params = true;
         } else if (pair.first == "max_fic_trials") {
             this->conf.max_fic_trials = std::stoi(pair.second);
-        } else if (pair.first == "fic_verbose") {
-            this->conf.fic_verbose = (bool)std::stoi(pair.second);
         } else if (pair.first == "I_SAMPLING_START") {
             this->conf.I_SAMPLING_START = (std::stoi(pair.second) / 1000) / this->bw_dt;
         } else if (pair.first == "I_SAMPLING_END") {
@@ -193,7 +191,7 @@ void rWWModel::h_step(
         double* noise, long& noise_idx
         ) {
     // Calculate input currents
-    // I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - w_IE * S_I
+    // I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
     _state_vars[0] = rWWModel::mc.w_E__I_0 + _regional_params[0] * _regional_params[1] * _state_vars[4] + tmp_globalinput * _global_params[0] * _regional_params[1] - _regional_params[2] * _state_vars[5];
     // I_I = w_I__I_0 + J_N * S_E - w_II * S_I
     _state_vars[1] = rWWModel::mc.w_I__I_0 + _regional_params[1] * _state_vars[4] - rWWModel::mc.w_II * _state_vars[5];

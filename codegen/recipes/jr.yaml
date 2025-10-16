@@ -1,4 +1,5 @@
 model_name: JR
+full_name: Jansen Rit
 is_osc: false
 gpu_enabled: true
 
@@ -77,30 +78,37 @@ variables:
   - name: G
     type: global_param
     description: global coupling strength
+    # no default
     
   - name: J
     type: regional_param
     description: average number of synapses
+    value: 135.0
     
   - name: a_1
     type: regional_param
     description: average probability of synapses in feedback excitatory loop
+    value: 1.0
     
   - name: a_2
     type: regional_param
     description: average probability of synapses in slow feedback excitatory loop
+    value: 0.8
     
   - name: a_3
     type: regional_param
     description: average probability of synapses in feedback inhibitory loop
+    value: 0.25
     
   - name: a_4
     type: regional_param
     description: average probability of synapses in slow feedback inhibitory loop
+    value: 0.25
     
   - name: sigma
     type: regional_param
     description: local noise sigma
+    value: 0.0001
     
   - name: noise
     type: noise
@@ -233,3 +241,8 @@ step_equations: |
   # the other connected nodes. This is calculated based
   # on SigmoidalJansenRit.pre() method in TVB
   s_y1_y2 = cmin + (cmax - cmin) / (1.0 + exp(r * (midpoint - (y1_y2))))
+
+python_config:
+  sel_state_var: y1_y2
+
+  # TODO: labels

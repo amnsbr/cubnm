@@ -16,6 +16,14 @@ void KuramotoModel::init_constants(double dt) {
     mc.sqrt_dt = sqrt(mc.dt); // square root of integration step
     mc.twopi = 2.0 * M_PI;
 }
+void KuramotoModel::set_conf(std::map<std::string, std::string> config_map) {
+    set_base_conf(config_map);
+    for (const auto& pair : config_map) {
+        if (pair.first == "random_init_theta") {
+            this->conf.random_init_theta = (bool)std::stoi(pair.second);
+        }
+    }
+}
 
 void KuramotoModel::h_init(
     double* _state_vars, double* _intermediate_vars,

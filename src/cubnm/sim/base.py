@@ -17,7 +17,7 @@ from cubnm._setup_opts import (
     noise_segment_flag
 )
 from cubnm import utils, datasets
-from . import _version
+from .. import _version
 __version__ = _version.get_versions()['version']
 
 try:
@@ -48,7 +48,6 @@ class SimGroup:
         out_dir=None,
         dt='0.1',
         bw_dt='1.0',
-        ext_out=True,
         states_ts=False,
         states_sampling=None,
         noise_out=False,
@@ -102,8 +101,6 @@ class SimGroup:
             model integration time step (in msec)
         bw_dt: :obj:`decimal.Decimal` or :obj:`str`
             Ballon-Windkessel integration time step (in msec)
-        ext_out: :obj:`bool`
-            return model state variables to self.sim_states
         states_ts: :obj:`bool`
             return time series of model states to self.sim_states
             Note that this will increase the memory usage and is not
@@ -222,9 +219,8 @@ class SimGroup:
         self._dt = Decimal(dt)
         self._bw_dt = Decimal(bw_dt)
         self._check_dt()
-        self.ext_out = ext_out
         self.states_sampling = states_sampling
-        self.states_ts = self.ext_out & states_ts
+        self.states_ts = states_ts
         self.gof_terms = gof_terms
         self.do_fc = do_fc
         self.do_fcd = do_fcd
@@ -587,7 +583,6 @@ class SimGroup:
             "duration": self.duration,
             "TR": self.TR,
             "nodes": self.nodes,
-            "ext_out": self.ext_out,
             "states_ts": self.states_ts,
             "states_sampling": self.states_sampling,
             "do_fc": self.do_fc,
@@ -720,7 +715,7 @@ class SimGroup:
             self._regional_params,
             np.ascontiguousarray(self.param_lists["v"]),
             self._model_config,
-            self.ext_out,
+            True, # ext_out: a depracated option that is always True now
             self.states_ts,
             self.noise_out,
             self.do_delay,
@@ -777,6 +772,11 @@ class SimGroup:
             run time of the simulations
         - sim_bold: :obj:`np.ndarray`
             simulated BOLD time series. Shape: (N_SIMS, duration/TR, nodes)
+        - sim_states: :obj:`dict` of :obj:`np.ndarray`
+            simulated state variables with keys as state names
+            and values as arrays with the shape (N_SIMS, nodes)
+            when ``states_ts`` is False, and (N_SIMS, duration/TR, nodes)
+            when ``states_ts`` is True
 
         If ``do_fc`` is ``True``, additionally includes:
 
@@ -787,31 +787,22 @@ class SimGroup:
 
         - sim_fcd_trils: :obj:`np.ndarray`
             simulated FCD lower triangle. Shape: (N_SIMS, n_window_pairs)
-
-        If ``ext_out`` is True, additionally includes:
-
-        - sim_states: :obj:`dict` of :obj:`np.ndarray`
-            simulated state variables with keys as state names
-            and values as arrays with the shape (N_SIMS, nodes)
-            when ``states_ts`` is False, and (N_SIMS, duration/TR, nodes)
-            when ``states_ts`` is True
         """
         # assign the output to object attributes
         self.__dict__.update(out)
         # reshape the simulated BOLD, FC and FCD to (N, ...)
         self.sim_bold = self.sim_bold.reshape(self.N, -1, self.nodes)
+        # process sim states into a dictionary
+        # TODO: ensure each state's array is a view and not a copy of the original
+        self.sim_states = {}
+        for state_i, state_name in enumerate(self.state_names):
+            self.sim_states[state_name] = self._sim_states[state_i, :, :]
+            if self.states_ts:
+                self.sim_states[state_name] = self.sim_states[state_name].reshape(self.N, -1, self.nodes)
         if self.do_fc:
             self.sim_fc_trils = self.sim_fc_trils.reshape(self.N, -1)
             if self.do_fcd:
                 self.sim_fcd_trils = self.sim_fcd_trils.reshape(self.N, -1)
-        if self.ext_out:
-            # process sim states into a dictionary
-            # TODO: ensure each state's array is a view and not a copy of the original
-            self.sim_states = {}
-            for state_i, state_name in enumerate(self.state_names):
-                self.sim_states[state_name] = self._sim_states[state_i, :, :]
-                if self.states_ts:
-                    self.sim_states[state_name] = self.sim_states[state_name].reshape(self.N, -1, self.nodes)
 
     def get_state_averages(self):
         """
@@ -1014,20 +1005,20 @@ class SimGroup:
             obj = copy.copy(self)
         obj.param_lists = {k: v[key][np.newaxis, ...] for k, v in self.param_lists.items()}
         obj.sim_bold = self.sim_bold[key][np.newaxis, ...]
+        obj.sim_states = {k: v[key][np.newaxis, ...] for k, v in self.sim_states.items()}
         if obj.do_fc:
             obj.sim_fc_trils = self.sim_fc_trils[key][np.newaxis, ...]
             if obj.do_fcd:
                 obj.sim_fcd_trils = self.sim_fcd_trils[key][np.newaxis, ...]
-        if obj.ext_out:
-            obj.sim_states = {k: v[key][np.newaxis, ...] for k, v in self.sim_states.items()}
         obj.N = 1
         return obj
 
-    def clear(self):
+    @property
+    def _to_clear(self):
         """
-        Clear the simulation outputs
+        List of attributes to be cleared when clear() is called
         """
-        for attr in [
+        attrs = [
             "sim_bold", 
             "sim_fc_trils", 
             "sim_fcd_trils", 
@@ -1036,7 +1027,14 @@ class SimGroup:
             "_noise",
             "_shuffled_nodes",
             "_shuffled_ts",
-        ]:
+        ]
+        return [attr for attr in attrs if hasattr(self, attr)]
+
+    def clear(self):
+        """
+        Clear the simulation outputs
+        """
+        for attr in self._to_clear:
             if hasattr(self, attr):
                 delattr(self, attr)
         gc.collect()
@@ -1207,12 +1205,11 @@ class SimGroup:
         out_data = dict(
             sim_bold=self.sim_bold,
         )
+        out_data.update(self.sim_states)
         if self.do_fc:
             out_data['sim_fc_trils'] = self.sim_fc_trils
         if self.do_fcd:
             out_data['sim_fcd_trils'] = self.sim_fcd_trils
-        if self.ext_out:
-            out_data.update(self.sim_states)
         out_data.update(self.param_lists)
         return out_data
 
@@ -1289,521 +1286,6 @@ class SimGroup:
             **opts
         )
         return sim_group
-
-class rWWSimGroup(SimGroup):
-    model_name = "rWW"
-    global_param_names = ["G"]
-    regional_param_names = ["w_p", "J_N", "wIE", "sigma"]
-    state_names = ["I_E", "I_I", "r_E", "r_I", "S_E", "S_I"]
-    sel_state_var = "r_E" # TODO: use all states
-    n_noise = 2
-    default_params = {
-        "G": None, # required, and doesn't have a default
-        "w_p": 1.4,
-        "J_N": 0.15,
-        "sigma": 0.01,
-        "wIE": 1.0, # only used if do_fic is False
-    }
-    def __init__(self, 
-                 *args, 
-                 do_fic = True,
-                 max_fic_trials = 0,
-                 fic_penalty_scale = 0.5,
-                 fic_i_sampling_start = 1000,
-                 fic_i_sampling_end = 10000,
-                 fic_init_delta = 0.02,
-                 **kwargs):
-        """
-        Group of reduced Wong-Wang simulations (Deco 2014) 
-        that are executed in parallel
-
-        Parameters
-        ---------
-        do_fic: :obj:`bool`
-            do analytical (Demirtas 2019) & numerical (Deco 2014) 
-            Feedback Inhibition Control.
-            If provided wIE parameters will be ignored
-        max_fic_trials: :obj:`int`
-            maximum number of trials for FIC numerical adjustment.
-            If set to 0, FIC will be done only analytically
-        fic_penalty_scale: :obj:`bool`
-            how much deviation from FIC target mean rE of 3 Hz
-            is penalized. Set to 0 to disable FIC penalty.
-        fic_i_sampling_start: :obj:`int`
-            starting time of numerical FIC I_E sampling (msec)
-        fic_i_sampling_end: :obj:`int`
-            end time of numerical FIC I_E sampling (msec)
-        fic_init_delta: :obj:`float`
-            initial delta for numerical FIC adjustment.
-        *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
-
-        Attributes
-        ----------
-        param_lists: :obj:`dict` of :obj:`np.ndarray`
-            dictionary of parameter lists, including
-                - ``'G'``: global coupling. Shape: (N_SIMS,)
-                - ``'w_p'``: local recurrent excitatory connection weight. Shape: (N_SIMS, nodes)
-                - ``'J_N'``: NMDA conductance. Shape: (N_SIMS, nodes)
-                - ``'wIE'``: local inhibitory to excitatory connection strength. 
-                  By default it is determined based on FIC algorithm. Shape: (N_SIMS, nodes)
-                - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
-                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
-
-        Example
-        -------
-        To see example usage in grid search and evolutionary algorithms
-        see :mod:`cubnm.optimize`.
-
-        Here, as an example on how to use SimGroup independently, we
-        will run a single simulation and save the outputs to disk. ::
-
-            from cubnm import sim, datasets
-
-            sim_group = sim.rWWSimGroup(
-                duration=60,
-                TR=1,
-                sc=datasets.load_sc('strength', 'schaefer-100'),
-            )
-            sim_group.N = 1
-            sim_group.param_lists["G"] = np.array([0.5]) # set global coupling
-            sim_group._set_default_params() # set other parameters to default
-            sim_group.run()
-        """
-        self.do_fic = do_fic
-        self.max_fic_trials = max_fic_trials
-        self.fic_penalty_scale = fic_penalty_scale
-        self.fic_i_sampling_start = fic_i_sampling_start
-        self.fic_i_sampling_end = fic_i_sampling_end
-        self.fic_init_delta = fic_init_delta
-        # parent init must be called here because
-        # it sets .last_config which may include some
-        # model-specific attributes (e.g. self.do_fic)
-        super().__init__(*args, **kwargs)
-        self.ext_out = self.ext_out | self.do_fic
-
-    @SimGroup.N.setter
-    def N(self, N):
-        super(rWWSimGroup, rWWSimGroup).N.__set__(self, N)
-        if self.do_fic:
-            self.param_lists["wIE"] = np.zeros((self._N, self.nodes), dtype=float)
-
-    def get_config(self, *args, **kwargs):
-        config = super().get_config(*args, **kwargs)
-        config.update(
-            do_fic=self.do_fic, 
-            max_fic_trials=self.max_fic_trials,
-            fic_penalty_scale=self.fic_penalty_scale,
-            fic_i_sampling_start=self.fic_i_sampling_start,
-            fic_i_sampling_end=self.fic_i_sampling_end,
-            fic_init_delta=self.fic_init_delta,
-        )
-        return config
-    
-    @property
-    def _model_config(self):
-        """
-        Internal model configuration used in the simulation
-        """
-        model_config = super()._model_config
-        model_config.update({
-            'do_fic': str(int(self.do_fic)),
-            'max_fic_trials': str(self.max_fic_trials),
-            'I_SAMPLING_START': str(self.fic_i_sampling_start),
-            'I_SAMPLING_END': str(self.fic_i_sampling_end),
-            'init_delta': str(self.fic_init_delta),
-        })
-        return model_config
-
-    @property
-    def labels(self):
-        """
-        Labels of parameters and state variables
-        to use in plots and reports
-        """
-        labels = super().labels
-        labels.update({
-            'G': 'G',
-            'w_p': r'$w^{p}$',
-            'J_N': r'$J^{N}$',
-            'wIE': r'$w^{IE}$',
-            'sigma': r'$\sigma$',
-            'I_E': r'$I^E$',
-            'I_I': r'$I^I$',
-            'r_E': r'$r^E$',
-            'r_I': r'$r^I$',
-            'S_E': r'$S^E$',
-            'S_I': r'$S^I$',
-        })
-        return labels
-
-    def _process_out(self, out):
-        super()._process_out(out)
-        if self.do_fic:
-            # FIC stats
-            self.fic_unstable = self._global_bools[0]
-            self.fic_failed = self._global_bools[1]
-            self.fic_ntrials = self._global_ints[0]
-            # write FIC (+ numerical adjusted) wIE to param_lists
-            self.param_lists["wIE"] = self._regional_params[2].reshape(self.N, -1)
-    
-    def score(self, emp_fc_tril=None, emp_fcd_tril=None, emp_bold=None, **kwargs):
-        """
-        Calcualates individual goodness-of-fit terms and aggregates them.
-        In FIC models also calculates fic_penalty. Note that while 
-        FIC penalty is included in the cost function of optimizer, 
-        it is not included in the aggregate GOF.
-
-        Parameters
-        --------
-        emp_fc_tril: :obj:`np.ndarray`
-            1D array of empirical FC lower triangle. Shape: (edges,)
-        emp_fcd_tril: :obj:`np.ndarray`
-            1D array of empirical FCD lower triangle. Shape: (window_pairs,)
-        emp_bold: :obj:`np.ndarray` or None
-            cleaned and parcellated empirical BOLD time series. Shape: (nodes, volumes)
-            Motion outliers should either be excluded (not recommended as it disrupts
-            the temporal structure) or replaced with zeros.
-            If provided emp_fc_tril and emp_fcd_tril will be ignored.
-        **kwargs:
-            keyword arguments passed to `cubnm.sim.SimGroup.score`
-
-        Returns
-        -------
-        scores: :obj:`pd.DataFrame`
-            The goodness of fit measures (columns) of each simulation (rows)
-        """
-        scores = super().score(emp_fc_tril, emp_fcd_tril, emp_bold, **kwargs)
-        # calculate FIC penalty
-        if self.do_fic & (self.fic_penalty_scale > 0):
-            # calculate time-averaged r_E in each simulation-node
-            if self.states_ts:
-                mean_r_E = self.sim_states["r_E"][:, self.n_states_samples_remove:].mean(axis=1)
-            else:
-                mean_r_E = self.sim_states["r_E"]
-            for idx in range(self.N):
-                # absolute deviation from target of 3 Hz
-                diff_r_E = np.abs(mean_r_E[idx, :] - 3)
-                if (diff_r_E > 1).sum() > 0:
-                    # at least one node has a deviation greater than 1
-                    # only consider deviations greater than 1
-                    # in the penalty
-                    diff_r_E[diff_r_E <= 1] = np.NaN
-                    # within each node the FIC penalty decreases
-                    # exponentially as the deviations gets smaller
-                    # the penalty max value in each node is 1
-                    # which is then scaled by fic_penalty_scale
-                    # and averaged across nodes (with 0s/NaNs)
-                    # in node with no deviation > 1 Hz
-                    scores.loc[idx, "-fic_penalty"] = (
-                        -np.nansum(1 - np.exp(-0.05 * (diff_r_E - 1)))
-                        * self.fic_penalty_scale / self.nodes
-                    )
-                else:
-                    scores.loc[idx, "-fic_penalty"] = 0
-        return scores
-    
-    def _get_save_data(self):
-        """
-        Get the simulation outputs and parameters to be saved to disk
-
-        Returns
-        -------
-        out_data: :obj:`dict`
-            dictionary of simulation outputs and parameters
-        """
-        out_data = super()._get_save_data()
-        if self.do_fic:
-            out_data.update(
-                fic_unstable=self.fic_unstable,
-                fic_failed=self.fic_failed,
-                fic_ntrials=self.fic_ntrials,
-            )
-        return out_data
-    
-    def clear(self):
-        """
-        Clear the simulation outputs
-        """
-        super().clear()
-        for attr in ["fic_unstable", "fic_failed", "fic_ntrials"]:
-            if hasattr(self, attr):
-                delattr(self, attr)
-        gc.collect()
-
-    def _problem_init(self, problem):
-        """
-        Extends BNMProblem initialization and includes FIC penalty
-        if indicated.
-
-        Parameters
-        ----------
-        problem: :obj:`cubnm.optimize.BNMProblem`
-            optimization problem object
-        """
-        if (self.do_fic) & ("wIE" in problem.het_params):
-            raise ValueError(
-                "In rWW wIE should not be specified as a heterogeneous parameter when FIC is done"
-            )
-        if problem.multiobj:
-            if self.do_fic & (self.fic_penalty_scale > 0):
-                problem.obj_names.append("+fic_penalty")
-                problem.n_obj += 1
-
-    def _problem_evaluate(self, problem, X, out, *args, **kwargs):
-        """
-        Extends BNMProblem evaluation and includes FIC penalty
-        in the cost function if indicated.
-
-        Parameters
-        ----------
-        X: :obj:`np.ndarray`
-            the normalized parameters of current population in range [0, 1]. 
-            Shape: (N, ndim)
-        out: :obj:`dict`
-            the output dictionary to store the results with keys ``'F'`` and ``'G'``.
-            Currently only ``'F'`` (cost) is used.
-        *args, **kwargs
-        """
-        # Note: scores (inidividual GOF measures) is passed on in kwargs 
-        # in the internal mechanism of pymoo evaluation function
-        scores = kwargs["scores"][-1]
-        if self.do_fic & (self.fic_penalty_scale > 0):
-            if problem.multiobj:
-                out["F"] = np.concatenate(
-                    [out["F"], -scores.loc[:, ["-fic_penalty"]].values], axis=1
-                )
-            else:
-                out["F"] -= scores.loc[:, "-fic_penalty"].values
-                
-
-    @classmethod
-    def _get_test_configs(cls, cpu_gpu_identity=False):
-        """
-        Get configs for testing the simulations
-
-        Parameters
-        ----------
-        cpu_gpu_identity: :obj:`bool`
-            indicates whether configs are for CPU/GPU identity tests
-            in which case force_cpu is not included in the configs
-            since tests will be done on both CPU and GPU
-
-        Returns
-        -------
-        configs: :obj:`dict` of :obj:`list`
-        """
-        configs = super()._get_test_configs(cpu_gpu_identity)
-        configs.update({
-            # 0: no FIC
-            # 1: analytical FIC
-            # 2: analytical + numerical FIC
-            'do_fic': [0, 1, 2]
-        })
-        return configs
-
-    @classmethod
-    def _get_test_instance(cls, opts):
-        """
-        Initializes an instance that is used in tests
-
-        Parameters
-        ----------
-        opts: :obj:`dict`
-            dictionary of test options
-
-        Returns
-        -------
-        sim_group: :obj:`cubnm.sim.rWWSimGroup`
-            simulation group object of the test simulation
-            which is not run yet
-        """
-        # initialze sim group
-        sim_group = super()._get_test_instance(opts)
-        # set do_fic
-        sim_group.do_fic = opts['do_fic'] > 0
-        if opts['do_fic'] == 2:
-            sim_group.max_fic_trials = 5
-        return sim_group
-
-class rWWExSimGroup(SimGroup):
-    model_name = "rWWEx"
-    global_param_names = ["G"]
-    regional_param_names = ["w", "I0", "sigma"]
-    state_names = ["x", "r", "S"]
-    sel_state_var = 'r' # TODO: use all states
-    n_noise = 1
-    default_params = {
-        "G": None, # required, and doesn't have a default
-        "w": 0.9,
-        "I0": 0.3,
-        "sigma": 0.001,
-    }
-
-    def __init__(self, *args, **kwargs):
-        """
-        Group of reduced Wong-Wang simulations (excitatory only, Deco 2013) 
-        that are executed in parallel
-
-        Parameters
-        ---------
-        *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
-
-        Attributes
-        ----------
-        param_lists: :obj:`dict` of :obj:`np.ndarray`
-            dictionary of parameter lists, including
-                - ``'G'``: global coupling. Shape: (N_SIMS,)
-                - ``'w'``: local excitatory self-connection strength. Shape: (N_SIMS, nodes)
-                - ``'I0'``: local external input current. Shape: (N_SIMS, nodes)
-                - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
-                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
-
-        Example
-        -------
-        To see example usage in grid search and evolutionary algorithms
-        see :mod:`cubnm.optimize`.
-
-        Here, as an example on how to use SimGroup independently, we
-        will run a single simulation and save the outputs to disk. ::
-
-            from cubnm import sim, datasets
-
-            sim_group = sim.rWWExSimGroup(
-                duration=60,
-                TR=1,
-                sc=datasets.load_sc('strength', 'schaefer-100'),
-            )
-            sim_group.N = 1
-            sim_group.param_lists["G"] = np.array([0.5])  # set global coupling
-            sim_group._set_default_params() # set other parameters to default
-            sim_group.run()
-        """
-        super().__init__(*args, **kwargs)
-
-class KuramotoSimGroup(SimGroup):
-    model_name = "Kuramoto"
-    global_param_names = ["G"]
-    regional_param_names = ["init_theta", "omega", "sigma"]
-    state_names = ["theta"]
-    sel_state_var = "theta"
-    n_noise = 1
-    default_params = {
-        "G": None, # required, and doesn't have a default
-        "omega": np.pi,
-        "sigma": 0.17,
-    }
-    def __init__(self, 
-                 *args, 
-                 random_init_theta = True,
-                 **kwargs):
-        """
-        Group of Kuramoto simulations that are executed in parallel
-
-        Parameters
-        ---------
-        *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
-        random_init_theta: :obj:`bool`
-            Set initial theta by randomly sampling from a uniform distribution 
-            [0, 2*pi].
-
-        Attributes
-        ----------
-        param_lists: :obj:`dict` of :obj:`np.ndarray`
-            dictionary of parameter lists, including
-                - ``'G'``: global coupling. Shape: (N_SIMS,)
-                - ``'init_theta'``: initial theta. Randomly sampled from a uniform distribution 
-                  [0, 2*pi] by default. Shape: (N_SIMS, nodes)
-                - ``'omega'``: intrinsic frequency. Shape: (N_SIMS, nodes)
-                - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
-                - ``'v'``: conduction velocity. Shape: (N_SIMS,)
-
-        Example
-        -------
-        To see example usage in grid search and evolutionary algorithms
-        see :mod:`cubnm.optimize`.
-
-        Here, as an example on how to use SimGroup independently, we
-        will run a single simulation and save the outputs to disk. ::
-
-            from cubnm import sim, datasets
-
-            sim_group = sim.KuramotoSimGroup(
-                duration=60,
-                TR=1,
-                sc=datasets.load_sc('strength', 'schaefer-100'),
-            )
-            sim_group.N = 1
-            sim_group.param_lists["G"] = np.array([0.5])  # set global coupling
-            sim_group._set_default_params() # set other parameters to default
-            sim_group.run()
-        """
-        super().__init__(*args, **kwargs)
-        self.random_init_theta = random_init_theta
-
-    @SimGroup.N.setter
-    def N(self, N):
-        super(KuramotoSimGroup, KuramotoSimGroup).N.__set__(self, N)
-        if self.random_init_theta:
-            # sample from uniform distribution of [0, 2*pi] across nodes and
-            # repeat it across simulations
-            # use the same random seed as the simulation noise
-            rng = np.random.default_rng(self.sim_seed)
-            self.param_lists["init_theta"] = np.tile(rng.uniform(0, 2 * np.pi, self.nodes), (self._N, 1))
-        else:
-            self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
-            print("Warning: init_theta is set to zero")
-
-class JRSimGroup(SimGroup):
-    # TODO: use clearer names for state variables
-    # and parameters
-    model_name = "JR"
-    global_param_names = ["G"]
-    regional_param_names = ["J", "a_1", "a_2", "a_3", "a_4", "sigma"]
-    state_names = ["y0", "y1", "y2", "y3", "y4", "y5", "y1_y2", "s_y1_y2"]
-    sel_state_var = "y1_y2"
-    noise_elements = 1
-    # except sigma, defaults are based on TVB
-    default_params = {
-        "G": None,
-        "J": 135.0,
-        "a_1": 1.0,
-        "a_2": 0.8,
-        "a_3": 0.25,
-        "a_4": 0.25,
-        "sigma": 0.0001, 
-    }
-
-    def __init__(self, *args, **kwargs):
-        """
-        Group of Jansen-Rit simulations that are executed in parallel
-
-        Parameters
-        ---------
-        *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
-
-        Attributes
-        ----------
-        param_lists: :obj:`dict` of :obj:`np.ndarray`
-            dictionary of parameter lists, including
-                - 'G': global coupling. Shape: (N_SIMS,)
-                - 'J': average number of synapses. Shape: (N_SIMS, nodes)
-                - 'a_1': average probability of synapses in feedback excitatory loop. Shape: (N_SIMS, nodes)
-                - 'a_2': average probability of synapses in slow feedback excitatory loop. Shape: (N_SIMS, nodes)
-                - 'a_3': average probability of synapses in feedback inhibitory loop. Shape: (N_SIMS, nodes)
-                - 'a_4': average probability of synapses in slow feedback inhibitory loop. Shape: (N_SIMS, nodes)
-                - 'sigma': local noise sigma. Shape: (N_SIMS, nodes)
-                - 'v': conduction velocity. Shape: (N_SIMS,)
-        
-        Note
-        ----
-        The implementation and default values are based on TVB's
-        ``JansenRit`` model.
-        """
-        super().__init__(*args, **kwargs)
 
 class MultiSimGroupMixin:
     def __init__(self, sim_groups):

@@ -1,4 +1,5 @@
 model_name: rWWEx
+full_name: reduced Wong Wang (excitatory)
 is_osc: false
 gpu_enabled: true
 
@@ -29,18 +30,22 @@ variables:
   - name: G
     type: global_param
     description: global coupling strength
+    # no default
     
   - name: w
     type: regional_param
     description: local excitatory recurrence
+    value: 0.9
     
   - name: I0
     type: regional_param
     description: external input current
+    value: 0.3
     
   - name: sigma
     type: regional_param
     description: noise amplitude
+    value: 0.001
     
   - name: noise
     type: noise
@@ -122,3 +127,9 @@ step_equations: |
   
   # Clip S to valid range [0, 1]
   S = max(0.0, min(1.0, S))
+
+# Python class generation configuration
+python_config:
+  sel_state_var: r
+    
+  # TODO: labels

@@ -20,6 +20,7 @@ public:
 
     // Config struct - must always be defined even if empty
     struct Config {
+        bool random_init_theta{true}; // set initial theta by randomly sampling from a uniform distribution
     };
 
     using BaseModel::BaseModel;
@@ -68,6 +69,7 @@ public:
 
     // Static initialization method
     static void init_constants(double dt = 0.1);
+    void set_conf(std::map<std::string, std::string> config_map) override;
     // Device-callable methods (GPU)
     CUDA_CALLABLE_MEMBER void init(
         double* _state_vars, double* _intermediate_vars, 

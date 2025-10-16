@@ -169,8 +169,44 @@ ${model_name}Model::Constants ${model_name}Model::mc;
 void ${model_name}Model::init_constants(double dt) {
 ${format_constants(constants)}
 }
+% if len(config) > 0:
 % if custom_methods.get('set_conf'):
 ${custom_methods['set_conf']}
+% else:
+<%
+# Auto-generate set_conf
+def get_conversion(c_type):
+    if c_type == 'bool':
+        return '(bool)std::stoi(pair.second)'
+    elif c_type == 'int':
+        return 'std::stoi(pair.second)'
+    elif c_type == 'double':
+        return 'std::stod(pair.second)'
+    else:
+        return 'pair.second'
+
+def needs_transform(conf):
+    c_type, c_name, c_value, c_desc = conf
+    # Check if value is an expression (contains operators)
+    return isinstance(c_value, str) and any(op in c_value for op in ['+', '-', '*', '/', '(', ')'])
+%>\
+void ${model_name}Model::set_conf(std::map<std::string, std::string> config_map) {
+    set_base_conf(config_map);
+    for (const auto& pair : config_map) {
+% for idx, conf in enumerate(config):
+<%
+    c_type, c_name, c_value, c_desc = conf
+    conversion = get_conversion(c_type)
+    condition = 'if' if idx == 0 else 'else if'
+%>\
+        ${condition} (pair.first == "${c_name}") {
+            this->conf.${c_name} = ${conversion};
+        }\
+% endfor
+
+    }
+}
+% endif
 % endif
 % if custom_methods.get('prep_params'):
 ${custom_methods['prep_params']}
