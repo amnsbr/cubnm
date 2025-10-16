@@ -1,0 +1,3 @@
+# Code generation scripts requirements
+mako
+pyaml

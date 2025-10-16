@@ -415,7 +415,7 @@ Build the Toolbox from Source
 
 Once your model is defined in a YAML file, generate code and build the toolbox:
 
-1. Generate code for all models:
+1. Generate code for all models (after installing ``codegen/requirements.txt``):
 
    .. code-block:: bash
 
@@ -475,13 +475,13 @@ To ensure your model works consistently:
    .. code-block:: bash
 
        cd /path/to/cubnm
-       python ./tests/sim/gen_expected.py rWWEx
+       python ./tests/sim/gen_expected.py <model_name>
 
 2. Run all tests for your model:
 
    .. code-block:: bash
 
-       python -m pytest tests/sim/test.py -k "rWWEx"
+       python -m pytest tests/sim/test.py -k "<model_name>"
 
 All tests except the CPU-GPU identity test (``test_identical_cpu_gpu``) must pass.
 
