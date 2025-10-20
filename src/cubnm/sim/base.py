@@ -474,7 +474,7 @@ class SimGroup:
                 raise ValueError("Cannot calculate FC goodness-of-fit terms without FC."
                                  " Set do_fc to True or remove FC-related goodness-of-fit"
                                  " terms.")
-        if hasattr(self, "_do_fcd") and (not do_fc):
+        if getattr(self, "_do_fcd", False) and (not do_fc):
             raise ValueError("Cannot calculate FCD without FC. Set do_fcd to False.")
         self._do_fc = do_fc
 
