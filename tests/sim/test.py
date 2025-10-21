@@ -48,10 +48,15 @@ def get_test_params(cpu_gpu_identity=False):
             for i, key in enumerate(model_configs):
                 curr_opt += f'{key}:{comb[i]},'
             curr_opt = curr_opt[:-1]
+            curr_marks = []
             if 'force_cpu:0' in curr_opt:
-                curr_marks = pytest.mark.skipif(no_gpu(), reason="No GPU available")
-            else:
-                curr_marks = []
+                curr_marks.append(pytest.mark.skipif(no_gpu(), reason="No GPU available"))
+            if (model == 'Kuramoto') and ('do_delay:1' in curr_opt) and cpu_gpu_identity:
+                # mark it as xfail due to known CPU-GPU differences
+                curr_marks.append(pytest.mark.xfail(reason=
+                    "Known issue #24: Kuramoto model with delay may "
+                    "result in different outcomes on CPU vs GPU"
+                ))
             test_param = pytest.param(model, curr_opt, marks=curr_marks)
             test_params.append(test_param)
     return test_params

@@ -1,5 +1,6 @@
 <%
     import re
+    import textwrap
     
     # Extract basic info
     name = model_name
@@ -192,6 +193,12 @@ class ${class_name}(SimGroup):
         * ${citation}
         % endfor
 % endif
+% if notes:
+
+        Notes
+        -----
+        ${textwrap.indent(notes, '        ').strip()}
+% endif
         """
 % for cfg in init_configs:
         self.${cfg['name']} = ${cfg['name']}
@@ -321,7 +328,6 @@ class ${class_name}(SimGroup):
 % endif
 % for method_name, method_code in custom_methods.items():
 <%
-    import textwrap
     # Dedent to remove common leading whitespace
     dedented_code = textwrap.dedent(method_code).strip()
     # Add 4 spaces to each line for class method indentation

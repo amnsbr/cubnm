@@ -275,6 +275,16 @@ class SimGroup:
         self.last_config = self.get_config(for_reinit=True)
         # keep track of the iterations for iterative algorithms
         self.it = 0
+        # run post-initialization steps
+        self.post_init()
+
+    def post_init(self):
+        """
+        Post-initilaization hook that normally does nothing, but
+        can be overridden in derived classes to add custom
+        post-initialization steps.
+        """
+        pass
 
     @property
     def N(self):

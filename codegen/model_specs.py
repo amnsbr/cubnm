@@ -58,6 +58,7 @@ class ModelSpec:
         self._var_arrays = {}
 
         self.citations = []
+        self.notes = ""
 
     
     def add_variable(self, name, var_type, value=None, description=None):
@@ -178,6 +179,7 @@ class ModelSpec:
             'restart_equations': self.restart_equations,
             'yaml_path': getattr(self, 'yaml_path', 'N/A'),
             'citations': self.citations,
+            'notes': self.notes,
             'python_config': self.python_config,
         }
 
@@ -207,6 +209,7 @@ def load_model_from_yaml(yaml_file):
     spec.yaml_path = os.path.relpath(yaml_file, PACKAGE_ROOT)
 
     spec.citations = data.get('citations', [])
+    spec.notes = data.get('notes', "")
     
     # set flags
     spec.is_osc = data.get('is_osc', False)

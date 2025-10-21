@@ -52,6 +52,24 @@ class KuramotoSimGroup(SimGroup):
         ----------        
         * Kuramoto et al. 1984 "Chemical Oscillations, Waves, and Turbulence"
         * Cabral et al. 2011 NeuroImage (10.1016/j.neuroimage.2011.04.010)
+
+        Notes
+        -----
+        In Kuramoto model GPU and CPU results may differ under
+        certain conditions (large G, presence of conduction delay, large
+        sigma, etc.), especially when using larger dt.
+
+        This discrepancy arises from subtle variations in mathematical
+        function implementations between GPU and CPU hardware, which,
+        depending on the system dynamics, can amplify through butterfly effects.
+
+        As noted in NVIDIA's documentation
+        (https://docs.nvidia.com/cuda/floating-point/index.html#considerations-for-a-heterogeneous-world),
+        such differences do not indicate that either computation is incorrect.
+
+        We therefore recommend to assess sensitivity of simulated
+        findings in Kuramoto model (e.g. optimal simulation) to 
+        CPU-based versus GPU-based simulations.
         """
         self.random_init_theta = random_init_theta
         # parent init must be called after setting
@@ -77,6 +95,22 @@ class KuramotoSimGroup(SimGroup):
             'random_init_theta': str(int(self.random_init_theta)),
         })
         return model_config
+
+    def post_init(self):
+        print(
+            "Warning: In Kuramoto model GPU and CPU results may differ under "
+            "certain conditions (large G, presence of conduction delay, large "
+            "sigma, etc.), especially when using larger dt.\n"
+            "This discrepancy arises from subtle variations in mathematical "
+            "function implementations between GPU and CPU hardware, which, "
+            "depending on the system dynamics, can amplify through butterfly effects.\n"
+            "As noted in NVIDIA's documentation "
+            "(https://docs.nvidia.com/cuda/floating-point/index.html#considerations-for-a-heterogeneous-world), "
+            "such differences do not indicate that either computation is incorrect.\n"
+            "We therefore recommend to assess sensitivity of simulated "
+            "findings in Kuramoto model (e.g. optimal simulation) to "
+            "CPU-based versus GPU-based simulations."
+        )
 
     @SimGroup.N.setter
     def N(self, N):
