@@ -99,8 +99,8 @@ python_config:
   custom_methods:
     post_init: |
       def post_init(self):
-          print(
-              "Warning: In Kuramoto model GPU and CPU results may differ under "
+          logger.warning(
+              "In Kuramoto model GPU and CPU results may differ under "
               "certain conditions (large G, presence of conduction delay, large "
               "sigma, etc.), especially when using larger dt.\n"
               "This discrepancy arises from subtle variations in mathematical "
@@ -126,4 +126,4 @@ python_config:
               self.param_lists["init_theta"] = np.tile(rng.uniform(0, 2 * np.pi, self.nodes), (self._N, 1))
           else:
               self.param_lists["init_theta"] = np.zeros((self._N, self.nodes), dtype=float)
-              print("Warning: init_theta is set to zero")
+              logger.warning("init_theta is set to zero")

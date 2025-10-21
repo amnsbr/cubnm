@@ -1,11 +1,13 @@
 """
 Utility functions
 """
-import numpy as np
-import scipy
 import subprocess
 import json
 import gc
+import logging
+import numpy as np
+import scipy
+
 from cubnm._setup_opts import gpu_model_flag
 try:
     import cupy as cp
@@ -15,6 +17,8 @@ except ImportError:
     cp = None
     cuda = None
     has_cupy = False
+
+logger = logging.getLogger(__name__)
 
 if has_cupy:
     @cuda.jit
@@ -95,10 +99,10 @@ def avail_gpus():
         ((gpu_model_flag == 'nvidia') and (gpu_counts['rocm'] > 0)) |
         ((gpu_model_flag == 'rocm') and (gpu_counts['nvidia'] > 0))
     ):
-        print(
-            f"Warning: Toolbox compiled for {gpu_model_flag}"
-            f" but {(set(gpu_counts.keys()) - set([gpu_model_flag]))}"
-            " GPUs are available. Reinstall for the correct GPU model."
+        logger.warning(
+            f"Toolbox compiled for {gpu_model_flag} "
+            f"but {(set(gpu_counts.keys()) - set([gpu_model_flag]))} "
+            "GPUs are available. Reinstall for the correct GPU model."
         )
     # but only return the number of gpus for which
     # the code was compiled

@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 import json
 import pickle
 import random
+import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -20,6 +21,8 @@ from pymoo.termination import get_termination
 import cma
 
 from cubnm import sim, utils
+
+logger = logging.getLogger(__name__)
 
 # define evaluation metric labels used in plots
 METRIC_LABELS = {
@@ -143,10 +146,10 @@ class BNMProblem(Problem):
         # and do_fc/do_fcd are set to True
         if emp_bold is not None:
             if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
-                print(
-                    "Warning: Both empirical BOLD and empirical FC/FCD are"
-                    " provided. Empirical FC/FCD will be calculated based on"
-                    " BOLD and will be overwritten."
+                logger.warning(
+                    "Both empirical BOLD and empirical FC/FCD are "
+                    "provided. Empirical FC/FCD will be calculated based on "
+                    "BOLD and will be overwritten."
                 )
             if self.sim_group.do_fc:
                 self.emp_fc_tril = utils.calculate_fc(
@@ -205,8 +208,9 @@ class BNMProblem(Problem):
                     # is the only member of it
                     self.memberships = np.arange(self.sim_group.nodes)
                 elif self.node_grouping == "sym":
-                    print(
-                        "Warning: `sym` node grouping assumes symmetry of parcels between L and R hemispheres"
+                    logger.warning(
+                        "`sym` node grouping assumes symmetry "
+                        "of parcels between L and R hemispheres"
                     )
                     # nodes i & rh_idx+i belong to the same group
                     # and will have similar parameters
@@ -1435,10 +1439,10 @@ class CMAESOptimizer(PymooOptimizer):
         """
         super().__init__(**kwargs)
         if self.seed == 0:
-            print(
-                "Warning: Seed value for CMAES is set to 0."
-                " This will result in different random initializations for each run"
-                " due to how `cma` works. Setting seed to 100 instead."
+            logger.warning(
+                "Seed value for CMAES is set to 0. "
+                "This will result in different random initializations for each run "
+                "due to how `cma` works. Setting seed to 100 instead."
             )
             self.seed = 100
         self.use_bound_penalty = (

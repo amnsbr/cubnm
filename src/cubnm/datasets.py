@@ -3,6 +3,7 @@ Example datasets
 """
 import sys
 import os
+import logging
 import numpy as np
 import pandas as pd
 
@@ -12,6 +13,8 @@ else:
     from importlib_resources import files
 
 from cubnm import utils
+
+logger = logging.getLogger(__name__)
 
 def load_sc(
         measure, 
@@ -241,8 +244,8 @@ def load_fcd(
     """
     if "group-" in sub:
         if not return_tril:
-            print(
-                "Warning: return_tril is ignored when sub='group-all'. "
+            logger.warning(
+                "return_tril is ignored when sub='group-all'. "
                 "Returning lower triangle."
             )
         if exc_interhemispheric:

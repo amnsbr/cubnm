@@ -1,14 +1,15 @@
 """
 Simulation of the models
 """
-import numpy as np
-import scipy.stats
-import pandas as pd
 import os
 import gc
 import copy
 from decimal import Decimal
 import multiprocessing
+import logging
+import numpy as np
+import scipy.stats
+import pandas as pd
 
 from cubnm._core import run_simulations, set_const
 from cubnm._setup_opts import (
@@ -27,7 +28,7 @@ except ImportError:
     cp = None
     has_cupy = False
 
-
+logger = logging.getLogger(__name__)
 
 # NaN values in the scores are replaced with the worst possible scores
 # listed below.
@@ -210,10 +211,12 @@ class SimGroup:
         else:
             self.sc = self.input_sc
         if np.any(np.diag(self.sc)):
-            print("Warning: The diagonal of the SC matrix is not 0. "
+            logger.warning(
+                "The diagonal of the SC matrix is not 0. "
                 "Self-connections are not ignored by default in "
                 "the simulations. If you want to ignore them set "
-                "the diagonal of the SC matrix to 0.")
+                "the diagonal of the SC matrix to 0."
+            )
         self.duration = duration
         self.TR = TR
         self._dt = Decimal(dt)
@@ -319,10 +322,10 @@ class SimGroup:
                     " Set do_fcd to False."
                 )
             if self.dt < 1.0:
-                print(
-                    "Warning: When runnig simulations with large number"
-                    " of nodes it is recommended to set the model dt to"
-                    " >=1.0 msec for better performance."
+                logger.warning(
+                    "When runnig simulations with large number "
+                    "of nodes it is recommended to set the model dt to "
+                    ">=1.0 msec for better performance."
                 )
 
     @property
@@ -447,10 +450,10 @@ class SimGroup:
     def do_delay(self, do_delay):
         self._do_delay = do_delay
         if hasattr(self, "_dt") and self.do_delay and (self.dt < 1.0):
-            print(
-                "Warning: When using delay in the simulations"
-                " it is recommended to set the model dt to >="
-                " 1.0 msec for better performance."
+            logger.warning(
+                "When using delay in the simulations "
+                "it is recommended to set the model dt to >= "
+                "1.0 msec for better performance."
             )
 
     @property
@@ -559,8 +562,8 @@ class SimGroup:
                     # case (with prolonged history to be stored) to make sure
                     # everything works in extreme cases, but biologically this
                     # is a low conduction velocity
-                    print(
-                        "Warning: The default conduction velocity (v) is set to 0.5 m/s. "
+                    logger.warning(
+                        "The default conduction velocity (v) is set to 0.5 m/s. "
                         "Which may be biologically not realistic (too low). "
                         "Consider setting it as a free parameter or use a higher fixed value."
                     )
@@ -689,10 +692,10 @@ class SimGroup:
         # check if running on Jupyter and print warning that
         # simulations are running but progress will not be shown
         if utils.is_jupyter():
-            print(
-                "Warning: Progress cannot be shown in real time"
-                " when using Jupyter, but simulations are running"
-                " in background. Please wait...", flush=True
+            logger.warning(
+                "Progress cannot be shown in real time "
+                "when using Jupyter, but simulations are running "
+                "in background. Please wait..."
             )
         # convert self.param_lists to flattened and contiguous arrays of global
         # and local parameters
@@ -744,15 +747,15 @@ class SimGroup:
             out = run_simulations(*args)
         except RuntimeError as e:
             if "CUDA Error" in str(e):
-                print(
+                logger.error(
                     "CUDA error occurred. This might be due to the data exceeding "
                     "the available GPU memory. Try reducing the number of simulations or "
                     "sampling rate of states,",
                     end=" "
                 )
                 if self.states_ts:
-                    print("or set `states_ts` to False", end=" ")
-                print("to reduce memory usage")
+                    logger.error("or set `states_ts` to False", end=" ")
+                logger.error("to reduce memory usage")
             raise e
         # avoid reinitializing GPU in the next runs
         # of the same group
@@ -1126,10 +1129,10 @@ class SimGroup:
         # calculate empirical FC and FCD if BOLD is provided
         if emp_bold is not None:
             if (emp_fc_tril is not None) or (emp_fcd_tril is not None):
-                print(
-                    "Warning: Both empirical BOLD and empirical FC/FCD are"
-                    " provided. Empirical FC/FCD will be calculated based on"
-                    " BOLD and will be overwritten."
+                logger.warning(
+                    "Both empirical BOLD and empirical FC/FCD are "
+                    "provided. Empirical FC/FCD will be calculated based on "
+                    "BOLD and will be overwritten."
                 )
             if self.do_fc:
                 emp_fc_tril = utils.calculate_fc(emp_bold, self.exc_interhemispheric, return_tril=True)
