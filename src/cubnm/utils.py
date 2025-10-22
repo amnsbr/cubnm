@@ -4,6 +4,7 @@ Utility functions
 import subprocess
 import json
 import gc
+import sys
 import logging
 import numpy as np
 import scipy
@@ -18,6 +19,7 @@ except ImportError:
     cuda = None
     has_cupy = False
 
+logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 if has_cupy:

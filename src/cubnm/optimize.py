@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 import json
 import pickle
 import random
+import sys
 import logging
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ import cma
 
 from cubnm import sim, utils
 
+logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # define evaluation metric labels used in plots

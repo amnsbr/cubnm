@@ -6,6 +6,7 @@ import gc
 import copy
 from decimal import Decimal
 import multiprocessing
+import sys
 import logging
 import numpy as np
 import scipy.stats
@@ -28,6 +29,7 @@ except ImportError:
     cp = None
     has_cupy = False
 
+logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # NaN values in the scores are replaced with the worst possible scores
@@ -747,16 +749,11 @@ class SimGroup:
             out = run_simulations(*args)
         except RuntimeError as e:
             if "CUDA Error" in str(e):
-                logger.error(
+                hint = (
                     "CUDA error occurred. This might be due to the data exceeding "
-                    "the available GPU memory. Try reducing the number of simulations or "
-                    "sampling rate of states,",
-                    end=" "
+                    "the available GPU memory."
                 )
-                if self.states_ts:
-                    logger.error("or set `states_ts` to False", end=" ")
-                logger.error("to reduce memory usage")
-            raise e
+                raise RuntimeError(hint) from e
         # avoid reinitializing GPU in the next runs
         # of the same group
         self.last_N = self.N
