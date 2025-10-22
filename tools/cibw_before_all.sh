@@ -1,10 +1,10 @@
 arch=$(uname -m)
 project=$1
-# install miniconda to install pre-built gsl (faster than building it)
-# (TODO: miniconda can also be used to install cuda toolkit for platforms
+# install miniforge to install pre-built gsl (faster than building it)
+# (TODO: miniforge can also be used to install cuda toolkit for platforms
 # for which cuda manylinux is not available)
-curl -s -O https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-$arch.sh
-bash Miniconda3-latest-Linux-$arch.sh -b -p /opt/miniconda
+curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$arch.sh"
+bash Miniforge3-Linux-$arch.sh -b -p /opt/miniforge
 conda install -y --no-deps -c conda-forge gsl=2.7
 # get rid of "._" files created by MacOS (when calling cibuildwheel from MacOS)
-find /project -type f -name '._*' -delete
+find $1/ -type f -name '._*' -delete

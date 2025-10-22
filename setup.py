@@ -104,7 +104,7 @@ shared_includes = [
     os.path.join(ROOT,"include"),
     os.path.join(ROOT, "src", "ext"),
     np.get_include(),
-    "/opt/miniconda/include" # added for conda-based cibuildwheel
+    "/opt/miniforge/include" # added for conda-based cibuildwheel
 ]
 if gpu_model == 'nvidia':
     gpu_includes = [
@@ -170,7 +170,7 @@ if gpu_enabled:
         library_dirs=library_dirs + \
             [
                 os.path.join(ROOT, "src", "ext"),
-                "/opt/miniconda/lib" # added for conda-based cibuildwheel
+                "/opt/miniforge/lib" # added for conda-based cibuildwheel
             ] + \
             os.environ.get("LIBRARY_PATH","").split(":") + \
             os.environ.get("LD_LIBRARY_PATH","").split(":")
@@ -186,7 +186,7 @@ else:
         libraries=libraries,
         include_dirs=shared_includes,
         library_dirs=[
-            "/opt/miniconda/lib" # added for conda-based cibuildwheel
+            "/opt/miniforge/lib" # added for conda-based cibuildwheel
         ] + \
         os.environ.get("LIBRARY_PATH","").split(":") + \
         os.environ.get("LD_LIBRARY_PATH","").split(":"),
@@ -203,7 +203,7 @@ class build_ext_gsl_cuda(build_ext):
                     "/usr/lib",
                     "/lib",
                     "/usr/local/lib",
-                    "/opt/miniconda/lib", # cibuildwheel
+                    "/opt/miniforge/lib", # cibuildwheel
                     # TODO: identify and search current conda env
                     os.path.join(os.environ.get('HOME', '/opt'), '.cubnm', 'gsl', 'build', 'lib'), # has been installed before by cuBNM
                 ]
