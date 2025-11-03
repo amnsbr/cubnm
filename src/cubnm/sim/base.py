@@ -610,6 +610,7 @@ class SimGroup:
             "exc_interhemispheric": self.exc_interhemispheric,
             "force_cpu": self.force_cpu,
             "force_gpu": self.force_gpu,
+            "hardware_used": "cpu" if self.use_cpu else "gpu",
             "bold_remove_s": self.bold_remove_s,
             "fcd_drop_edges": self.fcd_drop_edges,
             "noise_segment_length": self.noise_segment_length,
