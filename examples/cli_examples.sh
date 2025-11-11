@@ -19,7 +19,7 @@ cubnm_example_cmaes_homo () {
         --out_dir ./cmaes_homo_cli \
         --TR 1 --duration 60 --window_size 10 --window_step 2 --states_ts \
         --params G=0.001:10.0,w_p=0:2.0,J_N=0.001:0.5 \
-        --optimizer CMAES --optimizer_seed 0 --n_iter 2 --popsize 10
+        --optimizer CMAES --optimizer_seed 1 --n_iter 2 --popsize 10
 }
 
 cubnm_example_cmaes_het () {
@@ -28,6 +28,6 @@ cubnm_example_cmaes_het () {
         --out_dir ./cmaes_het_cli \
         --TR 1 --duration 60 --window_size 10 --window_step 2 --states_ts \
         --params G=0.001:10.0,w_p=0:2.0,J_N=0.001:0.5 \
-        --optimizer CMAES --optimizer_seed 0 --n_iter 2 --popsize 10 \
+        --optimizer CMAES --optimizer_seed 1 --n_iter 2 --popsize 10 \
         --het_params w_p J_N --maps example
 }
