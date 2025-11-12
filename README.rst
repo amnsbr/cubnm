@@ -31,14 +31,14 @@ cuBNM toolbox is designed for efficient brain network modeling on GPUs.
 Overview
 --------
 cuBNM toolbox uses GPUs to efficiently run simulations of brain network models 
-consisting of nodes (neural mass models) which are connected through a connectome, 
+consisting of nodes which are connected through a connectome, 
 and fit them to empirical neuroimaging data through integrated optimization algorithms.
 
 GPU parallelization enables massive scaling of the simulations into higher number of
 simulations and nodes. Below you can see how computing time varies
-as a funciton of number of simulations and nodes on GPUs versus CPUs. For example,
-running 32,768 simulations (duration: 60s, nodes: 100) would take 4 days on a single
-CPU thread, but only 5 minutes on Nvidia A100 GPU, and 22 minutes on Nvidia 
+as a function of number of simulations and nodes on GPUs versus CPUs. For example,
+running 32,768 simulations (duration: 60s, nodes: 100) would take 3.8 days on a single
+CPU thread, but only 5.6 minutes on Nvidia A100 GPU, and 21.8 minutes on Nvidia 
 GeForce RTX 4080 Super:
 
 .. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/scaling.png
@@ -50,7 +50,7 @@ detected or if requested by the user.
 
 Several commonly used models (e.g., reduced Wong-Wang, Jansen-Rit, Kuramoto, Wilson-Cowan) 
 are implemented, and new models can be added via YAML definition files. A guide is included
-on the structure of model definition YAML fiels to help users implement their own models. 
+on the structure of model definition YAML files to help researchers implement custom models. 
 
 The simulated activity of model neurons is fed into the Balloon-Windkessel model 
 to calculate simulated BOLD signal. Functional connectivity (FC) and  functional 
@@ -78,5 +78,5 @@ configurations:
 
 Documentation
 -------------
-Please find the documentations on installation, usage examples and API at 
+For installation instructions, tutorials, and API reference, please visit
 https://cubnm.readthedocs.io.
