@@ -11,9 +11,9 @@
 
    install
    tutorials
-   cli
    models
    API References <autoapi/cubnm/index>
+   cli
    contribution
 
 
