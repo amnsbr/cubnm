@@ -3,6 +3,8 @@ full_name: Kuramoto
 citations:
   - Kuramoto et al. 1984 "Chemical Oscillations, Waves, and Turbulence"
   - Cabral et al. 2011 NeuroImage (10.1016/j.neuroimage.2011.04.010)
+latex_equations: |
+  \dot{\theta_i} = \omega_i + G \sum_j{C_{ij} \sin(\theta_j - \theta_i)} + \sigma_i\epsilon_i
 notes: |
   In Kuramoto model GPU and CPU results may differ under
   certain conditions (large G, presence of conduction delay, large

@@ -43,7 +43,10 @@ autoapi_options = [
 
 def autoapi_skip(app, what, name, obj, skip, options):
     # exclusion based on name
-    excluded_names = ["__slots__", "__version__"]
+    excluded_names = [
+        "__slots__", "__version__", "logger",
+        "has_cupy", "WORST_SCORES", "METRIC_LABELS"
+    ]
     for excluded_name in excluded_names:
         if excluded_name in name:
             return True

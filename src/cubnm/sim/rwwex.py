@@ -26,7 +26,7 @@ class rWWExSimGroup(SimGroup):
     }
 
     def __init__(self, *args, **kwargs):
-        """
+        r"""
         Group of reduced Wong Wang (excitatory) simulations that are executed in parallel.
 
         Parameters
@@ -43,6 +43,16 @@ class rWWExSimGroup(SimGroup):
                 - ``'I0'``: external input current. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        Equations
+        ---------
+        .. math::
+
+            \begin{gather}
+            x_i = w_i J^N S_i + G J^N \sum_j C_{ij} S_j + I_{0_{i}} \\
+            r_i = \frac{a x_i - b}{1 - e^{-d(a x_i - b)}} \\
+            \dot{S_i} = -\frac{S_i}{\tau_s} + (1 - S_i) \gamma r_i + {\sigma}_i \epsilon_i \\
+            \end{gather}
 
         References
         ----------        

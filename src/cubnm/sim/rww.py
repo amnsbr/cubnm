@@ -37,7 +37,7 @@ class rWWSimGroup(SimGroup):
         fic_penalty_scale = 0.5, 
         **kwargs
     ):
-        """
+        r"""
         Group of reduced Wong-Wang (excitatory-inhibitory) simulations that are executed in parallel.
 
         Parameters
@@ -67,6 +67,19 @@ class rWWSimGroup(SimGroup):
                 - ``'wIE'``: inhibitory to excitatory weight. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        Equations
+        ---------
+        .. math::
+
+            \begin{gather}
+            I_i^E=W^EI_b+w_i^{p} J_i^{N} S_i^E+GJ_i^{N}\sum_{j}{C_{ij}S_j^E}-w_i^{IE}S_i^I \\
+            I_i^I=W^II_b+J_i^{N}S_i^E-w^{II}S_i^I \\
+            r_i^E=H^E(I_i^E)\ =\frac{a^EI_i^E-b^E}{1\ -\ e^{-d^E(a^EI_i^E-b^E)}} \\
+            r_i^I=H^I(I_i^I)\ =\frac{a^II_i^I-b^I}{1\ -\ e^{-d^I(a^II_i^I-b^I)}} \\
+            \dot{S_i^E}=-\frac{S_i^E}{\tau_E}+(1\ -\ S_i^E)\gamma r_i^E(t)+\sigma_i\epsilon_i^E \\
+            \dot{S_i^I}=-\frac{S_i^I}{\tau_I}+r_i^I+\sigma_i\epsilon_i^I \\
+            \end{gather}
 
         References
         ----------        

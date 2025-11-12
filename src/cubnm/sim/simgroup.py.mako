@@ -143,7 +143,7 @@ class ${class_name}(SimGroup):
 
     def __init__(self, *args, **kwargs):
 % endif
-        """
+        r"""
         Group of ${full_name} simulations that are executed in parallel.
 
         Parameters
@@ -187,6 +187,19 @@ class ${class_name}(SimGroup):
             sim_group.param_lists["${global_params[0] if global_params else 'G'}"] = np.array([0.5])  # set global coupling
             sim_group._set_default_params() # set other parameters to default
             sim_group.run()
+% endif
+% if latex_equations:
+
+        Equations
+        ---------
+        .. math::
+
+            \begin{gather}
+% for i, eq in enumerate(latex_equations):
+            ${eq.strip()} \\\
+
+% endfor
+            \end{gather}
 % endif
 % if citations:
 

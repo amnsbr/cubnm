@@ -180,7 +180,7 @@ class SimGroup:
             - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Additional attributes will be added after running the simulations.
-        See :func:`cubnm.sim.SimGroup._process_out` for details.
+        See :func:`cubnm.sim.base.SimGroup._process_out` for details.
 
         Notes
         -----
@@ -1385,7 +1385,7 @@ class MultiSimGroupMixin:
         Divides simulations outputs across individual
         children SimGroup objects which will respectively
         convert the output to attributes with correct shapes,
-        names and types. See :func:`cubnm.sim.SimGroup._process_out`
+        names and types. See :func:`cubnm.sim.base.SimGroup._process_out`
         for details.
 
         Parameters
@@ -1439,13 +1439,13 @@ def create_multi_sim_group(sim_group_cls):
     """
     Dynamically creates a MultiSimGroup class by combining
     a model's specific ``<Model>SimGroup`` class with 
-    :class:`cubnm.sim.MultiSimGroupMixin`,
+    :class:`cubnm.sim.base.MultiSimGroupMixin`,
     which can be used in batch optimization.
 
     Parameters
     ----------
     sim_group_cls: :obj:`type`
-        :class:`cubnm.sim.SimGroup` subclass, e.g. :class:`cubnm.sim.rWWSimGroup`
+        :class:`cubnm.sim.base.SimGroup` subclass, e.g. :class:`cubnm.sim.rww.rWWSimGroup`
     
     Returns
     -------

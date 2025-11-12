@@ -278,7 +278,7 @@ def get_parser():
     # Optimizer arguments
     parser_optimize.add_argument('-o', '--optimizer', type=str, required=True,
                                 help='Optimizer type')
-    parser_optimize.add_argument('--optimizer_seed', type=int, default=0, 
+    parser_optimize.add_argument('--optimizer_seed', type=int, default=1, 
                                 help='Optimizer random seed')
     parser_optimize.add_argument('--n_iter', type=int, default=80, 
                                 help='Optimizer max iterations')

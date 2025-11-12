@@ -59,6 +59,7 @@ class ModelSpec:
 
         self.citations = []
         self.notes = ""
+        self.latex_equations = []
 
     
     def add_variable(self, name, var_type, value=None, description=None):
@@ -179,6 +180,7 @@ class ModelSpec:
             'restart_equations': self.restart_equations,
             'yaml_path': getattr(self, 'yaml_path', 'N/A'),
             'citations': self.citations,
+            'latex_equations': self.latex_equations,
             'notes': self.notes,
             'python_config': self.python_config,
         }
@@ -210,6 +212,10 @@ def load_model_from_yaml(yaml_file):
 
     spec.citations = data.get('citations', [])
     spec.notes = data.get('notes', "")
+
+    if 'latex_equations' in data:
+        equations = data['latex_equations']
+        spec.latex_equations = equations.strip().split('\n') if isinstance(equations, str) else equations
     
     # set flags
     spec.is_osc = data.get('is_osc', False)

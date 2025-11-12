@@ -112,7 +112,7 @@ def avail_gpus():
 
 def is_jupyter():
     """
-    This function checks if the current environment is a Jupyter notebook.
+    Check if the current environment is a Jupyter notebook
 
     Returns
     -------

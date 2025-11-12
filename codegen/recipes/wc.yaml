@@ -3,6 +3,11 @@ full_name: Wilson-Cowan
 citations:
   - Wilson et al. 1972 Biophysical Journal (10.1016/S0006-3495(72)86068-5)
   - Papadopoulos et al. 2020 PLOS Computational Biology (10.1371/journal.pcbi.1008144) # source of equations and variable values
+latex_equations: |
+    \tau^E\dot{E_i} = -E + (1 - E) S^E[c^{EE} E_i - c^{IE}I_i + G \sum_j{C_{ij} E_j} + P_i^E] + \sigma_i^E\epsilon_i^E
+    \tau^I\dot{I_i} = -I + (1 - I) S^I[c^{EI} E_i - c^{II}I_i + P_i^I] + \sigma_i^I\epsilon_i^I, \text{where:}
+    S^E(x) = \frac{1}{1 + e^{-a^E(x - \mu^E)}}
+    S^I(x) = \frac{1}{1 + e^{-a^I(x - \mu^I)}}
 
 init_equations: |
   E = 0.001

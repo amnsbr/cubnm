@@ -31,7 +31,7 @@ class KuramotoSimGroup(SimGroup):
         random_init_theta = True, 
         **kwargs
     ):
-        """
+        r"""
         Group of Kuramoto simulations that are executed in parallel.
 
         Parameters
@@ -50,6 +50,14 @@ class KuramotoSimGroup(SimGroup):
                 - ``'omega'``: natural frequency. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        Equations
+        ---------
+        .. math::
+
+            \begin{gather}
+            \dot{\theta_i} = \omega_i + G \sum_j{C_{ij} \sin(\theta_j - \theta_i)} + \sigma_i\epsilon_i \\
+            \end{gather}
 
         References
         ----------        

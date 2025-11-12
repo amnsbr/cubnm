@@ -1,8 +1,17 @@
 model_name: JR
-full_name: Jansen Rit
+full_name: Jansen-Rit
 citations:
   - Jansen and Rit 1995 Biological Cybernetics (10.1007/BF00199471) # original description
   - Ritter et al. 2013 Brain Connectivity (10.1089/brain.2012.0120) # TVB: implementation
+latex_equations: |
+  \dot{y_{0_{i}}} = y_{3_{i}}
+  \dot{y_{1_{i}}} = y_{4_{i}}
+  \dot{y_{2_{i}}} = y_{5_{i}}
+  \dot{y_{3_{i}}} = A a [\frac{2 \nu_{max}}{1+e^{r(v_0 - (y_{2_{i}} - y_{1_{i}}))}}]-2 a y_{3_{i}}-a^2 y_{0_{i}} + \sigma_i\epsilon_i
+  \dot{y_{4_{i}}} = A a [\mu+a_{2_{i}} J_i \frac{2\nu_{max}}{1+e^{r(v_0 - (a_{1_{i}} J y_{1_{i}}))}}+ \sum_j{C_{ij}x_j}
+  \dot{y_{5_{i}}} = B b (a_{4_{i}} J_i [\frac{2\nu_{max}}{1 + e^{r(v_0 - (a_{3_{i}} J y_{0_{i}})}}]) - 2by_{5_{i}} - b^2 y_{2_{i}}
+  z_i = y_{1_{i}} - y_{2_{i}}
+  x_i = c_{min} + \frac{c_{max}-c_{min}}{1 + e^{r(c_{mid} -z_i)}}
 
 init_equations: |
   y0 = 0.0

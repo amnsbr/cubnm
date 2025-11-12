@@ -31,7 +31,7 @@ class WCSimGroup(SimGroup):
     }
 
     def __init__(self, *args, **kwargs):
-        """
+        r"""
         Group of Wilson-Cowan simulations that are executed in parallel.
 
         Parameters
@@ -53,6 +53,17 @@ class WCSimGroup(SimGroup):
                 - ``'sigma_E'``: excitatory noise strength. Shape: (N_SIMS, nodes)
                 - ``'sigma_I'``: inhibitory noise strength. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        Equations
+        ---------
+        .. math::
+
+            \begin{gather}
+            \tau^E\dot{E_i} = -E + (1 - E) S^E[c^{EE} E_i - c^{IE}I_i + G \sum_j{C_{ij} E_j} + P_i^E] + \sigma_i^E\epsilon_i^E \\
+            \tau^I\dot{I_i} = -I + (1 - I) S^I[c^{EI} E_i - c^{II}I_i + P_i^I] + \sigma_i^I\epsilon_i^I, \text{where:} \\
+            S^E(x) = \frac{1}{1 + e^{-a^E(x - \mu^E)}} \\
+            S^I(x) = \frac{1}{1 + e^{-a^I(x - \mu^I)}} \\
+            \end{gather}
 
         References
         ----------        

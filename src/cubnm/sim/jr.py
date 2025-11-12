@@ -29,8 +29,8 @@ class JRSimGroup(SimGroup):
     }
 
     def __init__(self, *args, **kwargs):
-        """
-        Group of Jansen Rit simulations that are executed in parallel.
+        r"""
+        Group of Jansen-Rit simulations that are executed in parallel.
 
         Parameters
         ---------
@@ -49,6 +49,21 @@ class JRSimGroup(SimGroup):
                 - ``'a_4'``: average probability of synapses in slow feedback inhibitory loop. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: local noise sigma. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
+
+        Equations
+        ---------
+        .. math::
+
+            \begin{gather}
+            \dot{y_{0_{i}}} = y_{3_{i}} \\
+            \dot{y_{1_{i}}} = y_{4_{i}} \\
+            \dot{y_{2_{i}}} = y_{5_{i}} \\
+            \dot{y_{3_{i}}} = A a [\frac{2 \nu_{max}}{1+e^{r(v_0 - (y_{2_{i}} - y_{1_{i}}))}}]-2 a y_{3_{i}}-a^2 y_{0_{i}} + \sigma_i\epsilon_i \\
+            \dot{y_{4_{i}}} = A a [\mu+a_{2_{i}} J_i \frac{2\nu_{max}}{1+e^{r(v_0 - (a_{1_{i}} J y_{1_{i}}))}}+ \sum_j{C_{ij}x_j} \\
+            \dot{y_{5_{i}}} = B b (a_{4_{i}} J_i [\frac{2\nu_{max}}{1 + e^{r(v_0 - (a_{3_{i}} J y_{0_{i}})}}]) - 2by_{5_{i}} - b^2 y_{2_{i}} \\
+            z_i = y_{1_{i}} - y_{2_{i}} \\
+            x_i = c_{min} + \frac{c_{max}-c_{min}}{1 + e^{r(c_{mid} -z_i)}} \\
+            \end{gather}
 
         References
         ----------        

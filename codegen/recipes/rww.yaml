@@ -4,6 +4,13 @@ citations:
   - Deco et al. 2014 Journal of Neuroscience (10.1523/JNEUROSCI.5068-13.2014) # main model equations + numerical FIC
   - Demirtas et al. 2019 Neuron (10.1016/j.neuron.2019.01.017) # analytical FIC
   - Deco et al. 2018 Current Biology (10.1016/j.cub.2018.07.083) # part of implementation
+latex_equations: |
+  I_i^E=W^EI_b+w_i^{p} J_i^{N} S_i^E+GJ_i^{N}\sum_{j}{C_{ij}S_j^E}-w_i^{IE}S_i^I
+  I_i^I=W^II_b+J_i^{N}S_i^E-w^{II}S_i^I
+  r_i^E=H^E(I_i^E)\ =\frac{a^EI_i^E-b^E}{1\ -\ e^{-d^E(a^EI_i^E-b^E)}}
+  r_i^I=H^I(I_i^I)\ =\frac{a^II_i^I-b^I}{1\ -\ e^{-d^I(a^II_i^I-b^I)}}
+  \dot{S_i^E}=-\frac{S_i^E}{\tau_E}+(1\ -\ S_i^E)\gamma r_i^E(t)+\sigma_i\epsilon_i^E
+  \dot{S_i^I}=-\frac{S_i^I}{\tau_I}+r_i^I+\sigma_i\epsilon_i^I
 
 init_equations: |
   S_E = 0.001

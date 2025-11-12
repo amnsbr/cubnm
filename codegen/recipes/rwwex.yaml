@@ -2,6 +2,10 @@ model_name: rWWEx
 full_name: reduced Wong Wang (excitatory)
 citations:
   - Deco et al. 2013 Journal of Neuroscience (10.1523/JNEUROSCI.1091-13.2013)
+latex_equations: |
+  x_i = w_i J^N S_i + G J^N \sum_j C_{ij} S_j + I_{0_{i}}
+  r_i = \frac{a x_i - b}{1 - e^{-d(a x_i - b)}}  
+  \dot{S_i} = -\frac{S_i}{\tau_s} + (1 - S_i) \gamma r_i + {\sigma}_i \epsilon_i
 
 init_equations: |
   S = 0.001

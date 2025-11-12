@@ -57,7 +57,7 @@ class BNMProblem(Problem):
         Brain network model problem. A :class:`pymoo.core.problem.Problem` 
         that defines the model, free parameters and their ranges, and target empirical
         data (FC and FCD), and the simulation configurations (through 
-        :class:`cubnm.sim.SimGroup`). 
+        :class:`cubnm.sim.base.SimGroup`). 
         :class:`cubnm.optimize.Optimizer` classes can be
         used to optimize the free parameters of this problem.
 
@@ -126,7 +126,7 @@ class BNMProblem(Problem):
             (via summation) defines each objective separately. This must not be used
             with single-objective optimizers
         **kwargs
-            Keyword arguments passed to :class:`cubnm.sim.SimGroup`
+            Keyword arguments passed to :class:`cubnm.sim.base.SimGroup`
         """
         # TODO: break down __init__ into smaller methods
         # set opts
@@ -364,7 +364,7 @@ class BNMProblem(Problem):
         ----------
         include_sim_group: :obj:`bool`
             whether to include the configuration of the
-            associated :class:`cubnm.sim.SimGroup`
+            associated :class:`cubnm.sim.base.SimGroup`
         include_N: :obj:`bool`
             whether to include the current population size
             in the configuration
@@ -432,7 +432,7 @@ class BNMProblem(Problem):
     def _get_sim_params(self, X):
         """
         Gets the global and regional parameters of the problem's 
-        :class:`cubnm.sim.SimGroup` based on the
+        :class:`cubnm.sim.base.SimGroup` based on the
         problem free and fixed parameters and type of regional parameter
         heterogeneity (map-based, group-based or none).
 
@@ -539,7 +539,7 @@ class BNMProblem(Problem):
     def _set_sim_params(self, X):
         """
         Sets the global and regional parameters of the problem's 
-        :class:`cubnm.sim.SimGroup` based on the
+        :class:`cubnm.sim.base.SimGroup` based on the
         problem free and fixed parameters and type of regional parameter
         heterogeneity (map-based, group-based or none).
 
@@ -638,7 +638,7 @@ class Optimizer(ABC):
         Saves the output of the optimizer, including history
         of particles, history of optima, the optimal point,
         and its simulation data. The output will be saved
-        to `out_dir` of the problem's :class:`cubnm.sim.SimGroup`.
+        to `out_dir` of the problem's :class:`cubnm.sim.base.SimGroup`.
         If a directory with the same type of optimizer already
         exists, a new directory with a new index will be created.
 
@@ -1237,7 +1237,7 @@ class GridOptimizer(Optimizer):
         Saves the output of the optimizer, including history
         of particles, history of optima, the optimal point,
         and its simulation data. The output will be saved
-        to `out_dir` of the problem's :class:`cubnm.sim.SimGroup`.
+        to `out_dir` of the problem's :class:`cubnm.sim.base.SimGroup`.
 
         Parameters
         ---------

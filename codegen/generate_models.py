@@ -113,6 +113,20 @@ def main(add_examples=False):
             template,
             output_path
         )
+    
+    # generate the list of models in the documentation
+    doc_template = os.path.join(PACKAGE_ROOT, 'docs', 'models.rst.mako')
+    doc_output_path = os.path.join(PACKAGE_ROOT, 'docs', 'models.rst')
+    models_info = {k: v.full_name for k, v in ALL_MODELS.items()}
+    context = {
+        'models_info': models_info,
+        'template_path': os.path.relpath(doc_template, start=PACKAGE_ROOT)
+    }
+    generate_from_template(
+        context,
+        doc_template,
+        doc_output_path
+    )
 
 if __name__ == '__main__':
     main()
