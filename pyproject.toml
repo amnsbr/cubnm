@@ -43,9 +43,9 @@ dynamic = ["version"]
 cubnm = "cubnm.cli:main"
 
 [project.optional-dependencies]
-cu11 = ["cupy-cuda11x", "numba-cuda[cu11]"]
-cu12 = ["cupy-cuda12x", "numba-cuda[cu12]"]
-cu13 = ["cupy-cuda13x", "numba-cuda[cu13]"]
+cu11 = ["cupy-cuda11x", "numba-cuda[cu11]", "nvidia-cublas-cu11"]
+cu12 = ["cupy-cuda12x", "numba-cuda[cu12]", "nvidia-cublas-cu12"]
+cu13 = ["cupy-cuda13x", "numba-cuda[cu13]", "nvidia-cublas"]
 
 [tool.setuptools]
 include-package-data = true

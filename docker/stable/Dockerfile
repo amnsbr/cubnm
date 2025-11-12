@@ -17,6 +17,10 @@ RUN apt-get update && \
 
 # Install cubnm package using pip
 ARG VER
-RUN python3.10 -m pip install cubnm==${VER}
+RUN python3.10 -m pip install cubnm[cu12]==${VER}
+
+# Extend LD_LIBRARY_PATH to include NVIDIA nvrtc and cublas libraries
+# (this is to fix errors related to missing shared libraries at runtime, related to nvidia-cuda and cupy)
+ENV LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvrtc/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib:${LD_LIBRARY_PATH}"
 
 ENTRYPOINT [ "/usr/local/bin/cubnm" ]
