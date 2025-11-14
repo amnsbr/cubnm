@@ -24,7 +24,10 @@
 
 .. badges-end
 
-cuBNM toolbox is designed for efficient brain network modeling on GPUs.
+cuBNM toolbox is designed for efficient brain network modeling on GPUs. 
+
+Documentation can be found `here <https://cubnm.readthedocs.io>`_. 
+Read the preprint `here <https://www.biorxiv.org/content/10.1101/2025.11.13.688224v1>`_.
 
 .. overview-start
 
@@ -74,9 +77,12 @@ configurations:
 .. image:: https://raw.githubusercontent.com/amnsbr/cubnm/main/docs/_static/flowchart.png
     :alt: Flowchart of the cuBNM program
 
-.. overview-end
+Citation
+--------
+If you use cuBNM in your work, please cite:
 
-Documentation
--------------
-For installation instructions, tutorials, and API reference, please visit
-https://cubnm.readthedocs.io.
+    Saberi et al., cuBNM: GPU-Accelerated Brain Network Modeling. bioRxiv (2025) [`link <https://www.biorxiv.org/content/10.1101/2025.11.13.688224v1>`_].
+
+In addition, please cite the original papers for the BNMs and optimization algorithms you use.
+
+.. overview-end
