@@ -1,0 +1,244 @@
+model_name: rJR
+full_name: reduced Jansen-Rit
+# citations -> TODO
+# latex_equations -> TODO
+
+init_equations: |
+  EPSP = V0
+  IPSP = V0
+  EPSC = 0.0
+  IPSC = 0.0
+  normEPSP = V0
+
+step_equations: |
+  # Second derivative of EPSP
+  d2EPSP_dt2 = (HeKe * pow(R, 2) * (Fe / (1.0 + exp(Re * (V50e - (G * globalinput - c_EI * IPSP)))))) - DrKe2 * R * EPSC - Ke_sq * pow(R, 2) * EPSP
+  # Second derivative of IPSP
+  d2IPSP_dt2 = (HiKi * pow(R, 2) * (Fi / (1.0 + exp(Ri * (V50i - (C_IE * EPSP)))))) - DrKi2 * R * IPSC - Ki_sq * pow(R, 2) * IPSP
+  # EPSP = EPSP + dEPSP/dt*dt where dEPSP/dt = EPSC (from the previous time point)
+  EPSP += EPSC * dt
+  # IPSP = IPSP + dIPSP/dt*dt where dIPSP/dt = IPSC (from the previous time point)
+  IPSP += IPSC * dt
+  # Update EPSC using second derivative
+  EPSC += d2EPSP_dt2 * dt
+  # Update IPSC using second derivative
+  IPSC += d2IPSP_dt2 * dt
+  # Add noise to EPSC
+  EPSC += sqrt_dt * sigma * pow(R, 2) * noise
+  # Add noise to IPSC
+  IPSC += sqrt_dt * sigma * pow(R, 2) * noise
+  # Calculate normalized EPSP for BOLD
+  normEPSP = EPSP / He
+
+conn_state_var: EPSP
+is_osc: false
+
+bold_state_var: normEPSP
+
+variables:
+  # State variables
+  - name: EPSP
+    type: state_var
+    description: excitatory post-synaptic potential
+  
+  - name: IPSP
+    type: state_var
+    description: inhibitory post-synaptic potential
+
+  - name: EPSC
+    type: state_var
+    description: excitatory post-synaptic current
+  
+  - name: IPSC
+    type: state_var
+    description: inhibitory post-synaptic current
+
+  - name: normEPSP
+    type: state_var
+    description: normalized excitatory post-synaptic potential
+
+  # Intermediate variables
+  - name: d2EPSP_dt2
+    type: intermediate_var
+    description: second derivative of EPSP
+  
+  - name: d2IPSP_dt2
+    type: intermediate_var
+    description: second derivative of IPSP
+    
+  # Global parameter
+  - name: G
+    type: global_param
+    description: global coupling strength
+  
+  # Regional parameters  
+  - name: C_EI
+    type: regional_param
+    description: local E to I coupling
+    value: 6.0
+
+  - name: C_IE
+    type: regional_param
+    description: local I to E coupling
+    value: 6.0
+  
+  - name: R
+    type: regional_param
+    description: local natural frequency
+    value: 2.2
+
+  - name: sigma
+    type: regional_param
+    description: noise strength
+    value: 1625.0
+    
+  # Noise
+  - name: noise
+    type: noise
+    description: noise sample
+  
+constants:
+  - type: double
+    name: dt
+    value: dt * 0.001 # converting init_constants input dt (msec) to seconds
+    description: integration step (seconds)
+  
+  - type: double
+    name: sqrt_dt
+    value: sqrt(mc.dt)
+    description: square root of integration step
+  
+  # TODO: add proper descriptions
+  - type: double
+    name: Ke
+    value: "100.0"
+    description: inversion of time constant of the EPSP kernel (1/sec) 
+  
+  - type: double
+    name: Ki
+    value: "50.0"
+    description: inversion of time constant of the IPSP kernel (1/sec)
+  
+  - type: double
+    name: He
+    value: "3.25"
+    description: maximal EPSP (mV)
+
+  - type: double
+    name: Hi
+    value: "22.0"
+    description: maximal IPSP (mV)
+
+  - type: double
+    name: Fe
+    value: "100.0"
+    description: maximal firing rate of excitatory population (Hz)
+
+  - type: double
+    name: Fi
+    value: "50.0"
+    description: maximal firing rate of inhibitory population (Hz)
+
+  - type: double
+    name: Re
+    value: "0.56"
+    description: slope of the sigmoid activation function for excitatory population (1/mV)
+
+  - type: double
+    name: Ri
+    value: "0.56"
+    description: slope of the sigmoid activation function for inhibitory population (1/mV)
+
+  - type: double
+    name: V50e
+    value: "6.0"
+    description: EPSP that achieves a 50% firing rate of a neural population (mV)
+
+  - type: double
+    name: V50i
+    value: "6.0"
+    description: IPSP that achieves a 50% firing rate of a neural population (mV)
+
+  - type: double
+    name: Dr
+    value: "1.0"
+    description: damping ratio = 1 for critical damping (Dr > 1 exponential decaying, Dr < 1 oscillating)
+
+  - type: double
+    name: V0
+    value: "0.0"
+    description: rest potential (mV) for PSP
+
+  # derived constants
+  - type: double
+    name: HeKe
+    value: mc.He * mc.Ke
+    description: He * Ke
+
+  - type: double
+    name: HiKi
+    value: mc.Hi * mc.Ki
+    description: Hi * Ki
+
+  - type: double
+    name: DrKe2
+    value: mc.Dr * mc.Ke * 2
+    description: Dr * Ke^2
+
+  - type: double
+    name: DrKi2
+    value: mc.Dr * mc.Ki * 2
+    description: Dr * Ki^2
+
+  - type: double
+    name: Ke_sq
+    value: mc.Ke * mc.Ke
+    description: Ke squared
+
+  - type: double
+    name: Ki_sq
+    value: mc.Ki * mc.Ki
+    description: Ki squared
+
+config:
+  # all are only used in Python
+  - type: double
+    name: R_mean
+    value: 2.2
+    description: mean of the natural frequency distribution
+
+  - type: double
+    name: R_range
+    value: 0
+    description: range of the natural frequency distribution
+
+  # TODO: enable string configs, and make this into a string
+  - type: bool
+    name: R_dist_uniform
+    value: "true"
+    description: whether distribution of natural frequencies is uniform rather than normal
+
+python_config:
+  sel_state_var: normEPSP
+
+  # TODO: labels
+
+  custom_methods:
+    N_setter: |
+      @SimGroup.N.setter
+      def N(self, N):
+          super(rJRSimGroup, rJRSimGroup).N.__set__(self, N)
+          if self.R_dist_uniform:
+              # sample from uniform distribution
+              # repeat it across simulations
+              # use the same random seed as the simulation noise
+              rng = np.random.default_rng(self.sim_seed)
+              # TODO: with certain R_range and R_mean some nodes may
+              # have negative R values. Fix this!
+              self.param_lists["R"] = np.tile(
+                  (rng.uniform(-1, 1, self.nodes) * self.R_range + 1) * self.R_mean, 
+                  (self._N, 1)
+              )
+          else:
+              # TODO
+              raise NotImplementedError

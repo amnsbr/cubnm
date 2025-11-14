@@ -5,6 +5,7 @@ from .base import SimGroup, create_multi_sim_group
 
 from .jr import JRSimGroup
 from .kuramoto import KuramotoSimGroup
+from .rjr import rJRSimGroup
 from .rww import rWWSimGroup
 from .rwwex import rWWExSimGroup
 from .wc import WCSimGroup
@@ -13,6 +14,7 @@ __all__ = [
     'SimGroup',
     'JRSimGroup',
     'KuramotoSimGroup',
+    'rJRSimGroup',
     'rWWSimGroup',
     'rWWExSimGroup',
     'WCSimGroup',

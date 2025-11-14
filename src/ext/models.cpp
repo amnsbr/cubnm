@@ -5,6 +5,7 @@
 */
 #include "./models/jr.cpp"
 #include "./models/kuramoto.cpp"
+#include "./models/rjr.cpp"
 #include "./models/rww.cpp"
 #include "./models/rwwex.cpp"
 #include "./models/wc.cpp"
@@ -12,6 +13,7 @@
 const std::vector<std::string> MODELS = {
     "JR",
     "Kuramoto",
+    "rJR",
     "rWW",
     "rWWEx",
     "WC",
@@ -25,6 +27,10 @@ std::map<std::string, std::function<BaseModel*(int, int, int, double, int, int, 
     {"Kuramoto", [](int nodes, int N_SIMS, int N_SCs, double BOLD_TR, int states_sampling, 
                     int time_steps, bool do_delay, int sim_seed, double dt, double bw_dt) {
         return new KuramotoModel(nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, time_steps, do_delay, sim_seed, dt, bw_dt);
+    }},
+    {"rJR", [](int nodes, int N_SIMS, int N_SCs, double BOLD_TR, int states_sampling, 
+                    int time_steps, bool do_delay, int sim_seed, double dt, double bw_dt) {
+        return new rJRModel(nodes, N_SIMS, N_SCs, BOLD_TR, states_sampling, time_steps, do_delay, sim_seed, dt, bw_dt);
     }},
     {"rWW", [](int nodes, int N_SIMS, int N_SCs, double BOLD_TR, int states_sampling, 
                     int time_steps, bool do_delay, int sim_seed, double dt, double bw_dt) {

@@ -14,6 +14,8 @@ refer to the documentation of each model's corresponding class.
      - :class:`cubnm.sim.jr.JRSimGroup`
    * - Kuramoto
      - :class:`cubnm.sim.kuramoto.KuramotoSimGroup`
+   * - Reduced Jansen-Rit
+     - :class:`cubnm.sim.rjr.rJRSimGroup`
    * - Reduced Wong-Wang (Excitatory-Inhibitory)
      - :class:`cubnm.sim.rww.rWWSimGroup`
    * - Reduced Wong Wang (Excitatory)
