@@ -27,7 +27,7 @@
 cuBNM toolbox is designed for efficient brain network modeling on GPUs. 
 
 Documentation can be found `here <https://cubnm.readthedocs.io>`_. 
-Read the preprint `here <https://www.biorxiv.org/content/10.1101/2025.11.13.688224v1>`_.
+Read the preprint `on bioRxiv <https://www.biorxiv.org/content/10.1101/2025.11.13.688224v1>`_.
 
 .. overview-start
 
@@ -86,3 +86,4 @@ If you use cuBNM in your work, please cite:
 In addition, please cite the original papers for the BNMs and optimization algorithms you use.
 
 .. overview-end
+
