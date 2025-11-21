@@ -55,7 +55,7 @@ class rWWSimGroup(SimGroup):
         fic_penalty_scale: :obj:`float`
             how much deviation from FIC target mean rE of 3 Hz is penalized. Set to 0 to disable FIC penalty.
         *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
+            see :class:`cubnm.sim.base.SimGroup` for details
 
         Attributes
         ----------

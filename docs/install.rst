@@ -17,7 +17,7 @@ Requirements
 
 **Required:**
 
-* Linux operating system on x86-64 architecture (for other architectures see :ref:`from-source`)
+* Linux or Windows Subsystem for Linux (WSL) on x86-64 architecture (for other architectures see :ref:`from-source`)
 * Python >= 3.7
 
 **Optional (for GPU functionality):**
@@ -77,7 +77,7 @@ Building from source may be necessary for:
 
 **Requirements:**
 
-* Linux operating system
+* Linux or Windows Subsystem for Linux (WSL)
 * Python >= 3.7
 * GCC (pre-built wheels use version 10.2.1, but other versions should work)
 * `GSL 2.7 <https://www.gnu.org/software/gsl/>`_ (see installation options below)

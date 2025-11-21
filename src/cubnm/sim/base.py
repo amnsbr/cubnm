@@ -105,9 +105,11 @@ class SimGroup:
         bw_dt: :obj:`decimal.Decimal` or :obj:`str`
             Ballon-Windkessel integration time step (in msec)
         states_ts: :obj:`bool`
-            return time series of model states to self.sim_states
+            return time series of model states to self.sim_states, otherwise
+            return time-averaged states (after discarding initial period as per
+            bold_remove_s).
             Note that this will increase the memory usage and is not
-            recommended for large number of simulations (e.g. in a grid search)
+            recommended for very large number of simulations (e.g. in a grid search)
         states_sampling: :obj:`float`
             sampling rate of model states in seconds.
             Default is None, which uses BOLD TR as the sampling rate.

@@ -153,7 +153,7 @@ class ${class_name}(SimGroup):
             ${cfg.get('description', '')}
 % endfor
         *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
+            see :class:`cubnm.sim.base.SimGroup` for details
 
         Attributes
         ----------

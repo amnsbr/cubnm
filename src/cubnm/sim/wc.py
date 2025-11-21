@@ -37,7 +37,7 @@ class WCSimGroup(SimGroup):
         Parameters
         ---------
         *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
+            see :class:`cubnm.sim.base.SimGroup` for details
 
         Attributes
         ----------

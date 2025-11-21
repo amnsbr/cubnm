@@ -202,13 +202,15 @@ Type must be one of the following:
 - ``intermediate_var``: Intermediate variables for computational efficiency. Note that intermediate
   variables are not saved in outputs and cannot be used as ``conn_state_var`` or ``bold_state_var``.
 - ``global_param``: Global parameters, usually only the global coupling ``G``. These are
-  parameters specific to a simulation but not defined per node.
+  parameters specific to a simulation but not defined per node. Delay or velocity parameters
+  should not be defined here, as ``v`` is automatically a global parameter for all models when delayed
+  conduction is enabled.
 - ``regional_param``: Regional parameters (``w``, ``I0``, and ``sigma`` in ``rWWEx``). These are
   node-specific parameters.
 - ``noise``: Noise terms (:math:`v_i(t)` in ``rWWEx``). These are random samples from a standard Gaussian
   distribution (mean 0, standard deviation 1), unique to each node and time point.
   Models may have multiple noise terms per node (e.g., ``rWW`` has separate noise for excitatory and inhibitory populations).
-  The name of noise variables need not be ``noise``.
+  The name of noise variables can, but does need not to be ``noise``.
 - Additional types including ``ext_bool_shared``, ``ext_int_shared``, ``global_out_bool``,
   and ``global_out_int`` are available for advanced use cases (see ``codegen/recipes/rww.yaml``).
 

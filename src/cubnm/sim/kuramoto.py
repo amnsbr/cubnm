@@ -39,7 +39,7 @@ class KuramotoSimGroup(SimGroup):
         random_init_theta: :obj:`bool`
             set initial theta by randomly sampling from a uniform distribution
         *args, **kwargs:
-            see :class:`cubnm.sim.SimGroup` for details
+            see :class:`cubnm.sim.base.SimGroup` for details
 
         Attributes
         ----------
