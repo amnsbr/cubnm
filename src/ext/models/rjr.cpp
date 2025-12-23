@@ -89,8 +89,8 @@ void rJRModel::h_step(
         double* noise, long& noise_idx
         ) {
     // Second derivative of EPSP
-    // d2EPSP_dt2 = (HeKe * pow(R, 2) * (Fe / (1.0 + exp(Re * (V50e - (G * globalinput - c_EI * IPSP)))))) - DrKe2 * R * EPSC - Ke_sq * pow(R, 2) * EPSP
-    _intermediate_vars[0] = (rJRModel::mc.HeKe * pow(_regional_params[2], 2) * (rJRModel::mc.Fe / (1.0 + exp(rJRModel::mc.Re * (rJRModel::mc.V50e - (_global_params[0] * tmp_globalinput - c_EI * _state_vars[1])))))) - rJRModel::mc.DrKe2 * _regional_params[2] * _state_vars[2] - rJRModel::mc.Ke_sq * pow(_regional_params[2], 2) * _state_vars[0];
+    // d2EPSP_dt2 = (HeKe * pow(R, 2) * (Fe / (1.0 + exp(Re * (V50e - (G * globalinput - C_EI * IPSP)))))) - DrKe2 * R * EPSC - Ke_sq * pow(R, 2) * EPSP
+    _intermediate_vars[0] = (rJRModel::mc.HeKe * pow(_regional_params[2], 2) * (rJRModel::mc.Fe / (1.0 + exp(rJRModel::mc.Re * (rJRModel::mc.V50e - (_global_params[0] * tmp_globalinput - _regional_params[0] * _state_vars[1])))))) - rJRModel::mc.DrKe2 * _regional_params[2] * _state_vars[2] - rJRModel::mc.Ke_sq * pow(_regional_params[2], 2) * _state_vars[0];
     // Second derivative of IPSP
     // d2IPSP_dt2 = (HiKi * pow(R, 2) * (Fi / (1.0 + exp(Ri * (V50i - (C_IE * EPSP)))))) - DrKi2 * R * IPSC - Ki_sq * pow(R, 2) * IPSP
     _intermediate_vars[1] = (rJRModel::mc.HiKi * pow(_regional_params[2], 2) * (rJRModel::mc.Fi / (1.0 + exp(rJRModel::mc.Ri * (rJRModel::mc.V50i - (_regional_params[1] * _state_vars[0])))))) - rJRModel::mc.DrKi2 * _regional_params[2] * _state_vars[3] - rJRModel::mc.Ki_sq * pow(_regional_params[2], 2) * _state_vars[1];

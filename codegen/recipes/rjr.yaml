@@ -12,7 +12,7 @@ init_equations: |
 
 step_equations: |
   # Second derivative of EPSP
-  d2EPSP_dt2 = (HeKe * pow(R, 2) * (Fe / (1.0 + exp(Re * (V50e - (G * globalinput - c_EI * IPSP)))))) - DrKe2 * R * EPSC - Ke_sq * pow(R, 2) * EPSP
+  d2EPSP_dt2 = (HeKe * pow(R, 2) * (Fe / (1.0 + exp(Re * (V50e - (G * globalinput - C_EI * IPSP)))))) - DrKe2 * R * EPSC - Ke_sq * pow(R, 2) * EPSP
   # Second derivative of IPSP
   d2IPSP_dt2 = (HiKi * pow(R, 2) * (Fi / (1.0 + exp(Ri * (V50i - (C_IE * EPSP)))))) - DrKi2 * R * IPSC - Ki_sq * pow(R, 2) * IPSP
   # EPSP = EPSP + dEPSP/dt*dt where dEPSP/dt = EPSC (from the previous time point)
