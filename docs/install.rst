@@ -23,7 +23,7 @@ Requirements
 **Optional (for GPU functionality):**
 
 * NVIDIA GPU with Compute Capability >= 6.0 (older devices >= 2.x may work but are untested)
-* NVIDIA Driver >= 520.61.05 (required for CUDA 11.8 support)
+* NVIDIA Driver >= 520.61.05
 
 To check your CUDA version:
 
