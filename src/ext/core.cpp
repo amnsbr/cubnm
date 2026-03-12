@@ -194,12 +194,13 @@ static PyObject* set_const(PyObject* self, PyObject* args) {
 static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     char* model_name;
     PyArrayObject *py_SC, *py_SC_indices, *py_SC_dist, *py_global_params, *py_regional_params, *v_list;
+    PyArrayObject *py_intervention_times, *py_intervention_global_deltas, *py_intervention_regional_deltas;
     PyObject* config_dict;
     bool ext_out, states_ts, noise_out, do_delay, force_reinit, use_cpu;
     int N_SIMS, nodes, time_steps, BOLD_TR, states_sampling, sim_seed;
     double dt, bw_dt;
 
-    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!Oiiiiiiiiiiiidd", 
+    if (!PyArg_ParseTuple(args, "sO!O!O!O!O!O!O!O!O!Oiiiiiiiiiiiidd", 
             &model_name,
             &PyArray_Type, &py_SC,
             &PyArray_Type, &py_SC_indices,
@@ -207,6 +208,9 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
             &PyArray_Type, &py_global_params,
             &PyArray_Type, &py_regional_params,
             &PyArray_Type, &v_list,
+            &PyArray_Type, &py_intervention_times,
+            &PyArray_Type, &py_intervention_global_deltas,
+            &PyArray_Type, &py_intervention_regional_deltas,
             &config_dict,
             &ext_out,
             &states_ts,
@@ -230,11 +234,19 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     py_global_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_global_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     py_regional_params = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_regional_params, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     py_SC = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_SC, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
-    if ((py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL)) return NULL;
+    py_intervention_times = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_intervention_times, NPY_INT32, NPY_ARRAY_IN_ARRAY);
+    py_intervention_global_deltas = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_intervention_global_deltas, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    py_intervention_regional_deltas = (PyArrayObject*)PyArray_FROM_OTF((PyObject*)py_intervention_regional_deltas, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    if (
+        (py_global_params == NULL) | (py_regional_params == NULL) | (py_SC == NULL) |
+        (py_intervention_times == NULL) | (py_intervention_global_deltas == NULL) |
+        (py_intervention_regional_deltas == NULL)
+    ) return NULL;
 
     double ** global_params = np_to_array_2d(py_global_params);
     double ** regional_params = np_to_array_2d(py_regional_params);
     double ** SC = np_to_array_2d(py_SC);
+    int n_interventions = PyArray_SIZE(py_intervention_times);
     // calcualte number of SCs as the max value of py_SC_idx
     int N_SCs = *std::max_element(
         (int*)PyArray_DATA(py_SC_indices), 
@@ -286,6 +298,10 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     model->set_conf(config_map); // update with user values if provided
     model->base_conf.ext_out = ext_out;
     model->base_conf.states_ts = states_ts;
+    model->n_interventions = n_interventions;
+    model->intervention_times = (int*)PyArray_DATA(py_intervention_times);
+    model->intervention_global_deltas = (double*)PyArray_DATA(py_intervention_global_deltas);
+    model->intervention_regional_deltas = (double*)PyArray_DATA(py_intervention_regional_deltas);
 
     // set Ballon-Windkessel integration step based on user input
     bwc.dt = model->bw_dt;
@@ -507,7 +523,8 @@ static PyObject* run_simulations(PyObject* self, PyObject* args) {
 static PyMethodDef methods[] = {
     {"run_simulations", run_simulations, METH_VARARGS, 
         "run_simulations(model_name, SC, SC_indices, SC_dist, global_params, regional_params, \n"
-        "v_list, model_config, ext_out, states_ts, noise_out, do_delay, force_reinit, \n"
+        "v_list, intervention_times, intervention_global_deltas, intervention_regional_deltas, \n"
+        "model_config, ext_out, states_ts, noise_out, do_delay, force_reinit, \n"
         "use_cpu, N_SIMS, nodes, time_steps, BOLD_TR, sim_seed, dt, bw_dt)\n\n"
         "This function serves as an interface to run a group of simulations on GPU/CPU.\n\n"
         "Parameters:\n"
@@ -531,6 +548,12 @@ static PyMethodDef methods[] = {
         "v_list (np.ndarray) (N_SIMS,)\n"
             "\tarray of conduction velocity values\n"
             "\twill be ignored if do_delay is False\n"
+        "intervention_times (np.ndarray) (n_interventions,)\n"
+            "\tBW time-step indices at which interventions are applied\n"
+        "intervention_global_deltas (np.ndarray) (n_interventions, n_global_params)\n"
+            "\tadditive deltas for global parameters\n"
+        "intervention_regional_deltas (np.ndarray) (n_interventions, n_regional_params, nodes)\n"
+            "\tadditive deltas for regional parameters\n"
         "model_config (dict)\n"
             "\tmodel-specific configurations as a dictioary with\n"
             "\tstring keys and values. Provide an empty dictionary\n"

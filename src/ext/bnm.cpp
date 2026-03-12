@@ -231,6 +231,24 @@ void bnm(
 
     // allocate memory for globalinput
     double *tmp_globalinput = (double*)malloc(sizeof(double) * model->nodes);
+    // track cumulative intervention deltas so they can be replayed on restart
+    double* applied_intervention_global_deltas = NULL;
+    double** applied_intervention_regional_deltas = NULL;
+    if (model->n_interventions > 0) {
+        if (Model::n_global_params > 0) {
+            applied_intervention_global_deltas = (double*)calloc(
+                Model::n_global_params, sizeof(double)
+            );
+        }
+        if (Model::n_regional_params > 0) {
+            applied_intervention_regional_deltas = (double**)malloc(model->nodes * sizeof(double*));
+            for (int j = 0; j < model->nodes; j++) {
+                applied_intervention_regional_deltas[j] = (double*)calloc(
+                    Model::n_regional_params, sizeof(double)
+                );
+            }
+        }
+    }
 
     // Integration
     bool restart = false;
@@ -254,6 +272,34 @@ void bnm(
     // TODO: define number of steps for outer
     // and inner loops based on model dt and BW dt from user input 
     while (bw_i < model->bw_it) {
+        // apply all interventions scheduled for this BW timepoint
+        if (model->n_interventions > 0) {
+            for (int intervention_idx = 0; intervention_idx < model->n_interventions; intervention_idx++) {
+                if (model->intervention_times[intervention_idx] != bw_i) {
+                    continue;
+                }
+                for (int ii=0; ii<Model::n_global_params; ii++) {
+                    double delta = model->intervention_global_deltas[
+                        intervention_idx * Model::n_global_params + ii
+                    ];
+                    _global_params[ii] += delta;
+                    if (applied_intervention_global_deltas != NULL) {
+                        applied_intervention_global_deltas[ii] += delta;
+                    }
+                }
+                for (int j=0; j<model->nodes; j++) {
+                    for (int ii=0; ii<Model::n_regional_params; ii++) {
+                        double delta = model->intervention_regional_deltas[
+                            (intervention_idx * Model::n_regional_params + ii) * model->nodes + j
+                        ];
+                        _regional_params[j][ii] += delta;
+                        if (applied_intervention_regional_deltas != NULL) {
+                            applied_intervention_regional_deltas[j][ii] += delta;
+                        }
+                    }
+                }
+            }
+        }
         #ifdef NOISE_SEGMENT
         // get shuffled timepoint corresponding to
         // current noise repeat and the amount of time
@@ -393,6 +439,20 @@ void bnm(
                 _ext_int, _ext_bool,
                 _ext_int_shared, _ext_bool_shared
             );
+            // remove intervention deltas to replay them deterministically
+            // when simulation restarts from the beginning
+            if (model->n_interventions > 0) {
+                for (int ii=0; ii<Model::n_global_params; ii++) {
+                    _global_params[ii] -= applied_intervention_global_deltas[ii];
+                    applied_intervention_global_deltas[ii] = 0.0;
+                }
+                for (j=0; j<model->nodes; j++) {
+                    for (int ii=0; ii<Model::n_regional_params; ii++) {
+                        _regional_params[j][ii] -= applied_intervention_regional_deltas[j][ii];
+                        applied_intervention_regional_deltas[j][ii] = 0.0;
+                    }
+                }
+            }
             // regional generic resets
             for (j=0; j<model->nodes; j++) {
                 // reset Balloon-Windkessel model variables
@@ -516,6 +576,15 @@ void bnm(
     }
     if (Model::n_global_params > 0) {
         free(_global_params);
+    }
+    if (applied_intervention_global_deltas != NULL) {
+        free(applied_intervention_global_deltas);
+    }
+    if (applied_intervention_regional_deltas != NULL) {
+        for (int j=0; j<model->nodes; j++) {
+            free(applied_intervention_regional_deltas[j]);
+        }
+        free(applied_intervention_regional_deltas);
     }
     // other variables are freed automatically
     // or should not be freed

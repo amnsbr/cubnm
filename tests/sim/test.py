@@ -19,6 +19,26 @@ def no_gpu():
     # to skip GPU-dependent tests
     return avail_gpus()==0
 
+def _get_intervention_test_sg(force_cpu):
+    nodes = 8
+    sc = np.ones((nodes, nodes), dtype=float)
+    np.fill_diagonal(sc, 0.0)
+    sg = sim.rWWSimGroup(
+        duration=8,
+        TR=1,
+        sc=sc,
+        do_fc=False,
+        do_fcd=False,
+        gof_terms=[],
+        force_cpu=force_cpu,
+        do_fic=False,
+        sim_verbose=False,
+    )
+    sg.N = 1
+    sg.param_lists['G'] = np.array([0.5])
+    sg._set_default_params(missing=True)
+    return sg
+
 def get_test_params(cpu_gpu_identity=False):
     """
     Get all possible test parameters for all the models
@@ -182,6 +202,75 @@ def test_identical_cpu_gpu(model, opts_str):
     # compare results
     assert np.isclose(sim_fc_trils[False], sim_fc_trils[True], atol=1e-6).all()
     assert np.isclose(sim_fcd_trils[False], sim_fcd_trils[True], atol=1e-6).all()
+    assert np.isclose(sim_bolds[False], sim_bolds[True], atol=1e-6).all()
+    assert np.isclose(sim_sel_states[False], sim_sel_states[True], atol=1e-6).all()
+
+def test_intervention_noop_matches_baseline():
+    """
+    Tests that empty intervention arrays are a no-op.
+    """
+    sg_base = _get_intervention_test_sg(force_cpu=True)
+    sg_base.run()
+
+    sg_noop = _get_intervention_test_sg(force_cpu=True)
+    sg_noop.intervention_times = np.empty((0,), dtype=np.intc)
+    sg_noop.intervention_global_deltas = np.empty(
+        (0, len(sg_noop.global_param_names)), dtype=float
+    )
+    sg_noop.intervention_regional_deltas = np.empty(
+        (0, len(sg_noop.regional_param_names), sg_noop.nodes), dtype=float
+    )
+    sg_noop.run()
+
+    assert np.isclose(sg_noop.sim_bold, sg_base.sim_bold, atol=1e-6).all()
+    assert np.isclose(
+        sg_noop.sim_states[sg_noop.sel_state_var],
+        sg_base.sim_states[sg_base.sel_state_var],
+        atol=1e-6
+    ).all()
+
+def test_intervention_changes_trajectory():
+    """
+    Tests that a non-zero intervention changes simulated trajectories.
+    """
+    sg_base = _get_intervention_test_sg(force_cpu=True)
+    sg_base.run()
+
+    sg_interv = _get_intervention_test_sg(force_cpu=True)
+    sg_interv.intervention_times = np.array([1500], dtype=np.intc)
+    sg_interv.intervention_global_deltas = np.array([[0.25]], dtype=float)
+    intervention_regional = np.zeros(
+        (1, len(sg_interv.regional_param_names), sg_interv.nodes),
+        dtype=float
+    )
+    sg_interv.intervention_regional_deltas = intervention_regional
+    sg_interv.run()
+
+    assert (not np.isclose(sg_interv.sim_bold, sg_base.sim_bold, atol=1e-8).all())
+
+@pytest.mark.skipif(no_gpu(), reason="No GPU available")
+def test_intervention_identical_cpu_gpu():
+    """
+    Tests CPU/GPU identity for simulations with interventions.
+    """
+    intervention_times = np.array([1000, 3000], dtype=np.intc)
+    intervention_global_deltas = np.array([[0.10], [-0.05]], dtype=float)
+    n_regional_params = len(sim.rWWSimGroup.regional_param_names)
+    intervention_regional_deltas = np.zeros((2, n_regional_params, 8), dtype=float)
+    intervention_regional_deltas[0, 0, :4] = 0.02
+    intervention_regional_deltas[1, 3, 4:] = -0.002
+
+    sim_bolds = {}
+    sim_sel_states = {}
+    for force_cpu in [True, False]:
+        sg = _get_intervention_test_sg(force_cpu=force_cpu)
+        sg.intervention_times = intervention_times
+        sg.intervention_global_deltas = intervention_global_deltas
+        sg.intervention_regional_deltas = intervention_regional_deltas
+        sg.run()
+        sim_bolds[force_cpu] = sg.sim_bold.copy()
+        sim_sel_states[force_cpu] = sg.sim_states[sg.sel_state_var].copy()
+
     assert np.isclose(sim_bolds[False], sim_bolds[True], atol=1e-6).all()
     assert np.isclose(sim_sel_states[False], sim_sel_states[True], atol=1e-6).all()
 

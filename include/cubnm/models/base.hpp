@@ -74,13 +74,16 @@ public:
         sim_seed{0}, n_pairs{0}, n_windows{0}, 
         n_window_pairs{0}, bold_len{0}, bold_size{0}, states_len{0}, states_size{0},
         n_vols_remove{0}, n_states_samples_remove{0}, corr_len{0}, 
-        noise_size{0}, noise_repeats{0}, max_delay{0},
+        noise_size{0}, noise_repeats{0}, max_delay{0}, n_interventions{0},
         last_nodes{0}, last_time_steps{0}, last_sim_seed{0}, 
         last_noise_time_steps{0},
         bw_it{0}, inner_it{0}, BOLD_TR_iters{0}, states_sampling_iters{0},
         alloc_N_SCs{0}, alloc_N_SIMS{0};
         // TODO: make some short or size_t
     int *max_delays;
+    int *intervention_times{nullptr};
+    double *intervention_global_deltas{nullptr};
+    double *intervention_regional_deltas{nullptr};
     bool cpu_initialized{false}, cpu_noise_initialized{false}, modifies_params{false}, 
         do_delay{false}, co_launch{false}, alloc_states_out{false}, alloc_fc{false},
         alloc_fcd{false};

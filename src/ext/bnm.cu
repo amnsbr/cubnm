@@ -120,6 +120,9 @@ __global__ void bnm(
         int **global_out_int, bool **global_out_bool,
         double **SC, double **SC_dist, int *SC_indices, 
         double **global_params, double **regional_params,
+        int *intervention_times,
+        double *intervention_global_deltas,
+        double *intervention_regional_deltas,
         double **conn_state_var_hist, 
         int *max_delays, double *v_list,
         #ifdef NOISE_SEGMENT
@@ -196,12 +199,16 @@ __global__ void bnm(
     // not for those that (may) vary, e.g. w_IE, w_EE and w_IE
     __shared__ double _global_params[Model::n_global_params];
     double _regional_params[Model::n_regional_params];
+    __shared__ double _applied_intervention_global_deltas[Model::n_global_params];
+    double _applied_intervention_regional_deltas[Model::n_regional_params];
     int ii; // general-purpose index for parameters and varaiables
     for (ii=0; ii<Model::n_global_params; ii++) {
         _global_params[ii] = global_params[ii][sim_idx];
+        _applied_intervention_global_deltas[ii] = 0.0;
     }
     for (ii=0; ii<Model::n_regional_params; ii++) {
         _regional_params[ii] = regional_params[ii][sim_idx*nodes+j];
+        _applied_intervention_regional_deltas[ii] = 0.0;
     }
 
     // initialize extended output sums
@@ -308,6 +315,31 @@ __global__ void bnm(
     int curr_delay = 0;
     // outer loop (of bw iterations, default: 1 msec)
     while (bw_i < bw_it) {
+        // apply all interventions scheduled for current BW step
+        if (model->n_interventions > 0) {
+            for (int intervention_idx = 0; intervention_idx < model->n_interventions; intervention_idx++) {
+                if (intervention_times[intervention_idx] != bw_i) {
+                    continue;
+                }
+                if (j == 0) {
+                    for (ii=0; ii<Model::n_global_params; ii++) {
+                        double delta = intervention_global_deltas[
+                            intervention_idx * Model::n_global_params + ii
+                        ];
+                        _global_params[ii] += delta;
+                        _applied_intervention_global_deltas[ii] += delta;
+                    }
+                }
+                for (ii=0; ii<Model::n_regional_params; ii++) {
+                    double delta = intervention_regional_deltas[
+                        (intervention_idx * Model::n_regional_params + ii) * nodes + j
+                    ];
+                    _regional_params[ii] += delta;
+                    _applied_intervention_regional_deltas[ii] += delta;
+                }
+            }
+            sync_threads<co_launch>(grid, block);
+        }
         #ifdef NOISE_SEGMENT
         // get shuffled timepoint corresponding to
         // current noise repeat and the amount of time
@@ -440,6 +472,19 @@ __global__ void bnm(
                 _ext_int, _ext_bool, 
                 _ext_int_shared, _ext_bool_shared
             );
+            // remove intervention deltas to replay from time zero
+            if (model->n_interventions > 0) {
+                if (j == 0) {
+                    for (ii=0; ii<Model::n_global_params; ii++) {
+                        _global_params[ii] -= _applied_intervention_global_deltas[ii];
+                        _applied_intervention_global_deltas[ii] = 0.0;
+                    }
+                }
+                for (ii=0; ii<Model::n_regional_params; ii++) {
+                    _regional_params[ii] -= _applied_intervention_regional_deltas[ii];
+                    _applied_intervention_regional_deltas[ii] = 0.0;
+                }
+            }
             // subtract progress of current simulation
             if (model->base_conf.verbose && (j==0)) {
                 atomicAdd(progress, -bold_i);
@@ -564,6 +609,43 @@ void _run_simulations_gpu(
     }
     // copy v_list to managed memory
     CUDA_CHECK_RETURN(cudaMemcpy(d_model->d_v_list, v_list, d_model->N_SIMS * sizeof(double), cudaMemcpyHostToDevice));
+
+    int *d_intervention_times = NULL;
+    double *d_intervention_global_deltas = NULL;
+    double *d_intervention_regional_deltas = NULL;
+    if (d_model->n_interventions > 0) {
+        CUDA_CHECK_RETURN(cudaMallocManaged(&(d_intervention_times), sizeof(int) * d_model->n_interventions));
+        CUDA_CHECK_RETURN(cudaMemcpy(
+            d_intervention_times,
+            d_model->intervention_times,
+            sizeof(int) * d_model->n_interventions,
+            cudaMemcpyHostToDevice
+        ));
+        if (Model::n_global_params > 0) {
+            CUDA_CHECK_RETURN(cudaMallocManaged(
+                &(d_intervention_global_deltas),
+                sizeof(double) * d_model->n_interventions * Model::n_global_params
+            ));
+            CUDA_CHECK_RETURN(cudaMemcpy(
+                d_intervention_global_deltas,
+                d_model->intervention_global_deltas,
+                sizeof(double) * d_model->n_interventions * Model::n_global_params,
+                cudaMemcpyHostToDevice
+            ));
+        }
+        if (Model::n_regional_params > 0) {
+            CUDA_CHECK_RETURN(cudaMallocManaged(
+                &(d_intervention_regional_deltas),
+                sizeof(double) * d_model->n_interventions * Model::n_regional_params * d_model->nodes
+            ));
+            CUDA_CHECK_RETURN(cudaMemcpy(
+                d_intervention_regional_deltas,
+                d_model->intervention_regional_deltas,
+                sizeof(double) * d_model->n_interventions * Model::n_regional_params * d_model->nodes,
+                cudaMemcpyHostToDevice
+            ));
+        }
+    }
 
     // The following currently only does analytical FIC for rWW
     // but in theory can be used for any model that requires
@@ -732,6 +814,9 @@ void _run_simulations_gpu(
             (void*)&(d_model->d_SC_indices),
             (void*)&(d_model->d_global_params), 
             (void*)&(d_model->d_regional_params),
+            (void*)&d_intervention_times,
+            (void*)&d_intervention_global_deltas,
+            (void*)&d_intervention_regional_deltas,
             (void*)&conn_state_var_hist, 
             (void*)&(d_model->max_delays),
             (void*)&(d_model->d_v_list),
@@ -751,6 +836,9 @@ void _run_simulations_gpu(
             d_model->global_out_bool,
             d_model->d_SC, d_model->d_SC_dist, d_model->d_SC_indices,
             d_model->d_global_params, d_model->d_regional_params,
+            d_intervention_times,
+            d_intervention_global_deltas,
+            d_intervention_regional_deltas,
             conn_state_var_hist, 
             d_model->max_delays, d_model->d_v_list,
         #ifdef NOISE_SEGMENT
@@ -985,6 +1073,15 @@ void _run_simulations_gpu(
         }
     } 
     CUDA_CHECK_RETURN(cudaFree(conn_state_var_hist));
+    if (d_intervention_times != NULL) {
+        CUDA_CHECK_RETURN(cudaFree(d_intervention_times));
+    }
+    if (d_intervention_global_deltas != NULL) {
+        CUDA_CHECK_RETURN(cudaFree(d_intervention_global_deltas));
+    }
+    if (d_intervention_regional_deltas != NULL) {
+        CUDA_CHECK_RETURN(cudaFree(d_intervention_regional_deltas));
+    }
 }
 
 template <typename Model>
