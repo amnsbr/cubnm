@@ -19,7 +19,7 @@ def no_gpu():
     # to skip GPU-dependent tests
     return avail_gpus()==0
 
-def _get_intervention_test_sg(force_cpu):
+def _get_intervention_test_sg(force_cpu, **kwargs):
     nodes = 8
     sc = np.ones((nodes, nodes), dtype=float)
     np.fill_diagonal(sc, 0.0)
@@ -33,6 +33,7 @@ def _get_intervention_test_sg(force_cpu):
         force_cpu=force_cpu,
         do_fic=False,
         sim_verbose=False,
+        **kwargs
     )
     sg.N = 1
     sg.param_lists['G'] = np.array([0.5])
@@ -212,13 +213,9 @@ def test_intervention_noop_matches_baseline():
     sg_base = _get_intervention_test_sg(force_cpu=True)
     sg_base.run()
 
-    sg_noop = _get_intervention_test_sg(force_cpu=True)
-    sg_noop.intervention_times = np.empty((0,), dtype=np.intc)
-    sg_noop.intervention_global_deltas = np.empty(
-        (0, len(sg_noop.global_param_names)), dtype=float
-    )
-    sg_noop.intervention_regional_deltas = np.empty(
-        (0, len(sg_noop.regional_param_names), sg_noop.nodes), dtype=float
+    sg_noop = _get_intervention_test_sg(
+        force_cpu=True,
+        interventions=[],
     )
     sg_noop.run()
 
@@ -236,14 +233,12 @@ def test_intervention_changes_trajectory():
     sg_base = _get_intervention_test_sg(force_cpu=True)
     sg_base.run()
 
-    sg_interv = _get_intervention_test_sg(force_cpu=True)
-    sg_interv.intervention_times = np.array([1500], dtype=np.intc)
-    sg_interv.intervention_global_deltas = np.array([[0.25]], dtype=float)
-    intervention_regional = np.zeros(
-        (1, len(sg_interv.regional_param_names), sg_interv.nodes),
-        dtype=float
+    sg_interv = _get_intervention_test_sg(
+        force_cpu=True,
+        interventions=[
+            {"time": 1500.0, "deltas": {"G": 0.25, "w_p": np.array([0.02]*4 + [0.0]*4)}}
+        ],
     )
-    sg_interv.intervention_regional_deltas = intervention_regional
     sg_interv.run()
 
     assert (not np.isclose(sg_interv.sim_bold, sg_base.sim_bold, atol=1e-8).all())
@@ -253,20 +248,18 @@ def test_intervention_identical_cpu_gpu():
     """
     Tests CPU/GPU identity for simulations with interventions.
     """
-    intervention_times = np.array([1000, 3000], dtype=np.intc)
-    intervention_global_deltas = np.array([[0.10], [-0.05]], dtype=float)
-    n_regional_params = len(sim.rWWSimGroup.regional_param_names)
-    intervention_regional_deltas = np.zeros((2, n_regional_params, 8), dtype=float)
-    intervention_regional_deltas[0, 0, :4] = 0.02
-    intervention_regional_deltas[1, 3, 4:] = -0.002
+    interventions = [
+        {"time": 1000.0, "deltas": {"G": 0.10, "w_p": np.array([0.02]*4 + [0.0]*4)}},
+        {"time": 3000.0, "deltas": {"G": -0.05, "sigma": np.array([0.0]*4 + [-0.002]*4)}},
+    ]
 
     sim_bolds = {}
     sim_sel_states = {}
     for force_cpu in [True, False]:
-        sg = _get_intervention_test_sg(force_cpu=force_cpu)
-        sg.intervention_times = intervention_times
-        sg.intervention_global_deltas = intervention_global_deltas
-        sg.intervention_regional_deltas = intervention_regional_deltas
+        sg = _get_intervention_test_sg(
+            force_cpu=force_cpu,
+            interventions=interventions,
+        )
         sg.run()
         sim_bolds[force_cpu] = sg.sim_bold.copy()
         sim_sel_states[force_cpu] = sg.sim_states[sg.sel_state_var].copy()

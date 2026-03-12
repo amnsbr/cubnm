@@ -68,7 +68,8 @@ class SimGroup:
         fcd_drop_edges=True,
         noise_segment_length=30,
         sim_verbose=False,
-        progress_interval=500
+        progress_interval=500,
+        interventions=None
     ):
         """
         Group of simulations that are executed in parallel
@@ -171,6 +172,13 @@ class SimGroup:
         progress_interval: :obj:`int`
             msec; interval of progress updates in the simulation
             Only used if ``sim_verbose`` is ``True``
+        interventions: :obj:`list` of :obj:`dict` or None
+            optional high-level intervention input.
+            Each item must include:
+            - ``"time"`` in milliseconds
+            - ``"deltas"`` as dict with parameter names as keys
+              (scalar for global params, array of length ``nodes`` for regional params)
+            Missing parameters are treated as 0 delta.
 
         Attributes
         ---------
@@ -180,14 +188,15 @@ class SimGroup:
             - global parameters with shape (N_SIMS,)
             - regional parameters with shape (N_SIMS, nodes)
             - ``'v'``: conduction velocity. Shape: (N_SIMS,)
-        intervention_times: :obj:`np.ndarray` or None
-            optional intervention BW time-step indices. Shape: (n_interventions,)
-        intervention_global_deltas: :obj:`np.ndarray` or None
-            optional additive deltas for global params.
-            Shape: (n_interventions, n_global_params)
-        intervention_regional_deltas: :obj:`np.ndarray` or None
-            optional additive deltas for regional params.
-            Shape: (n_interventions, n_regional_params, nodes)
+        interventions: :obj:`list` of :obj:`dict` or None
+            optional high-level intervention specification with
+            ``time`` and named ``deltas``.
+            Example::
+
+                [
+                    {"time": 1250.0, "deltas": {"G": 0.1}},
+                    {"time": 3000.0, "deltas": {"w_p": np.ones(nodes) * 0.02}},
+                ]
 
         Additional attributes will be added after running the simulations.
         See :func:`cubnm.sim.base.SimGroup._process_out` for details.
@@ -275,12 +284,11 @@ class SimGroup:
         # initialze w_IE_list as all 0s if do_fic
         self.param_lists = dict([(k, None) for k in self.global_param_names + self.regional_param_names + ['v']])
         # optional discrete spatiotemporal interventions (shared across simulations)
-        # - intervention_times: (n_interventions,), integer BW indices
-        # - intervention_global_deltas: (n_interventions, n_global_params)
-        # - intervention_regional_deltas: (n_interventions, n_regional_params, nodes)
-        self.intervention_times = None
-        self.intervention_global_deltas = None
-        self.intervention_regional_deltas = None
+        self._intervention_times = None
+        self._intervention_global_deltas = None
+        self._intervention_regional_deltas = None
+        self._interventions = None
+        self.interventions = interventions
         # determine output directory
         self.input_out_dir = out_dir
         if self.input_out_dir == "same":
@@ -685,6 +693,127 @@ class SimGroup:
             (not self.force_gpu)
         )
 
+    @property
+    def interventions(self):
+        return self._interventions
+
+    @interventions.setter
+    def interventions(self, interventions):
+        if interventions is None:
+            self._interventions = None
+            self._intervention_times = None
+            self._intervention_global_deltas = None
+            self._intervention_regional_deltas = None
+            return
+        if not isinstance(interventions, (list, tuple)):
+            raise ValueError("interventions must be a list/tuple of dictionaries")
+        self._interventions = list(interventions)
+        # reset cached compiled arrays
+        self._intervention_times = None
+        self._intervention_global_deltas = None
+        self._intervention_regional_deltas = None
+
+    def _compile_interventions(self):
+        """
+        Compile high-level intervention specs to core intervention arrays.
+
+        Returns
+        -------
+        intervention_times: :obj:`np.ndarray`
+            Shape: (n_interventions,), dtype: int32 (bw index)
+        intervention_global_deltas: :obj:`np.ndarray`
+            Shape: (n_interventions, n_global_params), dtype: float64
+        intervention_regional_deltas: :obj:`np.ndarray`
+            Shape: (n_interventions, n_regional_params, nodes), dtype: float64
+        """
+        n_global = len(self.global_param_names)
+        n_regional = len(self.regional_param_names)
+        n_interventions = len(self.interventions)
+        bw_dt_msec = float(self.bw_dt)
+        global_param_to_idx = {
+            name: idx for idx, name in enumerate(self.global_param_names)
+        }
+        regional_param_to_idx = {
+            name: idx for idx, name in enumerate(self.regional_param_names)
+        }
+
+        intervention_times = np.empty((n_interventions,), dtype=np.intc)
+        intervention_global_deltas = np.zeros((n_interventions, n_global), dtype=float)
+        intervention_regional_deltas = np.zeros(
+            (n_interventions, n_regional, self.nodes), dtype=float
+        )
+        # detect duplicate targets at same rounded BW index
+        used_targets = set()
+
+        for i, intervention in enumerate(self.interventions):
+            if not isinstance(intervention, dict):
+                raise ValueError(f"interventions[{i}] must be a dictionary")
+            if ("time" not in intervention) or ("deltas" not in intervention):
+                raise ValueError(
+                    f"interventions[{i}] must include 'time' and 'deltas' keys"
+                )
+            time_msec = intervention["time"]
+            deltas = intervention["deltas"]
+            if not isinstance(deltas, dict):
+                raise ValueError(f"interventions[{i}]['deltas'] must be a dictionary")
+            if bw_dt_msec <= 0:
+                raise ValueError("bw_dt must be positive for intervention time conversion")
+            bw_idx = int(np.rint(float(time_msec) / bw_dt_msec))
+            if (bw_idx < 0) or (bw_idx >= self.bw_it):
+                raise ValueError(
+                    f"interventions[{i}] time {time_msec} ms maps to BW index {bw_idx}, "
+                    f"which is outside [0, {self.bw_it - 1}]"
+                )
+            intervention_times[i] = bw_idx
+            for param_name, delta in deltas.items():
+                if param_name in global_param_to_idx:
+                    if not np.isscalar(delta):
+                        raise ValueError(
+                            f"Global parameter '{param_name}' delta in interventions[{i}] "
+                            "must be a scalar"
+                        )
+                    target_key = ("g", bw_idx, param_name)
+                    if target_key in used_targets:
+                        raise ValueError(
+                            f"Duplicate target at BW index {bw_idx} for global parameter "
+                            f"'{param_name}'"
+                        )
+                    used_targets.add(target_key)
+                    intervention_global_deltas[i, global_param_to_idx[param_name]] = float(delta)
+                elif param_name in regional_param_to_idx:
+                    delta_arr = np.asarray(delta, dtype=float)
+                    if delta_arr.shape != (self.nodes,):
+                        raise ValueError(
+                            f"Regional parameter '{param_name}' delta in interventions[{i}] "
+                            f"must have shape ({self.nodes},)"
+                        )
+                    for node_idx in range(self.nodes):
+                        target_key = ("r", bw_idx, param_name, node_idx)
+                        if target_key in used_targets:
+                            raise ValueError(
+                                f"Duplicate target at BW index {bw_idx} for regional "
+                                f"parameter '{param_name}' and node {node_idx}"
+                            )
+                        used_targets.add(target_key)
+                    intervention_regional_deltas[i, regional_param_to_idx[param_name], :] = delta_arr
+                else:
+                    raise ValueError(
+                        f"Unknown parameter '{param_name}' in interventions[{i}]['deltas']"
+                    )
+
+        # ensure sorted by BW time for deterministic traversal in core
+        if n_interventions > 1:
+            sort_idx = np.argsort(intervention_times, kind="stable")
+            intervention_times = intervention_times[sort_idx]
+            intervention_global_deltas = intervention_global_deltas[sort_idx, :]
+            intervention_regional_deltas = intervention_regional_deltas[sort_idx, :, :]
+
+        return (
+            np.ascontiguousarray(intervention_times),
+            np.ascontiguousarray(intervention_global_deltas),
+            np.ascontiguousarray(intervention_regional_deltas),
+        )
+
     def _prepare_interventions(self):
         """
         Prepare and validate spatiotemporal intervention arrays.
@@ -704,82 +833,22 @@ class SimGroup:
         empty_global = np.empty((0, n_global), dtype=float)
         empty_regional = np.empty((0, n_regional, self.nodes), dtype=float)
 
+        # internally cached/merged low-level arrays are private implementation details
         if (
-            (self.intervention_times is None) and
-            (self.intervention_global_deltas is None) and
-            (self.intervention_regional_deltas is None)
+            (self._intervention_times is not None) and
+            (self._intervention_global_deltas is not None) and
+            (self._intervention_regional_deltas is not None)
         ):
+            return (
+                np.ascontiguousarray(np.asarray(self._intervention_times, dtype=np.intc)),
+                np.ascontiguousarray(np.asarray(self._intervention_global_deltas, dtype=float)),
+                np.ascontiguousarray(np.asarray(self._intervention_regional_deltas, dtype=float)),
+            )
+
+        if self.interventions is None:
             return empty_times, empty_global, empty_regional
 
-        if (
-            (self.intervention_times is None) or
-            (self.intervention_global_deltas is None) or
-            (self.intervention_regional_deltas is None)
-        ):
-            raise ValueError(
-                "intervention_times, intervention_global_deltas and "
-                "intervention_regional_deltas must all be provided together"
-            )
-
-        intervention_times = np.ascontiguousarray(
-            np.asarray(self.intervention_times, dtype=np.intc)
-        )
-        intervention_global_deltas = np.ascontiguousarray(
-            np.asarray(self.intervention_global_deltas, dtype=float)
-        )
-        intervention_regional_deltas = np.ascontiguousarray(
-            np.asarray(self.intervention_regional_deltas, dtype=float)
-        )
-
-        if intervention_times.ndim != 1:
-            raise ValueError(
-                "intervention_times must be a 1D array with shape (n_interventions,)"
-            )
-        if intervention_global_deltas.ndim != 2:
-            raise ValueError(
-                "intervention_global_deltas must be 2D with shape "
-                "(n_interventions, n_global_params)"
-            )
-        if intervention_regional_deltas.ndim != 3:
-            raise ValueError(
-                "intervention_regional_deltas must be 3D with shape "
-                "(n_interventions, n_regional_params, nodes)"
-            )
-
-        n_interventions = intervention_times.shape[0]
-        if intervention_global_deltas.shape[0] != n_interventions:
-            raise ValueError(
-                "intervention_global_deltas first axis must match "
-                "intervention_times length"
-            )
-        if intervention_regional_deltas.shape[0] != n_interventions:
-            raise ValueError(
-                "intervention_regional_deltas first axis must match "
-                "intervention_times length"
-            )
-        if intervention_global_deltas.shape[1] != n_global:
-            raise ValueError(
-                "intervention_global_deltas second axis must match "
-                "number of global parameters"
-            )
-        if intervention_regional_deltas.shape[1] != n_regional:
-            raise ValueError(
-                "intervention_regional_deltas second axis must match "
-                "number of regional parameters"
-            )
-        if intervention_regional_deltas.shape[2] != self.nodes:
-            raise ValueError(
-                "intervention_regional_deltas third axis must match number of nodes"
-            )
-        if n_interventions and (
-            (intervention_times.min() < 0) or (intervention_times.max() >= self.bw_it)
-        ):
-            raise ValueError(
-                f"intervention_times must be in [0, {self.bw_it - 1}] "
-                "in BW time-step indices"
-            )
-
-        return intervention_times, intervention_global_deltas, intervention_regional_deltas
+        return self._compile_interventions()
 
     def run(self, force_reinit=False):
         """
@@ -1510,9 +1579,11 @@ class MultiSimGroupMixin:
                         "All children in MultiSimGroup must use an identical "
                         "shared intervention schedule"
                     )
-        self.intervention_times = intervention_ref[0]
-        self.intervention_global_deltas = intervention_ref[1]
-        self.intervention_regional_deltas = intervention_ref[2]
+        # merged run uses low-level compiled arrays
+        self.interventions = None
+        self._intervention_times = np.ascontiguousarray(intervention_ref[0], dtype=np.intc)
+        self._intervention_global_deltas = np.ascontiguousarray(intervention_ref[1], dtype=float)
+        self._intervention_regional_deltas = np.ascontiguousarray(intervention_ref[2], dtype=float)
         # concatenate parameters
         for param in self.param_lists:
             self.param_lists[param] = np.concatenate(
