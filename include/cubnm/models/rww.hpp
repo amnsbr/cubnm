@@ -10,7 +10,8 @@
 #include "cubnm/models/base.hpp"
 
 extern void analytical_fic_het(
-        gsl_matrix * sc, double G, double * w_EE, double * w_EI,
+        gsl_matrix * sc, double G, double * w_EE, double * w_EI, double * I_b,
+        double * w_E, double * w_I,
         gsl_vector * w_IE_out, bool * _unstable
         );
 
@@ -31,13 +32,7 @@ public:
         double gamma_I; // inhibitory kinetic parameter
         double tau_E; // NMDA time constant (ms)
         double tau_I; // GABA time constant (ms)
-        double I_0; // overall effective external input (nA)
-        double w_E; // scaling of external input for excitatory pool
-        double w_I; // scaling of external input for inhibitory pool
         double w_II; // inhibitory self-coupling
-        double I_ext; // external input (nA)
-        double w_E__I_0; // pre-calculated w_E * I_0
-        double w_I__I_0; // pre-calculated w_I * I_0
         double b_a_ratio_E; // pre-calculated b_E / a_E
         double itau_E; // inverse of tau_E
         double itau_I; // inverse of tau_I
@@ -91,7 +86,7 @@ public:
     static constexpr int n_intermediate_vars = 7;
     static constexpr int n_noise = 2;
     static constexpr int n_global_params = 1;
-    static constexpr int n_regional_params = 4;
+    static constexpr int n_regional_params = 7;
     static constexpr int conn_state_var_idx = 4;
     static constexpr int bold_state_var_idx = 4;
     static constexpr int n_ext_int = 0;

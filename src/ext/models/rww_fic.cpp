@@ -20,10 +20,11 @@ double dphi_E(double IE);
 double phi_I(double II);
 double dphi_I(double II);
 struct inh_curr_params {
-    double _I0_I, _w_EI, _S_E_ss, _w_II, gamma_I_s, tau_I_s;
+    double _I_b_I, _w_EI, _S_E_ss, _w_II, gamma_I_s, tau_I_s;
 };
 void analytical_fic_het(
         gsl_matrix * sc, double G, double * w_EE, double * w_EI,
+        double * I_b, double * w_E, double * w_I,
         gsl_vector * w_IE_out, bool * _unstable);
 
 // helper functions
@@ -130,19 +131,20 @@ double dphi_I(double II) {
 
 double _inh_curr_fixed_pts(double x, void * params) {
     struct inh_curr_params *p = (struct inh_curr_params *) params;
-    return p->_I0_I + p->_w_EI * p->_S_E_ss -
+    return p->_I_b_I + p->_w_EI * p->_S_E_ss -
             p->_w_II * p->gamma_I_s * p->tau_I_s * phi_I(x) - x;
 }
 
 
 void analytical_fic_het(
-        gsl_matrix * sc, double G, double * w_EE, double * w_EI,
+        gsl_matrix * sc, double G, double * w_EE, double * w_EI, double * I_b,
+        double * w_E, double * w_I,
         gsl_vector * w_IE_out, bool * _unstable) {
     int nodes = sc->size1;
 
     gsl_matrix *_K_EE, *_w_EE_matrix;
-    gsl_vector *_w_II, *_w_IE, *_w_EI, *_w_EE, *_I0, *_I_ext,
-                *_I0_E, *_I0_I, *_I_E_ss, *_I_I_ss, *_S_E_ss, *_S_I_ss,
+    gsl_vector *_w_II, *_w_IE, *_w_EI, *_w_EE, *_I_b,
+                *_I_b_E, *_I_b_I, *_I_E_ss, *_I_I_ss, *_S_E_ss, *_S_I_ss,
                 *_r_I_ss, *_K_EE_row;
 
     // specify regional parameters
@@ -150,13 +152,16 @@ void analytical_fic_het(
     repeat(&_w_IE, 0, nodes);
     copy_array_to_vector(&_w_EI, w_EI, nodes);
     copy_array_to_vector(&_w_EE, w_EE, nodes);
-
-    repeat(&_I0, rWWModel::mc.I_0, nodes);
-    repeat(&_I_ext, rWWModel::mc.I_ext, nodes);
+    copy_array_to_vector(&_I_b, I_b, nodes);
 
     // Baseline input currents
-    vector_scale(&_I0_E, _I0, rWWModel::mc.w_E);
-    vector_scale(&_I0_I, _I0, rWWModel::mc.w_I);
+    repeat(&_I_b_E, 0.0, nodes);
+    repeat(&_I_b_I, 0.0, nodes);
+    for (int j = 0; j < nodes; j++) {
+        double I_b_j = gsl_vector_get(_I_b, j);
+        gsl_vector_set(_I_b_E, j, I_b_j * w_E[j]);
+        gsl_vector_set(_I_b_I, j, I_b_j * w_I[j]);
+    }
 
     // Steady state values for isolated node
     repeat(&_I_E_ss, rWWModel::mc.I_E_ss, nodes);
@@ -189,7 +194,7 @@ void analytical_fic_het(
 
     for (int j=0; j<nodes; j++) {
         struct inh_curr_params params = {
-            _I0_I->data[j], _w_EI->data[j],
+            _I_b_I->data[j], _w_EI->data[j],
             _S_E_ss->data[j], _w_II->data[j],
             rWWModel::mc.gamma_I_s, rWWModel::mc.tau_I_s
         };
@@ -211,8 +216,7 @@ void analytical_fic_het(
         gsl_blas_ddot(_K_EE_row, _S_E_ss, &_K_EE_dot_S_E_ss);
         w_IE = (-1 / _S_I_ss->data[j]) *
                     (_I_E_ss->data[j] - 
-                    _I_ext->data[j] - 
-                    _I0_E->data[j] -
+                    _I_b_E->data[j] -
                     _K_EE_dot_S_E_ss);
         if (w_IE < 0) {
             *_unstable = true;
@@ -225,7 +229,7 @@ void analytical_fic_het(
 
     gsl_matrix_free(_K_EE); gsl_matrix_free(_w_EE_matrix);
     gsl_vector_free(_w_II); gsl_vector_free(_w_IE); gsl_vector_free(_w_EI); gsl_vector_free(_w_EE);
-    gsl_vector_free(_I0); gsl_vector_free(_I_ext);
-    gsl_vector_free(_I0_E); gsl_vector_free(_I0_I); gsl_vector_free(_I_E_ss); gsl_vector_free(_I_I_ss);
+    gsl_vector_free(_I_b);
+    gsl_vector_free(_I_b_E); gsl_vector_free(_I_b_I); gsl_vector_free(_I_E_ss); gsl_vector_free(_I_I_ss);
     gsl_vector_free(_S_E_ss); gsl_vector_free(_S_I_ss); gsl_vector_free(_r_I_ss); gsl_vector_free(_K_EE_row);
 }

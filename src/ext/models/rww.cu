@@ -54,10 +54,10 @@ __device__ void rWWModel::step(
         double* noise, long& noise_idx
         ) {
     // Calculate input currents
-    // I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
-    _state_vars[0] = d_rWWc.w_E__I_0 + _regional_params[0] * _regional_params[1] * _state_vars[4] + tmp_globalinput * _global_params[0] * _regional_params[1] - _regional_params[2] * _state_vars[5];
-    // I_I = w_I__I_0 + J_N * S_E - w_II * S_I
-    _state_vars[1] = d_rWWc.w_I__I_0 + _regional_params[1] * _state_vars[4] - d_rWWc.w_II * _state_vars[5];
+    // I_E = w_E * I_b + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
+    _state_vars[0] = _regional_params[5] * _regional_params[4] + _regional_params[0] * _regional_params[1] * _state_vars[4] + tmp_globalinput * _global_params[0] * _regional_params[1] - _regional_params[2] * _state_vars[5];
+    // I_I = w_I * I_b + J_N * S_E - w_II * S_I
+    _state_vars[1] = _regional_params[6] * _regional_params[4] + _regional_params[1] * _state_vars[4] - d_rWWc.w_II * _state_vars[5];
 
     // Input-output functions
     // aIb_E = a_E * I_E - b_E

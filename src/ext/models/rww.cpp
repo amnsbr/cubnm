@@ -26,13 +26,7 @@ void rWWModel::init_constants(double dt) {
     mc.gamma_I = (double)1.0/(double)1000.0; // inhibitory kinetic parameter
     mc.tau_E = 100; // NMDA time constant (ms)
     mc.tau_I = 10; // GABA time constant (ms)
-    mc.I_0 = 0.382; // overall effective external input (nA)
-    mc.w_E = 1.0; // scaling of external input for excitatory pool
-    mc.w_I = 0.7; // scaling of external input for inhibitory pool
     mc.w_II = 1.0; // inhibitory self-coupling
-    mc.I_ext = 0.0; // external input (nA)
-    mc.w_E__I_0 = mc.w_E * mc.I_0; // pre-calculated w_E * I_0
-    mc.w_I__I_0 = mc.w_I * mc.I_0; // pre-calculated w_I * I_0
     mc.b_a_ratio_E = mc.b_E / mc.a_E; // pre-calculated b_E / a_E
     mc.itau_E = 1.0/mc.tau_E; // inverse of tau_E
     mc.itau_I = 1.0/mc.tau_I; // inverse of tau_I
@@ -101,6 +95,9 @@ void rWWModel::prep_params(
     gsl_vector * curr_w_IE = gsl_vector_alloc(this->nodes);
     double *curr_w_EE = (double *)malloc(this->nodes * sizeof(double));
     double *curr_w_EI = (double *)malloc(this->nodes * sizeof(double));
+    double *curr_I_b = (double *)malloc(this->nodes * sizeof(double));
+    double *curr_w_E = (double *)malloc(this->nodes * sizeof(double));
+    double *curr_w_I = (double *)malloc(this->nodes * sizeof(double));
     for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
         // assign regional wEE and wEI
         // i.e., convert TVB-style parameters to
@@ -113,12 +110,17 @@ void rWWModel::prep_params(
             curr_w_EI[j] = (double)(regional_params[1][sim_idx*this->nodes+j]);
             // w_EE = w_p * J_N
             curr_w_EE[j] = (double)(regional_params[0][sim_idx*this->nodes+j]) * curr_w_EI[j];
+            // I_b, w_E and w_I
+            curr_I_b[j] = (double)(regional_params[4][sim_idx*this->nodes+j]);
+            curr_w_E[j] = (double)(regional_params[5][sim_idx*this->nodes+j]);
+            curr_w_I[j] = (double)(regional_params[6][sim_idx*this->nodes+j]);
         }
         // do FIC for the current particle
         global_out_bool[0][sim_idx] = false;
         analytical_fic_het(
             SCs_gsl[SC_indices[sim_idx]], global_params[0][sim_idx], 
-            curr_w_EE, curr_w_EI,
+            curr_w_EE, curr_w_EI, curr_I_b,
+            curr_w_E, curr_w_I,
             curr_w_IE, global_out_bool[0]+sim_idx);
         if (global_out_bool[0][sim_idx]) {
             std::cerr << "In simulation #" << sim_idx << 
@@ -191,10 +193,10 @@ void rWWModel::h_step(
         double* noise, long& noise_idx
         ) {
     // Calculate input currents
-    // I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
-    _state_vars[0] = rWWModel::mc.w_E__I_0 + _regional_params[0] * _regional_params[1] * _state_vars[4] + tmp_globalinput * _global_params[0] * _regional_params[1] - _regional_params[2] * _state_vars[5];
-    // I_I = w_I__I_0 + J_N * S_E - w_II * S_I
-    _state_vars[1] = rWWModel::mc.w_I__I_0 + _regional_params[1] * _state_vars[4] - rWWModel::mc.w_II * _state_vars[5];
+    // I_E = w_E * I_b + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
+    _state_vars[0] = _regional_params[5] * _regional_params[4] + _regional_params[0] * _regional_params[1] * _state_vars[4] + tmp_globalinput * _global_params[0] * _regional_params[1] - _regional_params[2] * _state_vars[5];
+    // I_I = w_I * I_b + J_N * S_E - w_II * S_I
+    _state_vars[1] = _regional_params[6] * _regional_params[4] + _regional_params[1] * _state_vars[4] - rWWModel::mc.w_II * _state_vars[5];
 
     // Input-output functions
     // aIb_E = a_E * I_E - b_E

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class rWWSimGroup(SimGroup):
     model_name = "rWW"
     global_param_names = ['G']
-    regional_param_names = ['w_p', 'J_N', 'wIE', 'sigma']
+    regional_param_names = ['w_p', 'J_N', 'wIE', 'sigma', 'I_b', 'w_E', 'w_I']
     state_names = ['I_E', 'I_I', 'r_E', 'r_I', 'S_E', 'S_I']
     sel_state_var = "r_E"
     n_noise = 2
@@ -24,6 +24,9 @@ class rWWSimGroup(SimGroup):
         "J_N": 0.15,
         "wIE": 1.0,
         "sigma": 0.01,
+        "I_b": 0.382,
+        "w_E": 1.0,
+        "w_I": 0.7,
     }
 
     def __init__(
@@ -66,6 +69,9 @@ class rWWSimGroup(SimGroup):
                 - ``'J_N'``: synaptic coupling strength. Shape: (N_SIMS, nodes)
                 - ``'wIE'``: inhibitory to excitatory weight. Shape: (N_SIMS, nodes)
                 - ``'sigma'``: noise amplitude. Shape: (N_SIMS, nodes)
+                - ``'I_b'``: external input (nA). Shape: (N_SIMS, nodes)
+                - ``'w_E'``: scaling of external input for excitatory pool. Shape: (N_SIMS, nodes)
+                - ``'w_I'``: scaling of external input for inhibitory pool. Shape: (N_SIMS, nodes)
                 - ``'v'``: conduction velocity. Shape: (N_SIMS,)
 
         Equations
@@ -73,8 +79,8 @@ class rWWSimGroup(SimGroup):
         .. math::
 
             \begin{gather}
-            I_i^E=W^EI_b+w_i^{p} J_i^{N} S_i^E+GJ_i^{N}\sum_{j}{C_{ij}S_j^E}-w_i^{IE}S_i^I \\
-            I_i^I=W^II_b+J_i^{N}S_i^E-w^{II}S_i^I \\
+            I_i^E=W^E I^b+w_i^{p} J_i^{N} S_i^E+GJ_i^{N}\sum_{j}{C_{ij}S_j^E}-w_i^{IE}S_i^I \\
+            I_i^I=W^I I^b+J_i^{N}S_i^E-w^{II}S_i^I \\
             r_i^E=H^E(I_i^E)\ =\frac{a^EI_i^E-b^E}{1\ -\ e^{-d^E(a^EI_i^E-b^E)}} \\
             r_i^I=H^I(I_i^I)\ =\frac{a^II_i^I-b^I}{1\ -\ e^{-d^I(a^II_i^I-b^I)}} \\
             \dot{S_i^E}=-\frac{S_i^E}{\tau_E}+(1\ -\ S_i^E)\gamma r_i^E(t)+\sigma_i\epsilon_i^E \\
@@ -139,6 +145,9 @@ class rWWSimGroup(SimGroup):
             'w_p': r'$w^{p}$',
             'J_N': r'$J^{N}$',
             'wIE': r'$w^{IE}$',
+            'I_b': r'$I^{b}$',
+            'w_E': r'$w^{E}$',
+            'w_I': r'$w^{I}$',
             'sigma': r'$\sigma$',
             'I_E': r'$I^E$',
             'I_I': r'$I^I$',

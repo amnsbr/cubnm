@@ -5,8 +5,8 @@ citations:
   - Demirtas et al. 2019 Neuron (10.1016/j.neuron.2019.01.017) # analytical FIC
   - Deco et al. 2018 Current Biology (10.1016/j.cub.2018.07.083) # part of implementation
 latex_equations: |
-  I_i^E=W^EI_b+w_i^{p} J_i^{N} S_i^E+GJ_i^{N}\sum_{j}{C_{ij}S_j^E}-w_i^{IE}S_i^I
-  I_i^I=W^II_b+J_i^{N}S_i^E-w^{II}S_i^I
+  I_i^E=W^E I^b+w_i^{p} J_i^{N} S_i^E+GJ_i^{N}\sum_{j}{C_{ij}S_j^E}-w_i^{IE}S_i^I
+  I_i^I=W^I I^b+J_i^{N}S_i^E-w^{II}S_i^I
   r_i^E=H^E(I_i^E)\ =\frac{a^EI_i^E-b^E}{1\ -\ e^{-d^E(a^EI_i^E-b^E)}}
   r_i^I=H^I(I_i^I)\ =\frac{a^II_i^I-b^I}{1\ -\ e^{-d^I(a^II_i^I-b^I)}}
   \dot{S_i^E}=-\frac{S_i^E}{\tau_E}+(1\ -\ S_i^E)\gamma r_i^E(t)+\sigma_i\epsilon_i^E
@@ -30,8 +30,8 @@ restart_equations: |
 
 step_equations: |
   # Calculate input currents
-  I_E = w_E__I_0 + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
-  I_I = w_I__I_0 + J_N * S_E - w_II * S_I
+  I_E = w_E * I_b + w_p * J_N * S_E + globalinput * G * J_N - wIE * S_I
+  I_I = w_I * I_b + J_N * S_E - w_II * S_I
   
   # Input-output functions
   aIb_E = a_E * I_E - b_E
@@ -132,6 +132,21 @@ variables:
     type: regional_param
     description: noise amplitude
     value: 0.01
+
+  - name: I_b
+    type: regional_param
+    description: external input (nA)
+    value: 0.382
+
+  - name: w_E
+    type: regional_param
+    description: scaling of external input for excitatory pool
+    value: 1.0
+
+  - name: w_I
+    type: regional_param
+    description: scaling of external input for inhibitory pool
+    value: 0.7
     
   - name: noise_S_E
     type: noise
@@ -227,40 +242,10 @@ constants:
     description: GABA time constant (ms)
     
   - type: double
-    name: I_0
-    value: "0.382"
-    description: overall effective external input (nA)
-    
-  - type: double
-    name: w_E
-    value: "1.0"
-    description: scaling of external input for excitatory pool
-    
-  - type: double
-    name: w_I
-    value: "0.7"
-    description: scaling of external input for inhibitory pool
-    
-  - type: double
     name: w_II
     value: "1.0"
     description: inhibitory self-coupling
-    
-  - type: double
-    name: I_ext
-    value: "0.0"
-    description: external input (nA)
-    
-  - type: double
-    name: w_E__I_0
-    value: mc.w_E * mc.I_0
-    description: pre-calculated w_E * I_0
-    
-  - type: double
-    name: w_I__I_0
-    value: mc.w_I * mc.I_0
-    description: pre-calculated w_I * I_0
-    
+            
   - type: double
     name: b_a_ratio_E
     value: mc.b_E / mc.a_E
@@ -389,7 +374,8 @@ has_post_integration: true
 
 external_declarations: |
   extern void analytical_fic_het(
-          gsl_matrix * sc, double G, double * w_EE, double * w_EI,
+          gsl_matrix * sc, double G, double * w_EE, double * w_EI, double * I_b,
+          double * w_E, double * w_I,
           gsl_vector * w_IE_out, bool * _unstable
           );
 
@@ -451,6 +437,9 @@ custom_methods:
         gsl_vector * curr_w_IE = gsl_vector_alloc(this->nodes);
         double *curr_w_EE = (double *)malloc(this->nodes * sizeof(double));
         double *curr_w_EI = (double *)malloc(this->nodes * sizeof(double));
+        double *curr_I_b = (double *)malloc(this->nodes * sizeof(double));
+        double *curr_w_E = (double *)malloc(this->nodes * sizeof(double));
+        double *curr_w_I = (double *)malloc(this->nodes * sizeof(double));
         for (int sim_idx=0; sim_idx<this->N_SIMS; sim_idx++) {
             // assign regional wEE and wEI
             // i.e., convert TVB-style parameters to
@@ -463,12 +452,17 @@ custom_methods:
                 curr_w_EI[j] = (double)(regional_params[1][sim_idx*this->nodes+j]);
                 // w_EE = w_p * J_N
                 curr_w_EE[j] = (double)(regional_params[0][sim_idx*this->nodes+j]) * curr_w_EI[j];
+                // I_b, w_E and w_I
+                curr_I_b[j] = (double)(regional_params[4][sim_idx*this->nodes+j]);
+                curr_w_E[j] = (double)(regional_params[5][sim_idx*this->nodes+j]);
+                curr_w_I[j] = (double)(regional_params[6][sim_idx*this->nodes+j]);
             }
             // do FIC for the current particle
             global_out_bool[0][sim_idx] = false;
             analytical_fic_het(
                 SCs_gsl[SC_indices[sim_idx]], global_params[0][sim_idx], 
-                curr_w_EE, curr_w_EI,
+                curr_w_EE, curr_w_EI, curr_I_b,
+                curr_w_E, curr_w_I,
                 curr_w_IE, global_out_bool[0]+sim_idx);
             if (global_out_bool[0][sim_idx]) {
                 std::cerr << "In simulation #" << sim_idx << 
@@ -679,6 +673,9 @@ python_config:
     w_p: '$w^{p}$'
     J_N: '$J^{N}$'
     wIE: '$w^{IE}$'
+    I_b: '$I^{b}$'
+    w_E: '$w^{E}$'
+    w_I: '$w^{I}$'
     sigma: '$\sigma$'
     I_E: '$I^E$'
     I_I: '$I^I$'
