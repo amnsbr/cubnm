@@ -1324,7 +1324,7 @@ class PymooOptimizer(Optimizer):
         """
         # setup the algorithm with the problem
         self.problem = problem
-        if len(self.problem.n_obj > 1) and (not self.multi_obj):
+        if (self.problem.n_obj > 1) and (not self.multi_obj):
             raise ValueError(
                 "Single objective optimizers cannot be used for problems "
                 f"with multiple objectives (here: {self.problem.n_obj}). "
