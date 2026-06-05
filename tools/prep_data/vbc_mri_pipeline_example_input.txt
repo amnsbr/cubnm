@@ -1,0 +1,87 @@
+# Freesurfer license
+# ------------------
+<REDACTED: Put content of your license>
+
+# Input variables
+# ---------------
+grp=HCP                         # Name of dataset
+tract=10000000                   # Total number of streamlines for whole-brain tractography
+atlname=Schaefer2018_100Parcels_17Networks            # Compact name of the atlas for prefixing results (Schaefer2018_100Parcels_17Networks, HarvardOxford_96Parcels)
+numparc=100                    # Total number of regions in a given atlas
+shells=1000,2000,3000         # shells=0,1000,2000,3000 for HCP dwMRI, i.e., b-values
+non_zero_shells=1000,2000,3000  # shells=1000,2000,3000 for HCP dwMRI
+
+# Paths setting
+# -------------
+sp=/mnt_sp                                                              # Source (raw) data path
+fp=/mnt_fp                                                              # Subject's path for freesurfer
+ap=/mnt_ap                                                              # Atlas path
+ppsc=/mnt_sc                                                            # Output directory for structural connectivity
+ppfc=/mnt_fc                                                            # Output directory for functional connectivity
+parcellation=native                                                     # Parcellation scheme (native: use gcs classifier; mni152: use non-linear registration from MNI152 T1 space)
+gcs_lh=lh.Schaefer2018_100Parcels_17Networks.gcs                        # If the parcellation scheme is 'native', provide a 'gcs' filename for 'gcs_lh'
+gcs_rh=rh.Schaefer2018_100Parcels_17Networks.gcs                        # If the parcellation scheme is 'native', provide a 'gcs' filename for 'gcs_rh'
+labels="{1001..1050} {2001..2050}"                                      # If the parcellation scheme is 'native', provide a list of labels in the atlas.
+atlas=atlas.nii.gz                                                      # If the parcellation scheme is 'mni152', provide a filename of an atlas on the MNI 1mm space (6th generation in FSL)
+mni=/usr/share/fsl/5.0/data/standard/MNI152_T1_1mm.nii.gz               # Standard template for registration
+mni_brain=/usr/share/fsl/5.0/data/standard/MNI152_T1_1mm_brain.nii.gz   # Standard brain template for registration
+
+# Optimal configuration (Default: JURECA setting, 48 threads per node)
+# --------------------------------------------------------------------
+# threads1=6      # For container_SC_preprocess.sh (WARNING: Many runs might cause 'out of memory')
+# threads2=48     # For container_SC_tractography.sh
+# threads3=6      # For container_SC_atlas_transformation.sh
+# threads4=48     # For container_SC_reconstruct.sh
+
+# [PART 1] ============
+# Preprocess parameters
+# =====================
+pe_json=json                # Use a json file for the phase encoding during dwifslpreproc
+pe_dir=ap                   # Direction of the phase encoding (ap = anterior to posterior, lr = left to right, pa, and rl). If a json file is assigned, this option will not be used.
+coreg_flirt_dof=6           # Option of the flirt function
+coreg_flirt_cost=corratio   # Option of the flirt function (mutualinfo or corratio)
+reg_flirt_dof=12            # Option of the flirt function
+reg_flirt_cost=corratio     # Option of the flirt function
+reg_fnirt_interp=trilinear  # Option of the fnirt function (spline or trilinear)
+
+# [PART 2] ==============
+# Tractography parameters
+# =======================
+tracking_algorithm=dhollander        # use `dependent` for automatic checking b-values (shells), tournier (valid for a single non-zero b-value), dhollander (valid for multiple non-zeo b-values), fa, manual, msmt_5tt, tax
+fod_algorithm=msmt_csd             # use `dependent` for automatic checking b-values (shells), csd for tournier, msmt_csd for dhollander or msmt_5tt
+tckgen_algorithm=iFOD2              # FACT, iFOD1, iFOD2 (default), NullDist1, SD_STREAM, SeedTest, Tensor_Det, and Tensor_Prob
+tckgen_step=0.625                     # in millimeter (defaults: for first-order algorithms, 0.1 x voxelsize; if using RK4, 0.25 x voxelsize; for iFOD2: 0.5 x voxelsize)
+tckgen_angle=45                     # in degree (default = 45)
+tckgen_minlength=2.5                # in millimeter
+tckgen_maxlength=250                # in millimeter
+tckgen_cutoff=0.06                  # default = 0.06
+tckgen_trials=1000                  # default = 1000
+tckgen_downsample=3                 # default = 3
+tckgen_max_attempts_per_seed=1000   # default = 1000
+tckgen_samples=4                    # default = 4
+tckgen_power=0.25                   # default = 0.25 (1/tckgen_samples)
+
+# [PART 3] ===========
+# Atlas transformation
+# ====================
+
+# [PART 4] ==
+# Reconstruct
+# ===========
+tck2connectome_assignment_radial_search=2 # default = 2
+
+# [PART 5] ====
+# FC preprocess
+# =============
+TR=0.72
+timing_ordering=timing              # Option for slice timing ('timing': slice timings, in fractions of TR; 'ordering': single-column custom interleave order file, first slice is referred to as 1 not 0)
+
+# [PART 6] ======
+# BOLD extraction
+# ===============
+
+# [PART 7] =====
+# FC postprocess
+# ==============
+highbands=0.01
+lowbands=0.1

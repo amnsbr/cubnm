@@ -101,12 +101,12 @@ std::map<std::string, std::string> dict_to_map(PyObject *config_dict) {
 }
 
 template<typename T>
-void array_3d_to_np(T *** arr, PyObject * np_arr) {
+void array_3d_to_np(T *** arr, PyArrayObject * arr_obj) {
     // converts a 3d array to a 3d numpy array
-    int dim1 = PyArray_DIM(np_arr, 0);
-    int dim2 = PyArray_DIM(np_arr, 1);
-    int dim3 = PyArray_DIM(np_arr, 2);
-    T* data = (T*)PyArray_DATA(np_arr);
+    int dim1 = PyArray_DIM(arr_obj, 0);
+    int dim2 = PyArray_DIM(arr_obj, 1);
+    int dim3 = PyArray_DIM(arr_obj, 2);
+    T* data = (T*)PyArray_DATA(arr_obj);
 
     for (int i = 0; i < dim1; i++) {
         for (int j = 0; j < dim2; j++) {
@@ -118,11 +118,11 @@ void array_3d_to_np(T *** arr, PyObject * np_arr) {
 }
 
 template<typename T>
-void array_2d_to_np(T ** arr, PyObject * np_arr) {
+void array_2d_to_np(T ** arr, PyArrayObject * arr_obj) {
     // converts a 2d array to a 2d numpy array
-    int dim1 = PyArray_DIM(np_arr, 0);
-    int dim2 = PyArray_DIM(np_arr, 1);
-    T* data = (T*)PyArray_DATA(np_arr);
+    int dim1 = PyArray_DIM(arr_obj, 0);
+    int dim2 = PyArray_DIM(arr_obj, 1);
+    T* data = (T*)PyArray_DATA(arr_obj);
 
     for (int i = 0; i < dim1; i++) {
         for (int j = 0; j < dim2; j++) {
@@ -132,12 +132,12 @@ void array_2d_to_np(T ** arr, PyObject * np_arr) {
 }
 
 template<typename T>
-void array_1d_to_np(T * arr, PyObject * np_arr) {
+void array_1d_to_np(T * arr, PyArrayObject * arr_obj) {
     // converts a 1d array to a nd numpy array
     // Note that unlike the other 2d and 3d functions
     // here np_arr can be n-dimensional
-    int size = PyArray_Size(np_arr);
-    T* data = (T*)PyArray_DATA(np_arr);
+    int size = PyArray_Size((PyObject *)arr_obj);
+    T* data = (T*)PyArray_DATA(arr_obj);
 
     for (int i = 0; i < size; i++) {
         data[i] = arr[i];
@@ -322,7 +322,7 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     // Initialize GPU/CPU if it's not already done in current session
     // it does memory allocation and noise precalculation among other things
     start = std::chrono::system_clock::now();
-    if (use_cpu & ((!model->cpu_initialized) | (force_reinit))) {
+    if (use_cpu && ((!model->cpu_initialized) || (force_reinit))) {
         std::cout << "Initializing CPU session..." << std::endl;
         model->init_cpu(force_reinit);
         end = std::chrono::system_clock::now();
@@ -331,7 +331,7 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
             << init_seconds.count() << " s" << std::endl;
     } 
     #ifdef GPU_ENABLED
-    else if (!use_cpu & ((!model->gpu_initialized) | (force_reinit))) {
+    else if (!use_cpu && ((!model->gpu_initialized) || (force_reinit))) {
         std::cout << "Initializing GPU session..." << std::endl;
         model->init_gpu(bwc, force_reinit);
         end = std::chrono::system_clock::now();
@@ -364,11 +364,11 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     npy_intp shuffled_ts_dims[2] = {model->noise_repeats, model->noise_bw_it};
     #endif
 
-    PyObject *py_BOLD_ex_out, *py_fc_trils_out, *py_fcd_trils_out,
+    PyArrayObject *py_BOLD_ex_out, *py_fc_trils_out, *py_fcd_trils_out,
         *py_states_out, *py_global_bools_out, *py_global_ints_out,
         *py_noise_out;
     #ifdef NOISE_SEGMENT
-    PyObject *py_shuffled_nodes_out, *py_shuffled_ts_out;
+    PyArrayObject *py_shuffled_nodes_out, *py_shuffled_ts_out;
     #endif
 
     // Allocate memory for the output arrays
@@ -378,26 +378,26 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     // TODO: make the data transfer between GPU-C arrays-Python
     // consistent across variables and minimize the number of copies
     double *BOLD_ex_out, *fc_trils_out, *fcd_trils_out;
-    py_BOLD_ex_out = PyArray_SimpleNew(2, bold_dims, PyArray_DOUBLE);
+    py_BOLD_ex_out = (PyArrayObject *)PyArray_SimpleNew(2, bold_dims, NPY_DOUBLE);
     BOLD_ex_out = (double*)PyArray_DATA(py_BOLD_ex_out);
     if (model->base_conf.do_fc) {
-        py_fc_trils_out = PyArray_SimpleNew(2, fc_trils_dims, PyArray_DOUBLE);
+        py_fc_trils_out = (PyArrayObject *)PyArray_SimpleNew(2, fc_trils_dims, NPY_DOUBLE);
         fc_trils_out = (double*)PyArray_DATA(py_fc_trils_out);
         if (model->base_conf.do_fcd) {
-            py_fcd_trils_out = PyArray_SimpleNew(2, fcd_trils_dims, PyArray_DOUBLE);
+            py_fcd_trils_out = (PyArrayObject *)PyArray_SimpleNew(2, fcd_trils_dims, NPY_DOUBLE);
             fcd_trils_out = (double*)PyArray_DATA(py_fcd_trils_out);
         }
     }
     if (ext_out) {
-        py_states_out = PyArray_SimpleNew(3, states_dims, PyArray_DOUBLE);
-        py_global_bools_out = PyArray_SimpleNew(2, global_bools_dims, PyArray_BOOL);
-        py_global_ints_out = PyArray_SimpleNew(2, global_ints_dims, PyArray_INT);
+        py_states_out = (PyArrayObject *)PyArray_SimpleNew(3, states_dims, NPY_DOUBLE);
+        py_global_bools_out = (PyArrayObject *)PyArray_SimpleNew(2, global_bools_dims, NPY_BOOL);
+        py_global_ints_out = (PyArrayObject *)PyArray_SimpleNew(2, global_ints_dims, NPY_INT);
     }
     if (noise_out) {
-        py_noise_out = PyArray_SimpleNew(1, noise_dims, PyArray_DOUBLE);
+        py_noise_out = (PyArrayObject *)PyArray_SimpleNew(1, noise_dims, NPY_DOUBLE);
         #ifdef NOISE_SEGMENT
-        py_shuffled_nodes_out = PyArray_SimpleNew(2, shuffled_nodes_dims, PyArray_INT);
-        py_shuffled_ts_out = PyArray_SimpleNew(2, shuffled_ts_dims, PyArray_INT);
+        py_shuffled_nodes_out = (PyArrayObject *)PyArray_SimpleNew(2, shuffled_nodes_dims, NPY_INT);
+        py_shuffled_ts_out = (PyArrayObject *)PyArray_SimpleNew(2, shuffled_ts_dims, NPY_INT);
         #endif
     }
 
@@ -477,32 +477,32 @@ static PyObject* _run_simulations(PyObject* self, PyObject* args) {
     PyObject* out_dict = PyDict_New();
     PyDict_SetItemString(out_dict, "init_time", py_init_seconds);
     PyDict_SetItemString(out_dict, "run_time", py_run_seconds);
-    PyDict_SetItemString(out_dict, "sim_bold", py_BOLD_ex_out);
-    Py_DECREF(py_BOLD_ex_out);
+    PyDict_SetItemString(out_dict, "sim_bold", (PyObject *)py_BOLD_ex_out);
+    Py_DECREF((PyObject *)py_BOLD_ex_out);
     if (model->base_conf.do_fc) {
-        PyDict_SetItemString(out_dict, "sim_fc_trils", py_fc_trils_out);
-        Py_DECREF(py_fc_trils_out);
+        PyDict_SetItemString(out_dict, "sim_fc_trils", (PyObject *)py_fc_trils_out);
+        Py_DECREF((PyObject *)py_fc_trils_out);
         if (model->base_conf.do_fcd) {
-            PyDict_SetItemString(out_dict, "sim_fcd_trils", py_fcd_trils_out);
-            Py_DECREF(py_fcd_trils_out);
+            PyDict_SetItemString(out_dict, "sim_fcd_trils", (PyObject *)py_fcd_trils_out);
+            Py_DECREF((PyObject *)py_fcd_trils_out);
         }
     }
     if (ext_out) {
-        PyDict_SetItemString(out_dict, "_sim_states", py_states_out);
-        Py_DECREF(py_states_out);
-        PyDict_SetItemString(out_dict, "_global_bools", py_global_bools_out);
-        Py_DECREF(py_global_bools_out);
-        PyDict_SetItemString(out_dict, "_global_ints", py_global_ints_out);
-        Py_DECREF(py_global_ints_out);
+        PyDict_SetItemString(out_dict, "_sim_states", (PyObject *)py_states_out);
+        Py_DECREF((PyObject *)py_states_out);
+        PyDict_SetItemString(out_dict, "_global_bools", (PyObject *)py_global_bools_out);
+        Py_DECREF((PyObject *)py_global_bools_out);
+        PyDict_SetItemString(out_dict, "_global_ints", (PyObject *)py_global_ints_out);
+        Py_DECREF((PyObject *)py_global_ints_out);
     }
     if (noise_out) {
-        PyDict_SetItemString(out_dict, "_noise", py_noise_out);
-        Py_DECREF(py_noise_out);
+        PyDict_SetItemString(out_dict, "_noise", (PyObject *)py_noise_out);
+        Py_DECREF((PyObject *)py_noise_out);
         #ifdef NOISE_SEGMENT
-        PyDict_SetItemString(out_dict, "_shuffled_nodes", py_shuffled_nodes_out);
-        Py_DECREF(py_shuffled_nodes_out);
-        PyDict_SetItemString(out_dict, "_shuffled_ts", py_shuffled_ts_out);
-        Py_DECREF(py_shuffled_ts_out);
+        PyDict_SetItemString(out_dict, "_shuffled_nodes", (PyObject *)py_shuffled_nodes_out);
+        Py_DECREF((PyObject *)py_shuffled_nodes_out);
+        PyDict_SetItemString(out_dict, "_shuffled_ts", (PyObject *)py_shuffled_ts_out);
+        Py_DECREF((PyObject *)py_shuffled_ts_out);
         #endif
     }
     return out_dict;

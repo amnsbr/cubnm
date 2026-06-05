@@ -1119,8 +1119,8 @@ class SimGroup:
                 np.tril_indices(half_nodes,-1)
             ] = fc_tril[fc_tril.shape[0] // 2:]
             # set the rest to NaNs
-            sim_fc[:half_nodes, half_nodes:] = np.NaN
-            sim_fc[half_nodes:, :half_nodes] = np.NaN
+            sim_fc[:half_nodes, half_nodes:] = np.nan
+            sim_fc[half_nodes:, :half_nodes] = np.nan
         else:
             # fill the lower triangle of the square matrix
             sim_fc[np.tril_indices(self.nodes,-1)] = fc_tril

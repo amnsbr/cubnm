@@ -22,6 +22,9 @@
 .. image:: https://img.shields.io/github/license/amnsbr/cubnm
   :target: ./LICENSE
 
+.. image:: https://img.shields.io/badge/JuRSE_Code_Pick-June_2026-blue
+  :target: https://www.fz-juelich.de/en/rse/community-initiatives/jurse-code-of-the-month/june-2026
+
 .. badges-end
 
 cuBNM toolbox is designed for efficient brain network modeling on GPUs. 
@@ -197,3 +200,13 @@ In addition, please cite the original papers for the BNMs and optimization algor
 
 .. citation-end
 
+AI Usage Disclosure
+--------------------
+
+The majority of the code and documentation in this repository is human-authored. Up to and including 
+v0.1.0, AI use was limited to conversational assistance (coding questions, research, and
+language editing of documentation). After v0.1.0, the scope of AI involvement has broadened. 
+New code is often *AI-assisted* (human-authored with AI editing and refinement) 
+and occasionally *AI-generated* (produced primarily by AI from human prompts and subsequently reviewed by a human),
+primarily via Cursor and Claude Code.  Tests are always hand-written. 
+Human oversight and responsibility for all code remains with the authors.

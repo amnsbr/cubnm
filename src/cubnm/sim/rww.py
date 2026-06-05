@@ -227,7 +227,7 @@ class rWWSimGroup(SimGroup):
                     # at least one node has a deviation greater than 1
                     # only consider deviations greater than 1
                     # in the penalty
-                    diff_r_E[diff_r_E <= 1] = np.NaN
+                    diff_r_E[diff_r_E <= 1] = np.nan
                     # within each node the FIC penalty decreases
                     # exponentially as the deviations gets smaller
                     # the penalty max value in each node is 1
@@ -294,9 +294,7 @@ class rWWSimGroup(SimGroup):
             Currently only ``'F'`` (cost) is used.
         *args, **kwargs
         """
-        # Note: scores (inidividual GOF measures) is passed on in kwargs 
-        # in the internal mechanism of pymoo evaluation function
-        scores = kwargs["scores"][-1]
+        scores = problem.last_scores
         if self.do_fic & (self.fic_penalty_scale > 0):
             if problem.multiobj:
                 out["F"] = np.concatenate(

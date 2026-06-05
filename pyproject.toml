@@ -2,7 +2,7 @@
 build-backend = "setuptools.build_meta"
 requires = [
     "setuptools",
-    "numpy<2,>=1.20",
+    "numpy>=1.20",
     "versioneer[toml]"
 ]
 
@@ -10,13 +10,15 @@ requires = [
 name = "cubnm"
 license = {file = "LICENSE"}
 dependencies = [
-    "numpy<2,>=1.20",
+    "numpy>=1.20",
     "scipy",
     "pandas",
-    "pymoo==0.6",
+    "pymoo>=0.6.1",
+    "cma>=3.4",
     "tabulate",
     "matplotlib",
-    "seaborn"
+    "seaborn",
+    "tqdm"
 ]
 requires-python = ">=3.7"
 description = "A toolbox for brain network modeling on GPUs "

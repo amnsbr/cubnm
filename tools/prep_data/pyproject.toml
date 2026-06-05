@@ -1,0 +1,14 @@
+[project]
+name = "prep-data"
+version = "0.1.0"
+requires-python = ">=3.7"
+dependencies = [
+    "cubnm>=0.1.0",
+    "datalad>=1.1.0",
+    "dotenv>=0.9.9",
+    "hcp-utils>=0.1.0",
+    "neuromaps>=0.0.4",
+    "nibabel<4",
+    "numpy>=1.21.6",
+    "pandas>=1.1.5",
+]

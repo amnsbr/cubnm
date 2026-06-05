@@ -347,6 +347,7 @@ class BNMProblem(Problem):
         # model-specific initialization of problem
         # (e.g. including FIC penalty in rWW cost function)
         self.sim_group._problem_init(self)
+        self.skip_run = False
         # initialize pymoo Problem
         super().__init__(
             n_var=self.ndim,
@@ -568,19 +569,12 @@ class BNMProblem(Problem):
             the output dictionary to store the results with keys ``'F'`` and ``'G'``.
             Currently only ``'F'`` (cost) is used.
         *args, **kwargs
-            additional arguments passed to the evaluation function,
-            which may include:
-
-            - scores: :obj:`list`
-                an empty list passed on to evaluation function to store
-                the individual goodness of fit measures
-            - skip_run: :obj:`bool`
-                will only be true in batch optimization where the simulations
-                are already run and only the GOF calculation is needed
+            additional arguments passed to the evaluation function.
         """
-        skip_run = kwargs.pop("skip_run", False)
+        skip_run = self.skip_run
+        self.skip_run = False
         scores = self.eval(X, skip_run=skip_run)
-        kwargs["scores"].append(scores)
+        self.last_scores = scores
         if self.multiobj:
             out["F"] = -scores.loc[:, self.sim_group.gof_terms].values
         else:
@@ -1223,9 +1217,8 @@ class GridOptimizer(Optimizer):
         X = np.array(list(itertools.product(*param_ranges.values())))
         self.popsize = X.shape[0]
         out = {} # will include 'F' (cost)
-        scores = [] # will include individual GOF measures
-        self.problem._evaluate(X, out, scores=scores)
-        scores = scores[0]
+        self.problem._evaluate(X, out)
+        scores = self.problem.last_scores.copy()
         scores['cost'] = out['F']
         Xt = pd.DataFrame(self.problem._get_Xt(X), columns=self.problem.free_params)
         self.history = pd.concat([Xt, scores], axis=1)
@@ -1324,7 +1317,7 @@ class PymooOptimizer(Optimizer):
         """
         # setup the algorithm with the problem
         self.problem = problem
-        if (self.problem.n_obj > 1) and (not self.multi_obj):
+        if (self.problem.n_obj > 1) and (not self.multiobj):
             raise ValueError(
                 "Single objective optimizers cannot be used for problems "
                 f"with multiple objectives (here: {self.problem.n_obj}). "
@@ -1352,8 +1345,7 @@ class PymooOptimizer(Optimizer):
             # ask the algorithm for the next solution to be evaluated
             pop = self.algorithm.ask()
             # evaluate the individuals using the algorithm's evaluator (necessary to count evaluations for termination)
-            scores = []  # pass on an empty scores list to the evaluator to store the individual GOF measures
-            self.algorithm.evaluator.eval(self.problem, pop, scores=scores)
+            self.algorithm.evaluator.eval(self.problem, pop)
             if not self.save_history_sim:
                 # clear current simulation data
                 # it has to be here before .tell
@@ -1369,7 +1361,8 @@ class PymooOptimizer(Optimizer):
             if self.problem.multiobj:
                 res = pd.concat([Xt, F], axis=1)
             else:
-                res = pd.concat([Xt, F, scores[0]], axis=1)
+                scores = self.problem.last_scores.copy()
+                res = pd.concat([Xt, F, scores], axis=1)
             res["gen"] = self.algorithm.n_gen - 1
             if self.print_history:
                 print(res.to_string())
@@ -1386,7 +1379,7 @@ class PymooOptimizer(Optimizer):
 
 
 class CMAESOptimizer(PymooOptimizer):
-    multi_obj = False
+    multiobj = False
     def __init__(
         self,
         popsize,
@@ -1486,7 +1479,7 @@ class CMAESOptimizer(PymooOptimizer):
             self.algorithm.options["BoundaryHandler"] = cma.BoundTransform
 
 class NSGA2Optimizer(PymooOptimizer):
-    multi_obj = True
+    multiobj = True
     def __init__(self, popsize, algorithm_kws={}, **kwargs):
         """
         Non-dominated Sorting Genetic Algorithm II (NSGA-II) optimizer
@@ -1667,9 +1660,11 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
             # recall optimizer's latest random state
             np.random.set_state(optimizer.np_rand_state)
             random.setstate(optimizer.py_rand_state)
-            scores = []  # pass on an empty scores list to the evaluator to store the individual GOF measures
             # evalulate pop without running the simulation (as it is already run)
-            optimizer.algorithm.evaluator.eval(optimizer.problem, pops[i], scores=scores, skip_run=True)
+            # arguments cannot be passed to Problem._evaluate directly through .eval
+            # so we're using the skip_run attribute as a workaround
+            optimizer.problem.skip_run = True 
+            optimizer.algorithm.evaluator.eval(optimizer.problem, pops[i])
             if not optimizer.save_history_sim:
                 # clear current simulation data
                 optimizer.problem.sim_group.clear()
@@ -1684,7 +1679,8 @@ def batch_optimize(optimizers, problems, save=True, setup_kwargs={}):
             if optimizer.problem.multiobj:
                 res = pd.concat([Xt, F], axis=1)
             else:
-                res = pd.concat([Xt, F, scores[0]], axis=1)
+                scores = optimizer.problem.last_scores.copy()
+                res = pd.concat([Xt, F, scores], axis=1)
             res["gen"] = optimizer.algorithm.n_gen - 1
             if optimizer.print_history:
                 print(res.to_string())

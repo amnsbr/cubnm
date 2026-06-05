@@ -5,6 +5,7 @@ different versions.
 import os
 import sys
 import pandas as pd
+import numpy as np
 from cubnm import optimize, datasets
 
 test_data_dir = os.path.join(os.path.dirname(__file__), '..', 'expected', 'optimize')
@@ -50,7 +51,7 @@ def gen_expected(optimizer_name):
     else:
         p_args = problem_args.copy()
         # initialize problem
-        if Optimizer.max_obj>1:
+        if Optimizer.multiobj:
             p_args['multiobj'] = True
     problem = optimize.BNMProblem(**p_args)
     if optimizer_name == 'Grid':
@@ -64,8 +65,8 @@ def gen_expected(optimizer_name):
         optimizer.optimize()
     # warn if history has changed
     if os.path.exists(os.path.join(test_data_dir, f'{optimizer_name}.csv')):
-        prev_hist = pd.read_csv(os.path.join(test_data_dir, f'{optimizer_name}.csv'))
-        if not prev_hist.equals(optimizer.history):
+        prev_hist = pd.read_csv(os.path.join(test_data_dir, f'{optimizer_name}.csv'), index_col=0)
+        if not np.isclose(prev_hist.values, optimizer.history.values, atol=1e-6).all():
             print(f"Warning: {optimizer_name} history has changed from the previous version")
     # save history
     optimizer.history.to_csv(os.path.join(test_data_dir, f'{optimizer_name}.csv'))

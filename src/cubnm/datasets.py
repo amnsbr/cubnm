@@ -6,6 +6,7 @@ import os
 import logging
 import numpy as np
 import pandas as pd
+import scipy.stats
 
 if sys.version_info >= (3, 9):
     from importlib.resources import files
@@ -60,10 +61,10 @@ def load_sc(
     path = (
         files("cubnm.data").joinpath('hcp')
         .joinpath('sc').joinpath(sub)
-        .joinpath(f'ctx_parc-{parc}_desc-{measure}.npz')
+        .joinpath(f'ctx_parc-{parc}_desc-{measure}.csv')
     ).as_posix()
     try:
-        mat = np.load(path)['arr_0']
+        mat = pd.read_csv(path, index_col=0).values
     except FileNotFoundError as e:
         raise ValueError(
             f"Structural connectivity {measure} matrix in {parc} "
@@ -290,6 +291,10 @@ def load_fcd(
         )
         return fcd
 
+SUPPORTED_MAPS = ('myelinmap', 'fcgradient01', 'yeo7')
+SUPPORTED_MAP_PARCS = ('aparc', 'schaefer-100', 'schaefer-200', 'schaefer-400')
+
+
 def load_maps(names, parc="schaefer-100", norm="minmax"):
     """
     Loads example heterogeneity maps
@@ -300,15 +305,12 @@ def load_maps(names, parc="schaefer-100", norm="minmax"):
         One or more maps selected from this list:
 
         - ``'myelinmap'``
-        - ``'thickness'``
         - ``'fcgradient01'``
-        - ``'genepc1'``
-        - ``'nmda'``
-        - ``'gabaa'``
         - ``'yeo7'``
 
     parc: :obj:`str`
-        Parcellation. Currently only ``'schaefer-100'`` is supported.
+        Parcellation (``'aparc'``, ``'schaefer-100'``, ``'schaefer-200'``,
+        or ``'schaefer-400'``).
     norm: {'zscore', 'minmax', None}
         Map normalization method applied across nodes.
 
@@ -318,33 +320,35 @@ def load_maps(names, parc="schaefer-100", norm="minmax"):
 
     Returns
     --------
-    :obj:`np.ndarray` or :obj:`str`
-        Maps arrays or path to their
-        text file. Shape: (maps, nodes)
+    :obj:`np.ndarray`
+        Maps array. Shape: (maps, nodes)
 
     Notes
     -----
-    For more information and code on how these maps were
-    obtained and parcellated see ``utils.datasets.load_maps``
-    in https://github.com/amnsbr/eidev. The set of maps included
-    here are limited and provided just as examples. We recommend 
-    users to use ``neuromaps`` and similar tools to obtain and 
-    parcellate further maps.
+    Maps are prepared with ``tools/prep_data/prep_maps.py``.
     """
-    # TODO: Add other parcellations
+    if parc not in SUPPORTED_MAP_PARCS:
+        raise ValueError(f'{parc} not in {SUPPORTED_MAP_PARCS}')
     if isinstance(names, str):
         names = [names]
+    unknown = [n for n in names if n not in SUPPORTED_MAPS]
+    if unknown:
+        raise ValueError(f'unknown maps {unknown}; supported: {SUPPORTED_MAPS}')
+    if 'yeo7' in names and not parc.startswith('schaefer-'):
+        raise ValueError('yeo7 is only supported for Schaefer parcellations')
     maps = []
     for name in names:
-        if name not in ['yeo7']:
-            filename = f"ctx_parc-{parc}_desc-{name}_zscore.txt"
+        if name == 'yeo7':
+            curr_norm = None
         else:
-            norm = None
-            filename = f"ctx_parc-{parc}_desc-{name}.txt"
+            curr_norm = norm
+        filename = f"ctx_parc-{parc}_desc-{name}.txt"
         path = files("cubnm.data").joinpath('maps').joinpath(filename).as_posix()
         curr_map = np.loadtxt(path)
-        if norm=='minmax':
+        if curr_norm == 'minmax':
             curr_map = (curr_map - np.min(curr_map)) / (np.max(curr_map) - np.min(curr_map))
+        elif curr_norm == 'zscore':
+            curr_map = scipy.stats.zscore(curr_map)
         maps.append(curr_map.reshape(1, -1))
     maps = np.vstack(maps)
     return maps

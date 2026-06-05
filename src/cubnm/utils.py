@@ -192,8 +192,8 @@ def calculate_fc(
     if exc_interhemispheric:
         # set interhemispheric connections to NaN
         rh_idx = bold.shape[0] // 2
-        fc[:rh_idx, rh_idx:] = np.NaN
-        fc[rh_idx:, :rh_idx] = np.NaN
+        fc[:rh_idx, rh_idx:] = np.nan
+        fc[rh_idx:, :rh_idx] = np.nan
     if return_tril:
         fc = fc[np.tril_indices(fc.shape[0], -1)]
         # drop NaNs (interhemispheric connections)
@@ -282,8 +282,8 @@ def calculate_fcd(
         if exc_interhemispheric:
             # set interhemispheric connections to NaN
             rh_idx = nodes // 2
-            window_fc[:rh_idx, rh_idx:] = np.NaN
-            window_fc[rh_idx:, :rh_idx] = np.NaN
+            window_fc[:rh_idx, rh_idx:] = np.nan
+            window_fc[rh_idx:, :rh_idx] = np.nan
         window_fcs.append(window_fc[:, :, np.newaxis])
         # calculate lower triangular part of the window FC
         # and drop NaNs (interhemispheric connections)

@@ -98,7 +98,7 @@ def test_opt(optimizer_name):
         p_args = grid_problem_args.copy()
     else:
         p_args = problem_args.copy()
-        if Optimizer.max_obj>1:
+        if Optimizer.multiobj:
             p_args['multiobj'] = True
     # initialize problem
     p_args['out_dir'] = tempfile.mkdtemp() # to test saving in a temporary directory
@@ -133,7 +133,7 @@ def test_batch(optimizer_name):
     # get optimizer class
     Optimizer = getattr(optimize, f'{optimizer_name}Optimizer')
     # initialize problem
-    if Optimizer.max_obj>1:
+    if Optimizer.multiobj:
         p_args['multiobj'] = True
     p_args['out_dir'] = tempfile.mkdtemp() # to test saving in a temporary directory
     problem = optimize.BNMProblem(**p_args)
@@ -172,7 +172,7 @@ def test_batch_variable_sc(optimizer_name):
     # get optimizer class
     Optimizer = getattr(optimize, f'{optimizer_name}Optimizer')
     # initialize problem
-    if Optimizer.max_obj>1:
+    if Optimizer.multiobj:
         p_args['multiobj'] = True
     p_args['out_dir'] = tempfile.mkdtemp() # to test saving in a temporary directory
     p1 = optimize.BNMProblem(**p_args)

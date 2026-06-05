@@ -168,3 +168,4 @@ docs/tutorials/*/
 docs/tutorials/micapipe_MICs_v1.1.zip
 docs/tutorials/*.pkl.gz
 examples/*/
+logs/*
