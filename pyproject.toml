@@ -56,7 +56,9 @@ include-package-data = true
 before-all = "bash {project}/tools/cibw_before_all.sh {project}"
 # add miniforge to path to enable `conda` (used as fallback in cibw_before_all.sh)
 # (at the end to avoid overriding cibw's Python)
-environment = { PATH="$PATH:/opt/miniforge/bin" }
+# pip prefer binary for the build dependencies (including numpy
+# which has significant build time if built from source)
+environment = { PATH="$PATH:/opt/miniforge/bin", PIP_PREFER_BINARY="1" }
 manylinux-x86_64-image = "sameli/manylinux2014_x86_64_cuda_11.8"
 build-verbosity = 3
 skip = ["pp*", "*-manylinux_i686", "*musllinux*"]
