@@ -86,12 +86,6 @@ jobs:
           twine check dist/*
 
   # ── 4. Publish to PyPI ───────────────────────────────────────────────────────
-  # Uses OIDC Trusted Publishing — no token needed.
-  # One-time setup: add this repo as a trusted publisher on PyPI under
-  #   Account settings → Publishing → Add a new pending publisher
-  #     Publisher: GitHub Actions
-  #     Repo owner: amnsbr   Repo name: cubnm
-  #     Workflow filename: release.yml   Environment name: pypi
   publish_pypi:
     name: Publish to PyPI
     needs: check_dist
@@ -159,7 +153,13 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_NAME" =~ rc|alpha|beta ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -170,4 +170,4 @@ jobs:
           build-args: VER=${{ steps.version.outputs.version }}
           tags: |
             amnsbr/cubnm:v${{ steps.version.outputs.version }}
-            amnsbr/cubnm:latest
+            ${{ steps.version.outputs.is_prerelease == 'false' && 'amnsbr/cubnm:latest' || '' }}
